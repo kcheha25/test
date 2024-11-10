@@ -1,9 +1,7 @@
-Détermine les dimensions des ancres générées pour la détection d’objets.
-Ces dimensions influencent directement la taille des boîtes englobantes que le modèle utilise pour identifier les objets dans une image.
-Notre objectif est de détecter des objets plus petits, nécessitant ainsi la génération d’ancres plus petites.
+e modèle Detectron2 a montré des performances supérieures à celles du modèle U-Net pour la détection d'objets.
 
+Les labels du ground truth actuels ne reflètent pas précisément la réalité, ce qui impacte l’évaluation de la performance du modèle.
 
-Anchor_generator_sizes
+À l'avenir, il serait utile de tester le modèle sur une dizaine d'images supplémentaires et de valider les résultats avec des experts.
 
-
-Le paramètre en question détermine les dimensions des ancres pour la détection d'objets, des milliers d’ancres sont généré, représentant l'emplacement, la forme et la taille idéale de l'objet à détecter. Notre objectif étant de détecter des objets plus petits, nous avons modifié ce paramètre, initialement défini à [[32, 64, 128, 256, 512]], pour qu'il soit [[8], [16], [32], [64], [128]]. Avec la configuration par défaut, les objets qui apparaissent dans l'image peuvent ne pas avoir une intersection de plus de 50% avec l'une des boîtes d'ancrage, empêchant ainsi le réseau de neurones de les détecter et de les apprendre.
+Une annotation manuelle de la base de données pourrait améliorer la qualité des labels, mais cela reste difficile, surtout pour les atomes isolés.
