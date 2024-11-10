@@ -1,7 +1,8 @@
-e modèle Detectron2 a montré des performances supérieures à celles du modèle U-Net pour la détection d'objets.
+Objectif :
 
-Les labels du ground truth actuels ne reflètent pas précisément la réalité, ce qui impacte l’évaluation de la performance du modèle.
+Développer un modèle performant capable de détecter les éléments de platine dans les images microscopiques.
+Méthodologie :
 
-À l'avenir, il serait utile de tester le modèle sur une dizaine d'images supplémentaires et de valider les résultats avec des experts.
+Tester différents modèles de segmentation sémantique basés sur l’architecture U-Net pour une première approche de détection des éléments.
 
-Une annotation manuelle de la base de données pourrait améliorer la qualité des labels, mais cela reste difficile, surtout pour les atomes isolés.
+Adopter la segmentation d’instance en utilisant le modèle Detectron2 afin de mieux distinguer les éléments individuels.
