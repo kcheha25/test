@@ -1,47 +1,9 @@
-from tensorflow.keras.metrics import MeanIoU, Precision, Recall
-
-model.compile(optimizer=Adam(lr=1e-4), 
-              loss='binary_crossentropy', 
-              metrics=['accuracy', MeanIoU(num_classes=2), Precision(), Recall()])
-
-from skimage import io
-from skimage.transform import resize
-import os
-import numpy as np
-
-def testGenerator(test_path, mask_path, num_image=30, target_size=(256, 256), flag_multi_class=False, as_gray=True):
-    # Récupérer les noms des fichiers dans le dossier des images
-    image_filenames = sorted(os.listdir(test_path))  # Liste triée des images
-    mask_filenames = sorted(os.listdir(mask_path))  # Liste triée des masques
-
-    for i in range(num_image):
-        # Vérifier que l'image et le masque existent
-        image_file = image_filenames[i]
-        mask_file = mask_filenames[i]  # Assure-toi que les fichiers ont le même index
-
-        # Charger l'image
-        img = io.imread(os.path.join(test_path, image_file), as_gray=as_gray)
-        img = img / 255
-        img = resize(img, target_size)
-        img = np.reshape(img, img.shape + (1,)) if (not flag_multi_class) else img
-        img = np.reshape(img, (1,) + img.shape)
-
-        # Charger le masque correspondant
-        mask = io.imread(os.path.join(mask_path, mask_file), as_gray=True)
-        mask = mask / 255
-        mask = resize(mask, target_size)
-        mask = np.reshape(mask, mask.shape + (1,)) if (not flag_multi_class) else mask
-        mask = np.reshape(mask, (1,) + mask.shape)
-        
-        yield img, mask
+Détermine les dimensions des ancres générées pour la détection d’objets.
+Ces dimensions influencent directement la taille des boîtes englobantes que le modèle utilise pour identifier les objets dans une image.
+Notre objectif est de détecter des objets plus petits, nécessitant ainsi la génération d’ancres plus petites.
 
 
+Anchor_generator_sizes
 
-test_gen = testGenerator(test_path="path_to_images", mask_path="path_to_masks", num_image=30)
 
-# Évaluation du modèle
-results = model.evaluate(test_gen, steps=30, verbose=1)
-
-# Affichage des résultats
-print(f"Loss: {results[0]}")
-print(f"Accuracy: {results[1]}")
+Le paramètre en question détermine les dimensions des ancres pour la détection d'objets, des milliers d’ancres sont généré, représentant l'emplacement, la forme et la taille idéale de l'objet à détecter. Notre objectif étant de détecter des objets plus petits, nous avons modifié ce paramètre, initialement défini à [[32, 64, 128, 256, 512]], pour qu'il soit [[8], [16], [32], [64], [128]]. Avec la configuration par défaut, les objets qui apparaissent dans l'image peuvent ne pas avoir une intersection de plus de 50% avec l'une des boîtes d'ancrage, empêchant ainsi le réseau de neurones de les détecter et de les apprendre.
