@@ -1,44 +1,16 @@
-import numpy as np
-import matplotlib.pyplot as plt
-from sklearn.cluster import KMeans
+data = np.array(mean_pixel_values).reshape(-1, 1)  # Reshape nécessaire pour K-means
 
-# Exemple de données
-# mean_pixel_values = [valeurs des pixels moyens calculés]
-# diameters_nm = [diamètres des particules en nm]
+# Calculer l'inertie pour chaque k de 1 à 10
+inertias = []
+for k in range(1, 11):
+    kmeans = KMeans(n_clusters=k, random_state=42).fit(data)
+    inertias.append(kmeans.inertia_)
 
-# Convertir les données pour K-Means (reshape nécessaire pour une seule feature)
-data = np.array(mean_pixel_values).reshape(-1, 1)
-
-# Nombre de clusters
-best_k = 10
-
-# Appliquer K-Means
-final_kmeans = KMeans(n_clusters=best_k, random_state=42).fit(data)
-labels = final_kmeans.labels_
-
-# Réordonner les clusters : attribuer le plus grand cluster au dernier identifiant
-cluster_means = [np.mean(data[labels == cluster_id]) for cluster_id in range(best_k)]
-sorted_cluster_ids = np.argsort(cluster_means)  # Trie les clusters par leur moyenne
-remapped_labels = np.zeros_like(labels)  # Tableau pour les nouveaux labels
-
-for new_id, old_id in enumerate(sorted_cluster_ids):
-    remapped_labels[labels == old_id] = new_id
-
-# Tracer les points avec des couleurs uniques pour chaque cluster
+# Tracer la courbe du coude
 plt.figure(figsize=(10, 6))
-
-# Générer une palette de couleurs unique pour les clusters
-colors = plt.cm.viridis(np.linspace(0, 1, best_k))  # Palette de couleurs avec `viridis`
-
-for cluster_id in range(best_k):
-    cluster_indices = np.where(remapped_labels == cluster_id)[0]
-    cluster_pixel_values = [mean_pixel_values[i] for i in cluster_indices]
-    cluster_diameters = [diameters_nm[i] for i in cluster_indices]
-    plt.scatter(cluster_diameters, cluster_pixel_values, color=colors[cluster_id], label=f"Cluster {cluster_id + 1}")
-
-plt.title("Valeurs de pixels en fonction des diamètres, colorées par cluster")
-plt.xlabel("Diamètre (nm)")
-plt.ylabel("Valeur moyenne des pixels")
-plt.legend()
+plt.plot(range(1, 11), inertias, marker='o', linestyle='--')
+plt.title("Méthode du coude : Inertie en fonction du nombre de clusters")
+plt.xlabel("Nombre de clusters")
+plt.ylabel("Inertie")
 plt.grid()
 plt.show()
