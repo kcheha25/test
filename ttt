@@ -24,19 +24,11 @@ remapped_labels = np.zeros_like(labels)  # Tableau pour les nouveaux labels
 for new_id, old_id in enumerate(sorted_cluster_ids):
     remapped_labels[labels == old_id] = new_id
 
-# Vérification : Remplacer les labels pour que le cluster avec les valeurs les plus grandes soit le dernier
-labels = remapped_labels
-max_cluster_id = np.argmax(cluster_means)
-remapped_labels[labels == max_cluster_id] = best_k - 1  # Dernier cluster
-for cluster_id in range(best_k - 1):
-    if cluster_id >= max_cluster_id:
-        remapped_labels[labels == cluster_id] = cluster_id
-    else:
-        remapped_labels[labels == cluster_id] = cluster_id
-
-# Tracer les points avec la couleur des clusters (après réordonnancement)
+# Tracer les points avec des couleurs uniques pour chaque cluster
 plt.figure(figsize=(10, 6))
-colors = plt.cm.tab10(np.linspace(0, 1, best_k))  # Générer des couleurs pour les clusters
+
+# Générer une palette de couleurs unique pour les clusters
+colors = plt.cm.viridis(np.linspace(0, 1, best_k))  # Palette de couleurs avec `viridis`
 
 for cluster_id in range(best_k):
     cluster_indices = np.where(remapped_labels == cluster_id)[0]
