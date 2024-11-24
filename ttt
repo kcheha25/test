@@ -1,79 +1,24 @@
-import cv2
-import numpy as np
-import matplotlib.pyplot as plt
-from sklearn.cluster import KMeans
-from sklearn.metrics import silhouette_score
-from detectron2.engine import DefaultPredictor
-from detectron2.config import get_cfg
+    data = np.array(list(zip(diameters, mean_pixel_values, scores)))
 
-# Charger l'image
-image_path = "chemin/vers/ton_image.jpg"
-image = cv2.imread(image_path)
+    # Appliquer K-Means pour le clustering
+    num_clusters = 3  # Définir le nombre de clusters
+    kmeans = KMeans(n_clusters=num_clusters, random_state=42)
+    labels = kmeans.fit_predict(data)
 
-# Configurer Detectron2
-cfg = get_cfg()
-cfg.merge_from_file("detectron2/configs/COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml")
-cfg.MODEL.WEIGHTS = "detectron2://COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x/137849600/model_final_f10217.pkl"
-cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5  # Seuil de confiance
-cfg.MODEL.DEVICE = "cuda"  # Utiliser "cuda" pour GPU ou "cpu" pour CPU
+    # Couleurs pour les clusters
+    colors = plt.cm.tab10(np.linspace(0, 1, num_clusters))
 
-# Prédictions avec Detectron2
-predictor = DefaultPredictor(cfg)
-outputs = predictor(image)
-instances = outputs["instances"].to("cpu")
-
-# Vérifier si des objets ont été détectés
-if len(instances) == 0:
-    print("Aucun objet détecté.")
-else:
-    # Extraire les propriétés des objets détectés
-    masks = instances.pred_masks.numpy()
-    boxes = instances.pred_boxes.tensor.numpy()  # Extraire les boîtes englobantes
-
-    diameters = []  # Diamètre des particules
-    mean_pixel_values = []  # Valeur moyenne des pixels pour chaque particule
-
-    for i, mask in enumerate(masks):
-        # Calculer les pixels de l'objet
-        object_pixels = image[mask]
-        mean_pixel_values.append(np.mean(object_pixels))
-
-        # Calculer le diamètre de la particule (approximé par la diagonale de la boîte englobante)
-        x1, y1, x2, y2 = boxes[i]
-        width = x2 - x1
-        height = y2 - y1
-        diameter = np.sqrt(width**2 + height**2)  # Diagonale de la boîte englobante
-        diameters.append(diameter)
-
-    # Convertir les données pour K-Means (reshape nécessaire pour une seule feature)
-    data = np.array(mean_pixel_values).reshape(-1, 1)
-
-    # Détecter le meilleur nombre de clusters avec le score de silhouette
-    best_k = 2
-    best_score = -1
-
-    for k in range(2, 11):  # Tester de 2 à 10 clusters
-        kmeans = KMeans(n_clusters=k, random_state=42).fit(data)
-        score = silhouette_score(data, kmeans.labels_)
-        if score > best_score:
-            best_k = k
-            best_score = score
-
-    # Appliquer K-Means avec le meilleur nombre de clusters
-    final_kmeans = KMeans(n_clusters=best_k, random_state=42).fit(data)
-    labels = final_kmeans.labels_
-
-    # Tracer les points avec la couleur des clusters
+    # Graphique 2D : Valeur moyenne des pixels en fonction des diamètres
     plt.figure(figsize=(10, 6))
-    colors = plt.cm.tab10(np.linspace(0, 1, best_k))  # Générer des couleurs pour les clusters
-
-    for cluster_id in range(best_k):
-        cluster_indices = np.where(labels == cluster_id)[0]
-        cluster_pixel_values = [mean_pixel_values[i] for i in cluster_indices]
-        cluster_diameters = [diameters[i] for i in cluster_indices]
-        plt.scatter(cluster_diameters, cluster_pixel_values, color=colors[cluster_id], label=f"Cluster {cluster_id + 1}")
-
-    plt.title("Valeurs de pixels en fonction des diamètres, colorées par cluster")
+    for cluster in range(num_clusters):
+        cluster_indices = labels == cluster
+        plt.scatter(
+            diameters[cluster_indices], 
+            np.array(mean_pixel_values)[cluster_indices],
+            color=colors[cluster],
+            label=f"Cluster {cluster + 1}"
+        )
+    plt.title("Valeur moyenne des pixels en fonction du diamètre (par clusters)")
     plt.xlabel("Diamètre des particules")
     plt.ylabel("Valeur moyenne des pixels")
     plt.legend()
