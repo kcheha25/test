@@ -6,25 +6,6 @@ from sklearn.metrics import silhouette_score
 from detectron2.engine import DefaultPredictor
 from detectron2.config import get_cfg
 
-# Fonction pour calculer le diamètre en nm
-def calculate_diameter(mask, resolution_nm_per_pixel):
-    if mask.ndim == 3:
-        mask = mask[..., 0]  # Convertir en 2D si nécessaire
-    _, binary_mask = cv2.threshold(mask, 0.5, 1, cv2.THRESH_BINARY)
-    binary_mask = (binary_mask * 255).astype(np.uint8)
-    
-    # Identifier les objets connectés
-    num_objects, object_labels = cv2.connectedComponents(binary_mask)
-    diameters = []
-    for obj in range(1, num_objects):
-        area_pixels = np.sum(object_labels == obj)
-        # Convertir l'aire en nm²
-        area_nm2 = area_pixels * (resolution_nm_per_pixel ** 2)
-        # Calculer le diamètre (assumer une forme circulaire)
-        diameter_nm = 2 * np.sqrt(area_nm2 / np.pi)
-        diameters.append(diameter_nm)
-    return diameters
-
 # Charger l'image
 image_path = "chemin/vers/ton_image.jpg"
 image = cv2.imread(image_path)
@@ -41,61 +22,59 @@ predictor = DefaultPredictor(cfg)
 outputs = predictor(image)
 instances = outputs["instances"].to("cpu")
 
-# Résolution en nm/pixel
-nm_per_pixel = 0.038
-
 # Vérifier si des objets ont été détectés
 if len(instances) == 0:
     print("Aucun objet détecté.")
 else:
+    # Extraire les propriétés des objets détectés
     masks = instances.pred_masks.numpy()
-    scores = instances.scores.numpy()
-    mean_pixel_values = []
-    diameters_nm = []
+    boxes = instances.pred_boxes.tensor.numpy()  # Extraire les boîtes englobantes
 
-    for mask in masks:
-        # Calcul de la valeur moyenne des pixels
+    diameters = []  # Diamètre des particules
+    mean_pixel_values = []  # Valeur moyenne des pixels pour chaque particule
+
+    for i, mask in enumerate(masks):
+        # Calculer les pixels de l'objet
         object_pixels = image[mask]
         mean_pixel_values.append(np.mean(object_pixels))
 
-        # Calcul du diamètre en nm
-        diameter_list = calculate_diameter(mask.astype(np.uint8), nm_per_pixel)
-        if len(diameter_list) > 0:
-            diameters_nm.append(diameter_list[0])  # Si plusieurs objets, prendre le premier
+        # Calculer le diamètre de la particule (approximé par la diagonale de la boîte englobante)
+        x1, y1, x2, y2 = boxes[i]
+        width = x2 - x1
+        height = y2 - y1
+        diameter = np.sqrt(width**2 + height**2)  # Diagonale de la boîte englobante
+        diameters.append(diameter)
 
-    # Assurez-vous que les listes ont la même taille
-    n_objects = min(len(diameters_nm), len(mean_pixel_values), len(scores))
-    diameters_nm = diameters_nm[:n_objects]
-    mean_pixel_values = mean_pixel_values[:n_objects]
-    scores = scores[:n_objects]
+    # Convertir les données pour K-Means (reshape nécessaire pour une seule feature)
+    data = np.array(mean_pixel_values).reshape(-1, 1)
 
-    # Création des clusters
-    data = np.array(mean_pixel_values).reshape(-1, 1)  # Reshape nécessaire pour K-means
+    # Détecter le meilleur nombre de clusters avec le score de silhouette
     best_k = 2
     best_score = -1
 
-    # Trouver le meilleur nombre de clusters (2 à 10)
-    for k in range(2, 11):
+    for k in range(2, 11):  # Tester de 2 à 10 clusters
         kmeans = KMeans(n_clusters=k, random_state=42).fit(data)
         score = silhouette_score(data, kmeans.labels_)
         if score > best_score:
             best_k = k
             best_score = score
 
-    # Appliquer K-means avec le meilleur nombre de clusters
+    # Appliquer K-Means avec le meilleur nombre de clusters
     final_kmeans = KMeans(n_clusters=best_k, random_state=42).fit(data)
     labels = final_kmeans.labels_
 
     # Tracer les points avec la couleur des clusters
     plt.figure(figsize=(10, 6))
+    colors = plt.cm.tab10(np.linspace(0, 1, best_k))  # Générer des couleurs pour les clusters
+
     for cluster_id in range(best_k):
         cluster_indices = np.where(labels == cluster_id)[0]
         cluster_pixel_values = [mean_pixel_values[i] for i in cluster_indices]
-        cluster_diameters = [diameters_nm[i] for i in cluster_indices]
-        plt.scatter(cluster_diameters, cluster_pixel_values, label=f"Cluster {cluster_id + 1}")
+        cluster_diameters = [diameters[i] for i in cluster_indices]
+        plt.scatter(cluster_diameters, cluster_pixel_values, color=colors[cluster_id], label=f"Cluster {cluster_id + 1}")
 
     plt.title("Valeurs de pixels en fonction des diamètres, colorées par cluster")
-    plt.xlabel("Diamètre (nm)")
+    plt.xlabel("Diamètre des particules")
     plt.ylabel("Valeur moyenne des pixels")
     plt.legend()
     plt.grid()
