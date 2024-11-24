@@ -1,16 +1,25 @@
-data = np.array(mean_pixel_values).reshape(-1, 1)  # Reshape nécessaire pour K-means
-
-# Calculer l'inertie pour chaque k de 1 à 10
+max_k = 20  # Par exemple, jusqu'à 20 clusters
 inertias = []
-for k in range(1, 11):
+
+for k in range(1, max_k + 1):
     kmeans = KMeans(n_clusters=k, random_state=42).fit(data)
     inertias.append(kmeans.inertia_)
 
-# Tracer la courbe du coude
+# Tracer la courbe de l'inertie
 plt.figure(figsize=(10, 6))
-plt.plot(range(1, 11), inertias, marker='o', linestyle='--')
-plt.title("Méthode du coude : Inertie en fonction du nombre de clusters")
+plt.plot(range(1, max_k + 1), inertias, marker='o', linestyle='--')
+plt.title("Inertie en fonction du nombre de clusters")
 plt.xlabel("Nombre de clusters")
 plt.ylabel("Inertie")
 plt.grid()
 plt.show()
+
+# Détecter automatiquement le meilleur nombre de clusters en fonction de l'inertie
+# Critère : trouver où l'inertie commence à se stabiliser (diminution moins marquée)
+# On calcule les différences d'inertie entre les valeurs successives
+inertia_diffs = np.diff(inertias)
+
+# Trouver l'endroit où la différence devient minime (indiquant un coude)
+optimal_k = np.argmax(inertia_diffs < np.mean(inertia_diffs)) + 2  # Ajouter 2 car np.diff réduit la taille de la liste
+
+print(f"Le nombre optimal de clusters est : {optimal_k}")
