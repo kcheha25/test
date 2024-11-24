@@ -1,0 +1,102 @@
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.cluster import KMeans
+from sklearn.metrics import silhouette_score
+from detectron2.engine import DefaultPredictor
+from detectron2.config import get_cfg
+
+# Fonction pour calculer le diamètre en nm
+def calculate_diameter(mask, resolution_nm_per_pixel):
+    if mask.ndim == 3:
+        mask = mask[..., 0]  # Convertir en 2D si nécessaire
+    _, binary_mask = cv2.threshold(mask, 0.5, 1, cv2.THRESH_BINARY)
+    binary_mask = (binary_mask * 255).astype(np.uint8)
+    
+    # Identifier les objets connectés
+    num_objects, object_labels = cv2.connectedComponents(binary_mask)
+    diameters = []
+    for obj in range(1, num_objects):
+        area_pixels = np.sum(object_labels == obj)
+        # Convertir l'aire en nm²
+        area_nm2 = area_pixels * (resolution_nm_per_pixel ** 2)
+        # Calculer le diamètre (assumer une forme circulaire)
+        diameter_nm = 2 * np.sqrt(area_nm2 / np.pi)
+        diameters.append(diameter_nm)
+    return diameters
+
+# Charger l'image
+image_path = "chemin/vers/ton_image.jpg"
+image = cv2.imread(image_path)
+
+# Configurer Detectron2
+cfg = get_cfg()
+cfg.merge_from_file("detectron2/configs/COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml")
+cfg.MODEL.WEIGHTS = "detectron2://COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x/137849600/model_final_f10217.pkl"
+cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5  # Seuil de confiance
+cfg.MODEL.DEVICE = "cuda"  # Utiliser "cuda" pour GPU ou "cpu" pour CPU
+
+# Prédictions avec Detectron2
+predictor = DefaultPredictor(cfg)
+outputs = predictor(image)
+instances = outputs["instances"].to("cpu")
+
+# Résolution en nm/pixel
+nm_per_pixel = 0.038
+
+# Vérifier si des objets ont été détectés
+if len(instances) == 0:
+    print("Aucun objet détecté.")
+else:
+    masks = instances.pred_masks.numpy()
+    scores = instances.scores.numpy()
+    mean_pixel_values = []
+    diameters_nm = []
+
+    for mask in masks:
+        # Calcul de la valeur moyenne des pixels
+        object_pixels = image[mask]
+        mean_pixel_values.append(np.mean(object_pixels))
+
+        # Calcul du diamètre en nm
+        diameter_list = calculate_diameter(mask.astype(np.uint8), nm_per_pixel)
+        if len(diameter_list) > 0:
+            diameters_nm.append(diameter_list[0])  # Si plusieurs objets, prendre le premier
+
+    # Assurez-vous que les listes ont la même taille
+    n_objects = min(len(diameters_nm), len(mean_pixel_values), len(scores))
+    diameters_nm = diameters_nm[:n_objects]
+    mean_pixel_values = mean_pixel_values[:n_objects]
+    scores = scores[:n_objects]
+
+    # Création des clusters
+    data = np.array(mean_pixel_values).reshape(-1, 1)  # Reshape nécessaire pour K-means
+    best_k = 2
+    best_score = -1
+
+    # Trouver le meilleur nombre de clusters (2 à 10)
+    for k in range(2, 11):
+        kmeans = KMeans(n_clusters=k, random_state=42).fit(data)
+        score = silhouette_score(data, kmeans.labels_)
+        if score > best_score:
+            best_k = k
+            best_score = score
+
+    # Appliquer K-means avec le meilleur nombre de clusters
+    final_kmeans = KMeans(n_clusters=best_k, random_state=42).fit(data)
+    labels = final_kmeans.labels_
+
+    # Tracer les points avec la couleur des clusters
+    plt.figure(figsize=(10, 6))
+    for cluster_id in range(best_k):
+        cluster_indices = np.where(labels == cluster_id)[0]
+        cluster_pixel_values = [mean_pixel_values[i] for i in cluster_indices]
+        cluster_diameters = [diameters_nm[i] for i in cluster_indices]
+        plt.scatter(cluster_diameters, cluster_pixel_values, label=f"Cluster {cluster_id + 1}")
+
+    plt.title("Valeurs de pixels en fonction des diamètres, colorées par cluster")
+    plt.xlabel("Diamètre (nm)")
+    plt.ylabel("Valeur moyenne des pixels")
+    plt.legend()
+    plt.grid()
+    plt.show()
