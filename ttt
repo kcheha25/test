@@ -1,7 +1,16 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.cluster import KMeans
+
+# Exemple de données
+# mean_pixel_values = [valeurs des pixels moyens calculés]
+# diameters_nm = [diamètres des particules en nm]
+
+# Convertir les données pour K-Means (reshape nécessaire pour une seule feature)
 data = np.array(mean_pixel_values).reshape(-1, 1)
 
-# Nombre de clusters (tu peux le détecter automatiquement si nécessaire)
-best_k = 2
+# Nombre de clusters
+best_k = 10
 
 # Appliquer K-Means
 final_kmeans = KMeans(n_clusters=best_k, random_state=42).fit(data)
@@ -14,6 +23,16 @@ remapped_labels = np.zeros_like(labels)  # Tableau pour les nouveaux labels
 
 for new_id, old_id in enumerate(sorted_cluster_ids):
     remapped_labels[labels == old_id] = new_id
+
+# Vérification : Remplacer les labels pour que le cluster avec les valeurs les plus grandes soit le dernier
+labels = remapped_labels
+max_cluster_id = np.argmax(cluster_means)
+remapped_labels[labels == max_cluster_id] = best_k - 1  # Dernier cluster
+for cluster_id in range(best_k - 1):
+    if cluster_id >= max_cluster_id:
+        remapped_labels[labels == cluster_id] = cluster_id
+    else:
+        remapped_labels[labels == cluster_id] = cluster_id
 
 # Tracer les points avec la couleur des clusters (après réordonnancement)
 plt.figure(figsize=(10, 6))
