@@ -1,26 +1,33 @@
-    data = np.array(list(zip(diameters, mean_pixel_values, scores)))
+data = np.array(mean_pixel_values).reshape(-1, 1)
 
-    # Appliquer K-Means pour le clustering
-    num_clusters = 3  # Définir le nombre de clusters
-    kmeans = KMeans(n_clusters=num_clusters, random_state=42)
-    labels = kmeans.fit_predict(data)
+# Nombre de clusters (tu peux le détecter automatiquement si nécessaire)
+best_k = 2
 
-    # Couleurs pour les clusters
-    colors = plt.cm.tab10(np.linspace(0, 1, num_clusters))
+# Appliquer K-Means
+final_kmeans = KMeans(n_clusters=best_k, random_state=42).fit(data)
+labels = final_kmeans.labels_
 
-    # Graphique 2D : Valeur moyenne des pixels en fonction des diamètres
-    plt.figure(figsize=(10, 6))
-    for cluster in range(num_clusters):
-        cluster_indices = labels == cluster
-        plt.scatter(
-            diameters[cluster_indices], 
-            np.array(mean_pixel_values)[cluster_indices],
-            color=colors[cluster],
-            label=f"Cluster {cluster + 1}"
-        )
-    plt.title("Valeur moyenne des pixels en fonction du diamètre (par clusters)")
-    plt.xlabel("Diamètre des particules")
-    plt.ylabel("Valeur moyenne des pixels")
-    plt.legend()
-    plt.grid()
-    plt.show()
+# Réordonner les clusters : attribuer le plus grand cluster au dernier identifiant
+cluster_means = [np.mean(data[labels == cluster_id]) for cluster_id in range(best_k)]
+sorted_cluster_ids = np.argsort(cluster_means)  # Trie les clusters par leur moyenne
+remapped_labels = np.zeros_like(labels)  # Tableau pour les nouveaux labels
+
+for new_id, old_id in enumerate(sorted_cluster_ids):
+    remapped_labels[labels == old_id] = new_id
+
+# Tracer les points avec la couleur des clusters (après réordonnancement)
+plt.figure(figsize=(10, 6))
+colors = plt.cm.tab10(np.linspace(0, 1, best_k))  # Générer des couleurs pour les clusters
+
+for cluster_id in range(best_k):
+    cluster_indices = np.where(remapped_labels == cluster_id)[0]
+    cluster_pixel_values = [mean_pixel_values[i] for i in cluster_indices]
+    cluster_diameters = [diameters_nm[i] for i in cluster_indices]
+    plt.scatter(cluster_diameters, cluster_pixel_values, color=colors[cluster_id], label=f"Cluster {cluster_id + 1}")
+
+plt.title("Valeurs de pixels en fonction des diamètres, colorées par cluster")
+plt.xlabel("Diamètre (nm)")
+plt.ylabel("Valeur moyenne des pixels")
+plt.legend()
+plt.grid()
+plt.show()
