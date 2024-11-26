@@ -1,23 +1,338 @@
-max_k = 20  # Par exemple, jusqu'à 20 clusters
-sil_scores = []
+import cv2
+import numpy as np
+import os
 
-# Calcul du silhouette score pour chaque k
-for k in range(2, max_k + 1):  # On commence à 2 car silhouette score nécessite au moins 2 clusters
-    kmeans = KMeans(n_clusters=k, random_state=42).fit(data)
-    score = silhouette_score(data, kmeans.labels_)
-    sil_scores.append(score)
+def preprocess_image(image_path):
+    
+    image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+    
+    
+    normalized_image = cv2.normalize(image, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX)
+    
+    
+    blurred_image = cv2.bilateralFilter(normalized_image, 5, 75, 75)
+    
+    
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    equalized_image = clahe.apply(blurred_image)
+    
+    
+    sharp_kernel = np.array([[-1, -1, -1],
+                             [-1,  9, -1],
+                             [-1, -1, -1]])
+    sharpened_image = cv2.filter2D(equalized_image, -1, sharp_kernel)
+    
+    
+    return sharpened_image
 
-# Tracer la courbe du silhouette score
-plt.figure(figsize=(10, 6))
-plt.plot(range(2, max_k + 1), sil_scores, marker='o', linestyle='--')
-plt.title("Silhouette Score en fonction du nombre de clusters")
-plt.xlabel("Nombre de clusters")
-plt.ylabel("Silhouette Score")
-plt.grid()
-plt.show()
 
-# Détecter automatiquement le meilleur nombre de clusters en fonction du silhouette score
-# Choisir le k avec le plus grand silhouette score, ce qui correspond à la meilleure séparation
-optimal_k = np.argmax(sil_scores) + 2  # Ajouter 2 car on commence à k = 2
+def preprocess_images_in_folder(input_folder, output_folder):
+    
+    if not os.path.exists(output_folder):
+        os.makedirs(output_folder)
+    
+    
+    for filename in os.listdir(input_folder):
+        if filename.endswith('.jpg') or filename.endswith('.jpeg') or filename.endswith('.png'):
+            
+            input_image_path = os.path.join(input_folder, filename)
+            
+            # Prétraitement de l'image
+            preprocessed_image = preprocess_image(input_image_path)
+            
+            
+            output_image_path = os.path.join(output_folder, filename)
+            
+            # Sauvegarder l'image prétraitée dans le dossier de sortie
+            cv2.imwrite(output_image_path, preprocessed_image)
+            print(f"Image prétraitée sauvegardée: {output_image_path}")
 
-print(f"Le nombre optimal de clusters pour la meilleure séparation est : {optimal_k}")
+
+
+
+
+input_folder ='C:/Users/karim/Desktop/train'
+
+
+output_folder = 'C:/Users/karim/Desktop/output_images'
+
+preprocess_images_in_folder(input_folder, output_folder)
+
+##############################################
+import cv2
+import numpy as np
+
+def generer_image_difference(image_path, output_path, seuil=30):
+    # Charger l'image
+    image = cv2.imread(image_path)
+
+    # Convertir l'image en niveaux de gris
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    # Calculer la différence par rapport à une valeur seuil
+    _, difference = cv2.threshold(gray, seuil, 160, cv2.THRESH_BINARY)
+
+    # Enregistrer l'image de différence
+    cv2.imwrite(output_path, difference)
+
+# Exemple d'utilisation
+generer_image_difference("C:/Users/karim/Desktop/Pour Yann/Tbaro WT pyruvte point final_4D_ch00.jpg", "C:/Users/karim/Desktop/difference_image.jpg")
+
+
+
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+
+def generer_carte_difference(image_path1, image_path2, output_path):
+    # Charger les deux images
+    image1 = cv2.imread(image_path1)
+    image2 = cv2.imread(image_path2)
+
+    # Vérifier que les images sont de la même taille
+    if image1.shape != image2.shape:
+        raise ValueError("Les dimensions des images ne correspondent pas.")
+
+    # Calculer la différence entre les deux images
+    difference = cv2.absdiff(image1, image2)
+
+    # Convertir l'image de différence en niveaux de gris
+    difference_gray = cv2.cvtColor(difference, cv2.COLOR_BGR2GRAY)
+
+    # Créer une carte de chaleur (heatmap)
+    heatmap = cv2.applyColorMap(difference_gray, cv2.COLORMAP_HOT)
+
+    # Enregistrer la carte de différence
+    cv2.imwrite(output_path, heatmap)
+
+    # Afficher les images d'origine et la carte de différence
+    plt.subplot(131), plt.imshow(cv2.cvtColor(image1, cv2.COLOR_BGR2RGB)), plt.title('Image 1')
+    plt.subplot(132), plt.imshow(cv2.cvtColor(image2, cv2.COLOR_BGR2RGB)), plt.title('Image 2')
+    plt.subplot(133), plt.imshow(cv2.cvtColor(heatmap, cv2.COLOR_BGR2RGB)), plt.title('Carte de Différence')
+    plt.show()
+
+# Exemple d'utilisation
+generer_carte_difference("C:/Users/karim/Desktop/Pour Yann/Tbaro WT pyruvte point final_4D_ch00.jpg", "C:/Users/karim/Desktop/difference_image.jpg", "C:/Users/karim/Desktop/carte_difference.jpg")
+
+
+import cv2
+import numpy as np
+
+def detecter_positions_cellules(image_path1, image_path2, output_path, seuil_contour=30):
+    # Charger les deux images
+    image1 = cv2.imread(image_path1)
+    image2 = cv2.imread(image_path2)
+
+    # Vérifier que les images sont de la même taille
+    if image1.shape != image2.shape:
+        raise ValueError("Les dimensions des images ne correspondent pas.")
+
+    # Convertir les images en niveaux de gris
+    gray1 = cv2.cvtColor(image1, cv2.COLOR_BGR2GRAY)
+    gray2 = cv2.cvtColor(image2, cv2.COLOR_BGR2GRAY)
+
+    # Calculer la différence entre les deux images
+    difference = cv2.absdiff(gray1, gray2)
+
+    # Appliquer un seuillage pour détecter les variations de pixel
+    _, seuil_image = cv2.threshold(difference, seuil_contour, 255, cv2.THRESH_BINARY)
+
+    # Trouver les contours dans l'image seuillée
+    contours, _ = cv2.findContours(seuil_image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    # Dessiner les contours sur l'image originale
+    contours_image = image1.copy()
+    cv2.drawContours(contours_image, contours, -1, (0, 255, 0), 2)
+
+    # Enregistrer l'image avec les positions des cellules identifiées
+    cv2.imwrite(output_path, contours_image)
+
+# Exemple d'utilisation
+detecter_positions_cellules("C:/Users/karim/Desktop/Pour Yann/Tbaro WT pyruvte point final_4D_ch00.jpg", "C:/Users/karim/Desktop/difference_image.jpg", "C:/Users/karim/Desktop/carte_difference.jpg")
+
+
+##############################3
+import os
+import cv2
+import numpy as np
+
+def total_variation(image):
+    """
+    Calcul de la variation totale d'une image.
+    """
+    dx = np.diff(image.astype(np.float64), axis=1)
+    dy = np.diff(image.astype(np.float64), axis=0)
+    return np.sum(np.abs(dx)) + np.sum(np.abs(dy))
+
+def total_variation_regularization(image, lambda_=0.044, num_iterations=100):
+    """
+    Régularisation par variation totale (TV) d'une image.
+    """
+    
+    normalized_image = image.astype(np.float64) / 255.0
+    
+    smoothed_image = np.copy(normalized_image)
+    for _ in range(num_iterations):
+        dx = cv2.Sobel(smoothed_image, cv2.CV_64F, 1, 0, ksize=3)
+        dy = cv2.Sobel(smoothed_image, cv2.CV_64F, 0, 1, ksize=3)
+        gradient_magnitude = np.sqrt(dx**2 + dy**2)
+        tv_gradient = lambda_ * np.mean(gradient_magnitude)
+        smoothed_image -= tv_gradient * (dx + dy)
+    
+    
+    smoothed_image = np.clip(smoothed_image * 255.0, 0, 255).astype(np.uint8)
+    
+    return smoothed_image
+
+
+input_folder ='C:/Users/karim/Desktop/train'
+
+
+output_folder = 'C:/Users/karim/Desktop/output_images'
+os.makedirs(output_folder, exist_ok=True)
+
+
+file_names = os.listdir(input_folder)
+
+for file_name in file_names:
+    if file_name.endswith(('.jpg', '.jpeg', '.png')):
+        
+        image_path = os.path.join(input_folder, file_name)
+        image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+
+     
+        smoothed_image = total_variation_regularization(image)
+
+      
+        output_path = os.path.join(output_folder, file_name)
+        cv2.imwrite(output_path, smoothed_image)
+
+print("Traitement terminé. Les images ont été enregistrées dans", output_folder)
+#########################################33
+# # Créez une grille de valeurs pour les hyperparamètres qu'on souhaite optimiser
+# learning_rates = [0.00025, 0.001]
+# maxi_iters = [2000, 5000]
+
+# best_ap = 0
+# best_cfg = None
+# tab=[]
+
+# for lr in learning_rates:
+#     for maxi_iter in maxi_iters:
+#         cfg = get_cfg()
+#         #cfg.MODEL.DEVICE = 'cpu'
+#         cfg.MODEL.DEVICE = 'cuda'
+#         cfg.OUTPUT_DIR = "data/projet_m1/models/Detectron2_Modelssearch"
+#         cfg.merge_from_file(model_zoo.get_config_file("COCO-InstanceSegmentation/mask_rcnn_X_101_32x8d_FPN_3x.yaml"))
+#         cfg.DATASETS.TRAIN = ("my_dataset_train",)
+#         cfg.DATASETS.TEST = ("my_dataset_val",)
+#         cfg.DATALOADER.NUM_WORKERS = 0
+
+#         cfg.DATALOADER.FILTER_EMPTY_ANNOTATIONS=False
+#         cfg.MODEL.MASK_ON = True
+#         cfg.MODEL.ROI_BOX_HEAD.POOLER_RESOLUTION = 20
+#         cfg.MODEL.ROI_MASK_HEAD.POOLER_RESOLUTION = 20
+#         cfg.MODEL.ANCHOR_GENERATOR.SIZES = [[8], [16], [32], [64], [128]]
+#         cfg.MODEL.ROI_HEADS.POSITIVE_FRACTION = 0.5 #0.5
+#         #cfg.MODEL.ROI_MASK_HEAD.POOLER_SAMPLING_RATIO = 1
+#         #cfg.MODEL.ROI_HEADS.POOLER_SAMPLING_RATIO= 1
+
+
+#         cfg.MODEL.WEIGHTS = model_zoo.get_checkpoint_url("COCO-InstanceSegmentation/mask_rcnn_X_101_32x8d_FPN_3x.yaml")
+#         #cfg.MODEL.WEIGHTS = "data/projet_m1/models/Detectron2_Models7/model_final.pth"
+#           # Let training initialize from model zoo
+#         cfg.SOLVER.IMS_PER_BATCH = 4
+#           # This is the real "batch size" commonly known to deep learning people
+#         cfg.SOLVER.BASE_LR = lr #0.001
+#         # pick a good LR
+#         cfg.SOLVER.MAX_ITER = maxi_iter #2000
+#         cfg.SOLVER.CHECKPOINT_PERIOD = 1000
+#         # 1000 iterations for demo purposes
+#         cfg.SOLVER.STEPS = []
+#         # do not decay learning rate
+#         cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE = 512
+#         # Default is 512, using 256 for this dataset.
+#         #cfg.MODEL.RETINANET.NUM_CLASSES = 2 # We have 1 classes. (Nuclei)
+#         cfg.MODEL.ROI_HEADS.NUM_CLASSES = 1
+#         # NOTE: this config means the number of classes, without the background. Do not use num_classes+1 here.
+#         cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.4
+#         cfg.TEST.PRECISE_BN.ENABLED = True
+#         #cfg.TEST.PRECISE_BN.NUM_ITER = 1000
+#         cfg.MODEL.ROI_HEADS.NMS_THRESH_TEST= 0.5
+#         cfg.TEST.DETECTIONS_PER_IMAGE = 1000
+#         cfg.TEST.EVAL_PERIOD = 159
+#         os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
+#         trainer = CocoTrainer(cfg)
+#         trainer.resume_or_load(resume=False)
+#         trainer.train()
+
+#         cfg.MODEL.WEIGHTS = "data/projet_m1/models/Detectron2_Modelssearch/model_final.pth"
+#         cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.4
+#         cfg.TEST.PRECISE_BN.ENABLED = True
+#         cfg.TEST.PRECISE_BN.NUM_ITER = 1000
+#         cfg.MODEL.ROI_HEADS.NMS_THRESH_TEST= 0.5
+#         cfg.TEST.DETECTIONS_PER_IMAGE = 1000
+
+
+#         predictor = DefaultPredictor(cfg)
+#         evaluator = COCOEvaluator("my_dataset_test", cfg, False, output_dir="./output/",max_dets_per_image=1000)
+#         val_loader = build_detection_test_loader(cfg, "my_dataset_test")
+#         metrics=inference_on_dataset(trainer.model, val_loader, evaluator)
+#         #print(metrics)
+#         tab.append(metrics)
+#         # Évaluez les performances du modèle (par exemple, AP)
+#         ap = metrics["segm"]["AP50"]
+#         if ap > best_ap:
+#             best_ap = ap
+#             best_cfg = cfg.clone()
+
+# print(f"Meilleur AP : {best_ap}")
+# print(f"Meilleurs hyperparamètres : {best_cfg}")
+################################3
+from detectron2 import model_zoo
+from detectron2.engine import DefaultTrainer
+from detectron2.config import get_cfg
+from detectron2.data import DatasetCatalog, MetadataCatalog, build_detection_train_loader
+from detectron2.data import detection_utils as utils
+from detectron2.data import transforms as T
+from detectron2.evaluation import COCOEvaluator
+
+# Enregistrer les ensembles de données
+from detectron2.data.datasets import register_coco_instances
+register_coco_instances("my_dataset_train", {}, "C:/Users/karim/Desktop/projetm1_data/train/_annotations.coco.json", "C:/Users/karim/Desktop/projetm1_data/train")
+register_coco_instances("my_dataset_val", {}, "C:/Users/karim/Desktop/projetm1_data/valid/_annotations.coco.json", "C:/Users/karim/Desktop/projetm1_data/valid")
+
+# Data Augmentation personnalisée
+def custom_mapper(dataset_dict):
+    """
+    Préparation des données pour inclure des transformations d'augmentation.
+    """
+    dataset_dict = dataset_dict.copy()  # Créer une copie pour éviter de modifier l'original
+    image = utils.read_image(dataset_dict["file_name"], format="BGR")
+    # Appliquer des augmentations
+    aug = T.AugmentationList([
+        T.RandomFlip(prob=0.5, horizontal=True, vertical=False),  # Flip horizontal
+        T.RandomFlip(prob=0.5, horizontal=False, vertical=True),  # Flip vertical
+        T.RandomRotation(angle=[-90, 90]),  # Rotation aléatoire entre -30° et 30°
+    ])
+    image, transforms = T.apply_transform_gens(aug, image)
+    annos = [
+        utils.transform_instance_annotations(obj, transforms, image.shape[:2])
+        for obj in dataset_dict["annotations"]
+    ]
+    dataset_dict["annotations"] = annos
+    dataset_dict["image"] = torch.as_tensor(image.transpose(2, 0, 1).astype("float32"))
+    return dataset_dict
+
+# Personnalisation de l'entraîneur pour utiliser le mapper personnalisé
+class CocoTrainer(DefaultTrainer):
+    @classmethod
+    def build_evaluator(cls, cfg, dataset_name, output_folder=None):
+        if output_folder is None:
+            os.makedirs("coco_eval", exist_ok=True)
+            output_folder = "coco_eval"
+        return COCOEvaluator(dataset_name, cfg, False, output_folder)
+
+    @classmethod
+    def build_train_loader(cls, cfg):
+        return build_detection_train_loader(cfg, mapper=custom_mapper)
