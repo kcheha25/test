@@ -704,27 +704,42 @@ with open(output_coco_path, "w") as json_file:
 
 print(f"Annotations sauvegardées dans {output_coco_path}")
 
+if len(instances) == 0:
+    print("Aucun objet détecté.")
+else:
+    # Extraire les propriétés des objets détectés
+    masks = instances.pred_masks.numpy()
+    scores = instances.scores.numpy()
+    boxes = instances.pred_boxes.tensor.numpy()
 
-                if object_mean < 50:
-                    mean_pixel_colors.append("red")  # Pixels sombres
-                elif 50 <= object_mean < 100:
-                    mean_pixel_colors.append("orange")  # Pixels modérément sombres
-                elif 100 <= object_mean < 150:
-                    mean_pixel_colors.append("green")  # Pixels modérément clairs
-                else:
-                    mean_pixel_colors.append("blue")  # Pixels très clairs
+    diameters = []  # Diamètre des particules
+    relative_brightness_scores = []  # Score de luminosité relative
 
-    # Afficher un nuage de points avec des couleurs différentes selon les intensités moyennes
+    # Statistiques globales de l'image
+    global_mean = np.mean(image)
+    global_std = np.std(image)
+
+    for i, mask in enumerate(masks):
+        object_pixels = image[mask]
+        
+        # Calculer le score de luminosité relative
+        object_mean = np.mean(object_pixels)
+        brightness_score = (object_mean - global_mean) / global_std
+        relative_brightness_scores.append(brightness_score)
+
+        # Calculer le diamètre (hypothèse : aire circulaire)
+        area = np.sum(mask)
+        diameter = np.sqrt(4 * area / np.pi)
+        diameters.append(diameter)
+
+    # Afficher un nuage de points
     plt.figure(figsize=(10, 6))
-    for i in range(len(diameters)):
-        plt.scatter(diameters[i], ratios[i], color=mean_pixel_colors[i], alpha=0.7)
-
-    # Ajouter des lignes de référence et une légende
-    plt.axhline(0, color='black', linestyle='dashed', linewidth=1, label="Ratio = 0")
-    plt.title("Différence normalisée entre intensité des objets et voisinage")
+    scatter = plt.scatter(diameters, relative_brightness_scores, c=relative_brightness_scores, cmap='coolwarm', alpha=0.7)
+    plt.colorbar(scatter, label="Score de luminosité relative")
+    plt.axhline(0, color='black', linestyle='dashed', linewidth=1, label="Luminosité moyenne globale")
+    plt.title("Luminosité relative des objets détectés")
     plt.xlabel("Diamètre de la particule (pixels)")
-    plt.ylabel("Pourcentage de différence (%)")
-    plt.legend(["Ratio = 0", "Intensité < 50", "50 <= Intensité < 100", 
-                "100 <= Intensité < 150", "Intensité >= 150"])
+    plt.ylabel("Score de luminosité relative")
+    plt.legend()
     plt.grid()
     plt.show()
