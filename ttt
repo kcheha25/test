@@ -706,15 +706,42 @@ print(f"Annotations sauvegardées dans {output_coco_path}")
 
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.ndimage import sobel, laplace, binary_dilation
-import cv2  # Pour manipuler les images
+from scipy.ndimage import sobel, binary_dilation
+from detectron2.engine import DefaultPredictor
+from detectron2.config import get_cfg
+from detectron2 import model_zoo
+import torch
 
+# Assurez-vous que vous avez chargé votre modèle Detectron2 correctement
+cfg = get_cfg()
+cfg.merge_from_file(model_zoo.get_config_file("COCO-Detection/faster_rcnn_R_50_FPN_3x.yaml"))
+cfg.MODEL.WEIGHTS = model_zoo.get_checkpoint_url("COCO-Detection/faster_rcnn_R_50_FPN_3x.yaml")
+cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5  # Seulement les objets avec un score de confiance > 0.5
+predictor = DefaultPredictor(cfg)
+
+# Chargement d'une image (par exemple, depuis un fichier ou une source)
+image_path = "path_to_your_image.jpg"  # Remplacez par le chemin réel
+image = cv2.imread(image_path)  # Image au format BGR
+image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)  # Convertir en RGB pour l'affichage
+
+# Prédictions de Detectron2
+outputs = predictor(image_rgb)
+instances = outputs["instances"]  # Objets détectés
+
+# Extraire les masques des objets détectés
+masks = instances.pred_masks.numpy()  # Masques des objets détectés
+
+# Calculer les statistiques globales de l'image (utile pour la normalisation)
+image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)  # Convertir l'image en niveaux de gris pour la détection de contours
+global_mean = np.mean(image_gray)
+global_std = np.std(image_gray)
+
+# Fonction pour calculer le contraste local en utilisant Sobel
 def compute_local_contrast(image, masks):
     diameters = []  # Diamètre des particules
     contrast_scores = []  # Score de contraste local
 
     for i, mask in enumerate(masks):
-        # Extraire les pixels de l'objet
         object_pixels = image[mask]
 
         # Appliquer un filtre de Sobel (ou Laplacien) pour obtenir les gradients
@@ -743,24 +770,16 @@ def compute_local_contrast(image, masks):
 
     return diameters, contrast_scores
 
-# Exemple d'utilisation avec l'image et les masques d'instances
-if len(instances) == 0:
-    print("Aucun objet détecté.")
-else:
-    # Extraire les propriétés des objets détectés
-    masks = instances.pred_masks.numpy()
-    image = instances.image.numpy()  # Assurez-vous que l'image est au bon format
+# Appliquer l'analyse de contraste local
+diameters, contrast_scores = compute_local_contrast(image_gray, masks)
 
-    # Appliquer l'analyse de contraste local
-    diameters, contrast_scores = compute_local_contrast(image, masks)
-
-    # Afficher un nuage de points des résultats
-    plt.figure(figsize=(10, 6))
-    scatter = plt.scatter(diameters, contrast_scores, c=contrast_scores, cmap='coolwarm', alpha=0.7)
-    plt.colorbar(scatter, label="Score de contraste local")
-    plt.title("Contraste local des objets détectés")
-    plt.xlabel("Diamètre de la particule (pixels)")
-    plt.ylabel("Score de contraste local")
-    plt.grid()
-    plt.show()
+# Afficher un nuage de points des résultats
+plt.figure(figsize=(10, 6))
+scatter = plt.scatter(diameters, contrast_scores, c=contrast_scores, cmap='coolwarm', alpha=0.7)
+plt.colorbar(scatter, label="Score de contraste local")
+plt.title("Contraste local des objets détectés")
+plt.xlabel("Diamètre de la particule (pixels)")
+plt.ylabel("Score de contraste local")
+plt.grid()
+plt.show()
 
