@@ -703,3 +703,88 @@ with open(output_coco_path, "w") as json_file:
     json.dump(coco_annotations, json_file, indent=4)
 
 print(f"Annotations sauvegardées dans {output_coco_path}")
+
+
+
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+from detectron2.engine import DefaultPredictor
+from detectron2.config import get_cfg
+from scipy.ndimage import binary_erosion
+
+# Charger l'image
+image_path = "chemin/vers/ton_image.jpg"
+image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)  # Lecture en niveaux de gris
+
+# Configurer Detectron2
+cfg = get_cfg()
+cfg.merge_from_file("detectron2/configs/COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml")
+cfg.MODEL.WEIGHTS = "detectron2://COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x/137849600/model_final_f10217.pkl"
+cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5  # Seuil de confiance
+cfg.MODEL.DEVICE = "cuda"  # Utiliser "cuda" pour GPU ou "cpu" pour CPU
+
+# Prédictions avec Detectron2
+predictor = DefaultPredictor(cfg)
+outputs = predictor(image)
+instances = outputs["instances"].to("cpu")
+
+# Vérifier si des objets ont été détectés
+if len(instances) == 0:
+    print("Aucun objet détecté.")
+else:
+    # Extraire les propriétés des objets détectés
+    masks = instances.pred_masks.numpy()
+    scores = instances.scores.numpy()
+
+    mean_intensities = []  # Moyenne des intensités des voisins pour chaque particule
+    intensities_classification = []  # Catégorisation (très blanc ou moins blanc)
+
+    for i, mask in enumerate(masks):
+        # Érosion pour exclure l'objet lui-même
+        eroded_mask = binary_erosion(mask, structure=np.ones((3, 3)))
+        border_mask = mask ^ eroded_mask  # Zone de voisinage autour de l'objet
+
+        # Vérifier que la bordure n'est pas vide
+        border_pixels = image[border_mask]
+        if border_pixels.size > 0:
+            mean_border_intensity = np.mean(border_pixels)
+            mean_intensities.append(mean_border_intensity)
+        else:
+            mean_intensities.append(0)  # Si aucun voisin détecté, mettre 0
+
+    # Calcul dynamique du seuil basé sur l'écart-type
+    mean_intensity = np.mean(mean_intensities)
+    std_intensity = np.std(mean_intensities)
+    threshold = mean_intensity + 0.5 * std_intensity  # Ajustement basé sur 0.5 écart-type (modifiable)
+
+    # Classification des particules en fonction du seuil dynamique
+    for intensity in mean_intensities:
+        if intensity >= threshold:
+            intensities_classification.append("Très blanc")
+        else:
+            intensities_classification.append("Moins blanc")
+
+    # Visualiser les particules sur l'image
+    visual_image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+    for i, mask in enumerate(masks):
+        color = (0, 0, 255) if intensities_classification[i] == "Très blanc" else (255, 0, 0)  # Rouge ou Bleu
+        visual_image[mask] = color
+
+    # Afficher l'image avec les annotations
+    plt.figure(figsize=(12, 8))
+    plt.imshow(cv2.cvtColor(visual_image, cv2.COLOR_BGR2RGB))
+    plt.title("Classification des particules (Très blanc vs Moins blanc) avec seuil dynamique")
+    plt.axis("off")
+    plt.show()
+
+    # Tracer un histogramme des intensités moyennes
+    plt.figure(figsize=(10, 6))
+    plt.hist(mean_intensities, bins=20, color='gray', alpha=0.7)
+    plt.axvline(threshold, color='red', linestyle='dashed', linewidth=2, label=f"Seuil dynamique: {threshold:.2f}")
+    plt.title("Distribution des intensités moyennes des voisins")
+    plt.xlabel("Intensité moyenne des voisins")
+    plt.ylabel("Nombre de particules")
+    plt.legend()
+    plt.grid()
+    plt.show()
