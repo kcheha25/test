@@ -336,3 +336,370 @@ class CocoTrainer(DefaultTrainer):
     @classmethod
     def build_train_loader(cls, cfg):
         return build_detection_train_loader(cfg, mapper=custom_mapper)
+        #########################33
+
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+from detectron2.engine import DefaultPredictor
+from detectron2.config import get_cfg
+from detectron2.data import MetadataCatalog
+from scipy.ndimage import binary_erosion
+
+# Charger l'image
+image_path = "chemin/vers/ton_image.jpg"
+image = cv2.imread(image_path)
+
+# Configurer Detectron2
+cfg = get_cfg()
+cfg.merge_from_file("detectron2/configs/COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml")
+cfg.MODEL.WEIGHTS = "detectron2://COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x/137849600/model_final_f10217.pkl"
+cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5  # Seuil de confiance
+cfg.MODEL.DEVICE = "cuda"  # Utiliser "cuda" pour GPU ou "cpu" pour CPU
+
+# Prédictions avec Detectron2
+predictor = DefaultPredictor(cfg)
+outputs = predictor(image)
+instances = outputs["instances"].to("cpu")
+
+# Vérifier si des objets ont été détectés
+if len(instances) == 0:
+    print("Aucun objet détecté.")
+else:
+    # Extraire les propriétés des objets détectés
+    masks = instances.pred_masks.numpy()
+    scores = instances.scores.numpy()
+    boxes = instances.pred_boxes.tensor.numpy()
+
+    diameters = []  # Diamètre des particules
+    ratios = []  # Rapport entre valeur moyenne des pixels objet et pixels voisins
+
+    for i, mask in enumerate(masks):
+        # Érosion pour obtenir les pixels voisins immédiats
+        eroded_mask = binary_erosion(mask, structure=np.ones((3, 3)))
+        border_mask = mask ^ eroded_mask  # Bordure autour de l'objet
+
+        # Vérifier qu'il n'y a pas d'autres objets proches
+        for j, other_mask in enumerate(masks):
+            if i != j and np.any(mask & other_mask):  # Intersection avec un autre objet
+                break
+        else:
+            # Si aucun voisin proche
+            object_pixels = image[mask]
+            border_pixels = image[border_mask]
+
+            # Vérifier que la bordure n'est pas vide
+            if border_pixels.size > 0:
+                mean_object_value = np.mean(object_pixels)
+                mean_border_value = np.mean(border_pixels)
+                ratio = mean_object_value / mean_border_value
+                ratios.append(ratio)
+
+                # Calculer le diamètre (diagonale de la boîte englobante)
+                x1, y1, x2, y2 = boxes[i]
+                width = x2 - x1
+                height = y2 - y1
+                diameter = np.sqrt(width**2 + height**2)
+                diameters.append(diameter)
+
+    # Tracer la courbe
+    if len(diameters) > 0 and len(ratios) > 0:
+        plt.figure(figsize=(10, 6))
+        plt.scatter(diameters, ratios, color='b', label="Rapport objet/fond")
+        plt.title("Rapport de valeur moyenne (objet/fond) en fonction du diamètre")
+        plt.xlabel("Diamètre des particules (px)")
+        plt.ylabel("Rapport valeur moyenne objet/fond")
+        plt.grid()
+        plt.legend()
+        plt.show()
+    else:
+        print("Aucun objet valide trouvé après exclusion des voisins.")
+
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+from detectron2.engine import DefaultPredictor
+from detectron2.config import get_cfg
+from scipy.ndimage import binary_erosion
+
+# Charger l'image
+image_path = "chemin/vers/ton_image.jpg"
+image = cv2.imread(image_path)
+
+# Configurer Detectron2
+cfg = get_cfg()
+cfg.merge_from_file("detectron2/configs/COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml")
+cfg.MODEL.WEIGHTS = "detectron2://COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x/137849600/model_final_f10217.pkl"
+cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5  # Seuil de confiance
+cfg.MODEL.DEVICE = "cuda"  # Utiliser "cuda" pour GPU ou "cpu" pour CPU
+
+# Prédictions avec Detectron2
+predictor = DefaultPredictor(cfg)
+outputs = predictor(image)
+instances = outputs["instances"].to("cpu")
+
+# Vérifier si des objets ont été détectés
+if len(instances) == 0:
+    print("Aucun objet détecté.")
+else:
+    # Extraire les propriétés des objets détectés
+    masks = instances.pred_masks.numpy()
+    scores = instances.scores.numpy()
+    boxes = instances.pred_boxes.tensor.numpy()
+
+    diameters = []  # Diamètre des particules
+    ratios = []  # Rapport entre valeur moyenne des pixels objet et pixels voisins
+
+    for i, mask in enumerate(masks):
+        # Érosion pour obtenir les pixels voisins immédiats
+        eroded_mask = binary_erosion(mask, structure=np.ones((3, 3)))
+        border_mask = mask ^ eroded_mask  # Bordure autour de l'objet
+
+        # Vérifier qu'il n'y a pas d'autres objets proches
+        for j, other_mask in enumerate(masks):
+            if i != j and np.any(mask & other_mask):  # Intersection avec un autre objet
+                break
+        else:
+            # Si aucun voisin proche
+            object_pixels = image[mask]
+            border_pixels = image[border_mask]
+
+            # Vérifier que la bordure n'est pas vide
+            if border_pixels.size > 0:
+                mean_object_value = np.mean(object_pixels)
+                mean_border_value = np.mean(border_pixels)
+                ratio = mean_object_value / mean_border_value
+                ratios.append(ratio)
+
+                # Calculer le diamètre (diagonale de la boîte englobante)
+                x1, y1, x2, y2 = boxes[i]
+                width = x2 - x1
+                height = y2 - y1
+                diameter = np.sqrt(width**2 + height**2)
+                diameters.append(diameter)
+
+    # Regrouper les diamètres en intervalles (bins)
+    if len(diameters) > 0 and len(ratios) > 0:
+        bin_edges = np.linspace(min(diameters), max(diameters), num=20)  # 20 intervalles
+        bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2  # Centres des intervalles
+
+        # Calculer la moyenne des ratios pour chaque intervalle
+        binned_ratios = []
+        for i in range(len(bin_edges) - 1):
+            bin_mask = (np.array(diameters) >= bin_edges[i]) & (np.array(diameters) < bin_edges[i + 1])
+            if np.any(bin_mask):  # Vérifier s'il y a des points dans cet intervalle
+                binned_ratios.append(np.mean(np.array(ratios)[bin_mask]))
+            else:
+                binned_ratios.append(None)  # Aucun point dans cet intervalle
+
+        # Filtrer les intervalles non vides
+        filtered_centers = [c for c, r in zip(bin_centers, binned_ratios) if r is not None]
+        filtered_ratios = [r for r in binned_ratios if r is not None]
+
+        # Tracer la courbe lissée
+        plt.figure(figsize=(10, 6))
+        plt.plot(filtered_centers, filtered_ratios, marker='o', color='b', label="Rapport objet/fond (lissé)")
+        plt.title("Rapport de valeur moyenne (objet/fond) en fonction du diamètre (courbe)")
+        plt.xlabel("Diamètre des particules (px)")
+        plt.ylabel("Rapport valeur moyenne objet/fond")
+        plt.grid()
+        plt.legend()
+        plt.show()
+    else:
+        print("Aucun objet valide trouvé après exclusion des voisins.")
+
+
+####################################################################################################
+import os
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+from detectron2.engine import DefaultPredictor
+from detectron2.config import get_cfg
+from detectron2.data import MetadataCatalog
+
+# Configurer Detectron2
+cfg = get_cfg()
+cfg.merge_from_file("detectron2/configs/COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml")
+cfg.MODEL.WEIGHTS = "detectron2://COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x/137849600/model_final_f10217.pkl"
+cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5  # Seuil de confiance
+cfg.MODEL.DEVICE = "cuda"  # Utiliser "cuda" pour GPU ou "cpu" pour CPU
+
+# Initialiser le modèle Detectron2
+predictor = DefaultPredictor(cfg)
+
+# Dossier contenant les images
+input_folder = "chemin/vers/dossier_images"
+output_folder = "chemin/vers/dossier_output"
+os.makedirs(output_folder, exist_ok=True)
+
+# Parcourir toutes les images du dossier
+for filename in os.listdir(input_folder):
+    if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tiff')):
+        image_path = os.path.join(input_folder, filename)
+        image = cv2.imread(image_path)
+        
+        # Prédictions avec Detectron2
+        outputs = predictor(image)
+        instances = outputs["instances"].to("cpu")
+        masks = instances.pred_masks.numpy() if instances.has("pred_masks") else None
+        
+        if masks is not None and len(masks) > 0:
+            # Fusionner tous les masques détectés pour créer une image binaire
+            combined_mask = np.any(masks, axis=0).astype(np.uint8) * 255
+        else:
+            # Aucun objet détecté, créer une image noire
+            combined_mask = np.zeros(image.shape[:2], dtype=np.uint8)
+
+        # Sauvegarder et afficher le masque
+        output_path = os.path.join(output_folder, f"mask_{filename}")
+        cv2.imwrite(output_path, combined_mask)
+
+        # Afficher l'image originale et le masque
+        plt.figure(figsize=(12, 6))
+        plt.subplot(1, 2, 1)
+        plt.title("Image originale")
+        plt.imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+        plt.axis('off')
+
+        plt.subplot(1, 2, 2)
+        plt.title("Masque détecté")
+        plt.imshow(combined_mask, cmap="gray")
+        plt.axis('off')
+
+        plt.show()
+
+print(f"Tous les masques ont été sauvegardés dans : {output_folder}")
+##################################################################################
+import os
+import cv2
+import numpy as np
+from detectron2.engine import DefaultPredictor
+from detectron2.config import get_cfg
+from detectron2.data import MetadataCatalog
+from detectron2.utils.visualizer import Visualizer
+
+# Configurer Detectron2
+cfg = get_cfg()
+cfg.merge_from_file("detectron2/configs/COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml")
+cfg.MODEL.WEIGHTS = "detectron2://COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x/137849600/model_final_f10217.pkl"
+cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5  # Seuil de confiance
+cfg.MODEL.DEVICE = "cuda"  # Utiliser "cuda" pour GPU ou "cpu" pour CPU
+
+predictor = DefaultPredictor(cfg)
+
+# Dossier contenant les images
+input_folder = "chemin/vers/ton_dossier_images"
+output_folder = "chemin/vers/ton_dossier_resultats"
+os.makedirs(output_folder, exist_ok=True)
+
+# Parcourir les images dans le dossier
+for filename in os.listdir(input_folder):
+    if filename.lower().endswith(('.png', '.jpg', '.jpeg')):  # Vérifier les formats d'image
+        # Charger l'image
+        image_path = os.path.join(input_folder, filename)
+        image = cv2.imread(image_path)
+
+        # Faire les prédictions
+        outputs = predictor(image)
+        instances = outputs["instances"].to("cpu")
+
+        # Créer un masque binaire (1 pour les objets détectés, 0 pour le fond)
+        mask = np.zeros(image.shape[:2], dtype=np.uint8)
+        if len(instances) > 0:
+            for instance_mask in instances.pred_masks.numpy():
+                mask[instance_mask] = 255
+
+        # Sauvegarder le masque avec le même nom que l'image d'entrée
+        output_path = os.path.join(output_folder, filename)
+        cv2.imwrite(output_path, mask)
+
+print("Les masques ont été générés et sauvegardés dans le dossier :", output_folder)
+##########################################################################################
+import os
+import cv2
+import json
+import numpy as np
+from detectron2.engine import DefaultPredictor
+from detectron2.config import get_cfg
+from detectron2.data import MetadataCatalog
+
+# Dossier contenant les images d'entrée
+input_folder = "chemin/vers/dossier/images"
+output_coco_path = "annotations_coco.json"  # Chemin pour le fichier JSON
+
+# Configurer Detectron2
+cfg = get_cfg()
+cfg.merge_from_file("detectron2/configs/COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml")
+cfg.MODEL.WEIGHTS = "detectron2://COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x/137849600/model_final_f10217.pkl"
+cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5  # Seuil de confiance
+cfg.MODEL.DEVICE = "cuda"  # Utiliser "cuda" pour GPU ou "cpu" pour CPU
+
+predictor = DefaultPredictor(cfg)
+
+# Initialiser les données COCO
+coco_annotations = {
+    "images": [],
+    "annotations": [],
+    "categories": [{"id": 1, "name": "object", "supercategory": "none"}]  # Ajouter des catégories selon le besoin
+}
+
+annotation_id = 1  # Identifiant unique pour chaque annotation
+image_id = 1       # Identifiant unique pour chaque image
+
+# Parcourir les images du dossier
+for filename in os.listdir(input_folder):
+    if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.tiff')):
+        image_path = os.path.join(input_folder, filename)
+        image = cv2.imread(image_path)
+        height, width = image.shape[:2]
+
+        # Ajouter les métadonnées de l'image
+        coco_annotations["images"].append({
+            "id": image_id,
+            "file_name": filename,
+            "height": height,
+            "width": width
+        })
+
+        # Prédictions avec Detectron2
+        outputs = predictor(image)
+        instances = outputs["instances"].to("cpu")
+
+        if len(instances) > 0:
+            masks = instances.pred_masks.numpy()
+            boxes = instances.pred_boxes.tensor.numpy()
+            scores = instances.scores.numpy()
+
+            # Ajouter chaque objet détecté comme annotation
+            for i, mask in enumerate(masks):
+                # Convertir le masque binaire en polygone (format COCO)
+                contours, _ = cv2.findContours(mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                segmentation = [contour.flatten().tolist() for contour in contours if len(contour.flatten()) > 4]
+
+                if len(segmentation) > 0:  # Ajouter uniquement si un polygone est valide
+                    x_min, y_min, x_max, y_max = boxes[i]
+                    width = x_max - x_min
+                    height = y_max - y_min
+                    area = width * height
+
+                    coco_annotations["annotations"].append({
+                        "id": annotation_id,
+                        "image_id": image_id,
+                        "category_id": 1,  # Catégorie unique, adapter selon le besoin
+                        "bbox": [float(x_min), float(y_min), float(width), float(height)],
+                        "area": float(area),
+                        "segmentation": segmentation,
+                        "iscrowd": 0
+                    })
+
+                    annotation_id += 1
+
+        # Passer à l'image suivante
+        image_id += 1
+
+# Sauvegarder les annotations dans un fichier JSON
+with open(output_coco_path, "w") as json_file:
+    json.dump(coco_annotations, json_file, indent=4)
+
+print(f"Annotations sauvegardées dans {output_coco_path}")
