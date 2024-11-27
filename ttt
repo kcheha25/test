@@ -705,89 +705,78 @@ with open(output_coco_path, "w") as json_file:
 print(f"Annotations sauvegardées dans {output_coco_path}")
 
 import numpy as np
-import cv2
-from sklearn.cluster import KMeans
 import matplotlib.pyplot as plt
-from detectron2.engine import DefaultPredictor
-from detectron2.config import get_cfg
-from detectron2 import model_zoo
+from sklearn.cluster import KMeans
+import cv2
 
-# Assurez-vous que vous avez chargé votre modèle Detectron2 correctement
-cfg = get_cfg()
-cfg.merge_from_file(model_zoo.get_config_file("COCO-Detection/faster_rcnn_R_50_FPN_3x.yaml"))
-cfg.MODEL.WEIGHTS = model_zoo.get_checkpoint_url("COCO-Detection/faster_rcnn_R_50_FPN_3x.yaml")
-cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5  # Seulement les objets avec un score de confiance > 0.5
-predictor = DefaultPredictor(cfg)
-
-# Chargement de l'image
-image_path = "path_to_your_image.jpg"  # Remplacez par le chemin réel
-image = cv2.imread(image_path)  # Image au format BGR
-image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)  # Convertir en RGB pour l'affichage
-
-# Prédictions de Detectron2
-outputs = predictor(image_rgb)
-instances = outputs["instances"]  # Objets détectés
-
-# Extraire les masques des objets détectés
-masks = instances.pred_masks.numpy()  # Masques des objets détectés
-
-# Convertir l'image en niveaux de gris pour K-means
-image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-
-# Appliquer K-means pour segmenter les pixels en groupes de luminosité
-image_flat = image_gray.flatten().reshape(-1, 1)  # Aplatir l'image pour K-means
-kmeans = KMeans(n_clusters=3)  # Trois clusters : très blanc, blanc moyen, sombre
-kmeans.fit(image_flat)
-labels = kmeans.labels_.reshape(image_gray.shape)  # Récupérer les labels de cluster
-
-# Visualiser les résultats du clustering
-plt.figure(figsize=(10, 6))
-plt.imshow(labels, cmap='viridis')
-plt.colorbar(label="Cluster de luminosité")
-plt.title("Segmentation de l'image par K-means (Luminosité)")
-plt.show()
-
-# Calculer les classes de luminosité des objets détectés
-brightness_classes = []  # Classe de luminosité de chaque objet
-
-for i, mask in enumerate(masks):
-    # Extraire les pixels de l'objet détecté
-    object_pixels = image_gray[mask]
+# Fonction pour effectuer le clustering sur l'image en fonction de la luminosité
+def perform_clustering(image, n_clusters=3):
+    # Convertir l'image en niveaux de gris pour le clustering basé sur la luminosité
+    image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     
-    # Récupérer les labels des pixels dans la zone de l'objet
-    object_labels = labels[mask]
+    # Redimensionner l'image pour appliquer K-means (chaque pixel devient un échantillon)
+    pixels = image_gray.reshape(-1, 1)  # Chaque pixel devient un vecteur (luminosité)
     
-    # Calculer la classe majoritaire de luminosité dans l'objet
-    unique, counts = np.unique(object_labels, return_counts=True)
-    dominant_label = unique[np.argmax(counts)]  # Classe majoritaire
-    brightness_classes.append(dominant_label)
-
-    # Afficher la classe de luminosité pour chaque objet
-    print(f"Objet {i + 1} - Classe de luminosité : {dominant_label}")
-
-# Optionnel : Afficher les objets avec leur classe de luminosité sur l'image
-for i, mask in enumerate(masks):
-    color = (255, 0, 0) if brightness_classes[i] == 2 else (0, 255, 0)  # Rouge pour les objets très blancs, vert pour les autres
-    image_rgb = cv2.drawContours(image_rgb, [mask.astype(np.int32)], -1, color, 2)
-
-plt.figure(figsize=(10, 6))
-plt.imshow(image_rgb)
-plt.title("Objets détectés avec leur classe de luminosité")
-plt.show()
-# Appliquer les contours pour chaque objet détecté
-for i, mask in enumerate(masks):
-    # Convertir le masque en type entier
-    mask_int = mask.astype(np.uint8)  # Convertir en entier de type uint8
-    mask_contours, _ = cv2.findContours(mask_int, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)  # Trouver les contours du masque
+    # Appliquer K-means pour regrouper les pixels en clusters de luminosité
+    kmeans = KMeans(n_clusters=n_clusters, random_state=42)
+    kmeans.fit(pixels)
     
-    # Dessiner les contours
-    color = (255, 0, 0) if brightness_classes[i] == 2 else (0, 255, 0)  # Rouge pour les objets très blancs, vert pour les autres
-    image_rgb = cv2.drawContours(image_rgb, mask_contours, -1, color, 2)
+    # Reshape les labels pour avoir la même forme que l'image
+    labels = kmeans.labels_.reshape(image_gray.shape)
+    
+    return labels, kmeans
 
-# Afficher l'image avec les contours dessinés
+# Fonction pour dessiner les contours et colorier selon le cluster
+def draw_clusters_with_contours(image, masks, labels):
+    # Générer des couleurs distinctes pour chaque cluster
+    unique_labels = np.unique(labels)
+    colors = plt.cm.get_cmap('tab20', len(unique_labels))  # Utiliser un cmap avec suffisamment de couleurs
+
+    # Appliquer les contours pour chaque objet détecté
+    for i, mask in enumerate(masks):
+        # Convertir le masque en entier
+        mask_int = mask.astype(np.uint8)
+        mask_contours, _ = cv2.findContours(mask_int, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        # Extraire les pixels de l'objet et déterminer le cluster associé
+        object_pixels = image[mask]
+        object_mask = mask_int > 0  # Pixels de l'objet dans le masque
+        
+        # Calculer la classe de luminosité moyenne de l'objet
+        object_luminance = np.mean(cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)[object_mask])
+        
+        # Trouver le cluster associé à l'objet
+        cluster_label = labels[object_mask].mean()  # Moyenne des labels des pixels de l'objet
+        cluster_label = int(np.round(cluster_label))  # Arrondir pour obtenir un entier
+        
+        # Définir la couleur du cluster
+        color = colors(cluster_label)[:3]  # Obtenir la couleur correspondante au cluster (r,g,b)
+
+        # Dessiner les contours avec la couleur correspondante
+        image = cv2.drawContours(image, mask_contours, -1, tuple(np.round(color * 255).astype(int)), 2)
+    
+    return image
+
+# Exemple d'image (remplacer par votre image réelle)
+image_path = "path_to_your_image.jpg"
+image = cv2.imread(image_path)
+
+# Effectuer le clustering de l'image
+n_clusters = 3  # Définir le nombre de clusters
+labels, kmeans = perform_clustering(image, n_clusters=n_clusters)
+
+# Supposons que vous avez déjà extrait les objets avec detectron2
+# Ici, remplacez `masks` par les masques d'objets obtenus à partir de detectron2
+masks = np.random.randint(0, 2, (10, 512, 512))  # Exemple de masques (remplacer par les vrais masques)
+
+# Appliquer le dessin des contours avec la couleur des clusters
+image_rgb = image.copy()  # Créer une copie de l'image pour ne pas altérer l'originale
+image_with_contours = draw_clusters_with_contours(image_rgb, masks, labels)
+
+# Afficher l'image avec les contours
 plt.figure(figsize=(10, 6))
-plt.imshow(image_rgb)
-plt.title("Objets détectés avec leur classe de luminosité")
+plt.imshow(cv2.cvtColor(image_with_contours, cv2.COLOR_BGR2RGB))
+plt.title("Objets détectés avec leurs clusters de luminosité")
 plt.show()
 
 
