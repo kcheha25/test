@@ -710,7 +710,7 @@ from scipy.ndimage import sobel, binary_dilation
 from detectron2.engine import DefaultPredictor
 from detectron2.config import get_cfg
 from detectron2 import model_zoo
-import torch
+import cv2
 
 # Assurez-vous que vous avez chargé votre modèle Detectron2 correctement
 cfg = get_cfg()
@@ -742,6 +742,7 @@ def compute_local_contrast(image, masks):
     contrast_scores = []  # Score de contraste local
 
     for i, mask in enumerate(masks):
+        # Extraire les pixels correspondant à l'objet détecté
         object_pixels = image[mask]
 
         # Appliquer un filtre de Sobel (ou Laplacien) pour obtenir les gradients
@@ -750,7 +751,7 @@ def compute_local_contrast(image, masks):
         gradient_magnitude = np.hypot(sobel_x, sobel_y)  # Magnitude du gradient
 
         # Dilater le masque de l'objet pour définir la zone voisine
-        dilated_mask = binary_dilation(mask, structure=np.ones((5, 5)))
+        dilated_mask = binary_dilation(mask, structure=np.ones((5, 5)))  # Dilater le masque de l'objet
         neighbor_mask = dilated_mask & ~mask  # Zone voisine sans l'objet
 
         # Extraire les pixels des gradients dans le voisinage
@@ -782,4 +783,5 @@ plt.xlabel("Diamètre de la particule (pixels)")
 plt.ylabel("Score de contraste local")
 plt.grid()
 plt.show()
+
 
