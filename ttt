@@ -705,12 +705,12 @@ with open(output_coco_path, "w") as json_file:
 print(f"Annotations sauvegardées dans {output_coco_path}")
 
 import numpy as np
+import cv2
+from sklearn.cluster import KMeans
 import matplotlib.pyplot as plt
-from scipy.ndimage import sobel, binary_dilation
 from detectron2.engine import DefaultPredictor
 from detectron2.config import get_cfg
 from detectron2 import model_zoo
-import cv2
 
 # Assurez-vous que vous avez chargé votre modèle Detectron2 correctement
 cfg = get_cfg()
@@ -719,7 +719,7 @@ cfg.MODEL.WEIGHTS = model_zoo.get_checkpoint_url("COCO-Detection/faster_rcnn_R_5
 cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5  # Seulement les objets avec un score de confiance > 0.5
 predictor = DefaultPredictor(cfg)
 
-# Chargement d'une image (par exemple, depuis un fichier ou une source)
+# Chargement de l'image
 image_path = "path_to_your_image.jpg"  # Remplacez par le chemin réel
 image = cv2.imread(image_path)  # Image au format BGR
 image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)  # Convertir en RGB pour l'affichage
@@ -731,57 +731,49 @@ instances = outputs["instances"]  # Objets détectés
 # Extraire les masques des objets détectés
 masks = instances.pred_masks.numpy()  # Masques des objets détectés
 
-# Calculer les statistiques globales de l'image (utile pour la normalisation)
-image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)  # Convertir l'image en niveaux de gris pour la détection de contours
-global_mean = np.mean(image_gray)
-global_std = np.std(image_gray)
+# Convertir l'image en niveaux de gris pour K-means
+image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-# Fonction pour calculer le contraste local en utilisant Sobel
-def compute_local_contrast(image, masks):
-    diameters = []  # Diamètre des particules
-    contrast_scores = []  # Score de contraste local
+# Appliquer K-means pour segmenter les pixels en groupes de luminosité
+image_flat = image_gray.flatten().reshape(-1, 1)  # Aplatir l'image pour K-means
+kmeans = KMeans(n_clusters=3)  # Trois clusters : très blanc, blanc moyen, sombre
+kmeans.fit(image_flat)
+labels = kmeans.labels_.reshape(image_gray.shape)  # Récupérer les labels de cluster
 
-    for i, mask in enumerate(masks):
-        # Extraire les pixels correspondant à l'objet détecté
-        object_pixels = image[mask]
-
-        # Appliquer un filtre de Sobel (ou Laplacien) pour obtenir les gradients
-        sobel_x = sobel(image, axis=0)  # Gradient dans la direction x
-        sobel_y = sobel(image, axis=1)  # Gradient dans la direction y
-        gradient_magnitude = np.hypot(sobel_x, sobel_y)  # Magnitude du gradient
-
-        # Dilater le masque de l'objet pour définir la zone voisine
-        dilated_mask = binary_dilation(mask, structure=np.ones((5, 5)))  # Dilater le masque de l'objet
-        neighbor_mask = dilated_mask & ~mask  # Zone voisine sans l'objet
-
-        # Extraire les pixels des gradients dans le voisinage
-        neighbor_gradients = gradient_magnitude[neighbor_mask]
-
-        # Calculer le contraste local entre l'objet et son voisinage
-        if neighbor_gradients.size > 0:  # Eviter division par zéro
-            object_mean = np.mean(object_pixels)
-            neighbor_mean = np.mean(neighbor_gradients)
-            contrast_score = (object_mean - neighbor_mean) / (neighbor_mean + 1e-6)  # Éviter diviser par zéro
-            contrast_scores.append(contrast_score)
-
-            # Calculer le diamètre (hypothèse : aire circulaire)
-            area = np.sum(mask)
-            diameter = np.sqrt(4 * area / np.pi)
-            diameters.append(diameter)
-
-    return diameters, contrast_scores
-
-# Appliquer l'analyse de contraste local
-diameters, contrast_scores = compute_local_contrast(image_gray, masks)
-
-# Afficher un nuage de points des résultats
+# Visualiser les résultats du clustering
 plt.figure(figsize=(10, 6))
-scatter = plt.scatter(diameters, contrast_scores, c=contrast_scores, cmap='coolwarm', alpha=0.7)
-plt.colorbar(scatter, label="Score de contraste local")
-plt.title("Contraste local des objets détectés")
-plt.xlabel("Diamètre de la particule (pixels)")
-plt.ylabel("Score de contraste local")
-plt.grid()
+plt.imshow(labels, cmap='viridis')
+plt.colorbar(label="Cluster de luminosité")
+plt.title("Segmentation de l'image par K-means (Luminosité)")
 plt.show()
+
+# Calculer les classes de luminosité des objets détectés
+brightness_classes = []  # Classe de luminosité de chaque objet
+
+for i, mask in enumerate(masks):
+    # Extraire les pixels de l'objet détecté
+    object_pixels = image_gray[mask]
+    
+    # Récupérer les labels des pixels dans la zone de l'objet
+    object_labels = labels[mask]
+    
+    # Calculer la classe majoritaire de luminosité dans l'objet
+    unique, counts = np.unique(object_labels, return_counts=True)
+    dominant_label = unique[np.argmax(counts)]  # Classe majoritaire
+    brightness_classes.append(dominant_label)
+
+    # Afficher la classe de luminosité pour chaque objet
+    print(f"Objet {i + 1} - Classe de luminosité : {dominant_label}")
+
+# Optionnel : Afficher les objets avec leur classe de luminosité sur l'image
+for i, mask in enumerate(masks):
+    color = (255, 0, 0) if brightness_classes[i] == 2 else (0, 255, 0)  # Rouge pour les objets très blancs, vert pour les autres
+    image_rgb = cv2.drawContours(image_rgb, [mask.astype(np.int32)], -1, color, 2)
+
+plt.figure(figsize=(10, 6))
+plt.imshow(image_rgb)
+plt.title("Objets détectés avec leur classe de luminosité")
+plt.show()
+
 
 
