@@ -774,6 +774,21 @@ plt.figure(figsize=(10, 6))
 plt.imshow(image_rgb)
 plt.title("Objets détectés avec leur classe de luminosité")
 plt.show()
+# Appliquer les contours pour chaque objet détecté
+for i, mask in enumerate(masks):
+    # Convertir le masque en type entier
+    mask_int = mask.astype(np.uint8)  # Convertir en entier de type uint8
+    mask_contours, _ = cv2.findContours(mask_int, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)  # Trouver les contours du masque
+    
+    # Dessiner les contours
+    color = (255, 0, 0) if brightness_classes[i] == 2 else (0, 255, 0)  # Rouge pour les objets très blancs, vert pour les autres
+    image_rgb = cv2.drawContours(image_rgb, mask_contours, -1, color, 2)
+
+# Afficher l'image avec les contours dessinés
+plt.figure(figsize=(10, 6))
+plt.imshow(image_rgb)
+plt.title("Objets détectés avec leur classe de luminosité")
+plt.show()
 
 
 
