@@ -705,79 +705,26 @@ with open(output_coco_path, "w") as json_file:
 print(f"Annotations sauvegardées dans {output_coco_path}")
 
 
-
-import cv2
-import numpy as np
-import matplotlib.pyplot as plt
-from detectron2.engine import DefaultPredictor
-from detectron2.config import get_cfg
-from scipy.ndimage import binary_dilation
-
-# Charger l'image
-image_path = "chemin/vers/ton_image.jpg"
-image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)  # Lecture en niveaux de gris
-
-# Configurer Detectron2
-cfg = get_cfg()
-cfg.merge_from_file("detectron2/configs/COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml")
-cfg.MODEL.WEIGHTS = "detectron2://COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x/137849600/model_final_f10217.pkl"
-cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5  # Seuil de confiance
-cfg.MODEL.DEVICE = "cuda"  # Utiliser "cuda" pour GPU ou "cpu" pour CPU
-
-# Prédictions avec Detectron2
-predictor = DefaultPredictor(cfg)
-outputs = predictor(image)
-instances = outputs["instances"].to("cpu")
-
-# Vérifier si des objets ont été détectés
-if len(instances) == 0:
-    print("Aucun objet détecté.")
-else:
-    # Extraire les masques et les scores
-    masks = instances.pred_masks.numpy()
-    scores = instances.scores.numpy()
-
-    percentages = []  # Pourcentages de différence
-    diameters = []  # Diamètres des objets
-
-    for mask in masks:
-        # Calcul des pixels de l'objet
-        object_pixels = np.argwhere(mask)
-        if object_pixels.shape[0] > 0:
-            # Calcul du diamètre approximatif de l'objet
-            y_min, x_min = object_pixels.min(axis=0)
-            y_max, x_max = object_pixels.max(axis=0)
-            diameter = max(y_max - y_min, x_max - x_min)
-            diameters.append(diameter)
-
-            # Calcul des intensités de l'objet
-            object_intensity = np.mean(image[mask])
-
-            # Étendre le masque pour obtenir le voisinage (fond)
-            dilated_mask = binary_dilation(mask, structure=np.ones((5, 5)))
-            background_mask = dilated_mask ^ mask  # Zone voisine sans inclure l'objet
-            background_pixels = image[background_mask]
-
-            # Calcul des intensités du fond (voisinage)
-            if background_pixels.size > 0:
-                background_intensity = np.mean(background_pixels)
-                # Calculer le pourcentage de différence
-                if background_intensity > 0:  # Éviter la division par zéro
-                    percentage_difference = (
-                        abs(object_intensity - background_intensity) / background_intensity
-                    ) * 100
+                if object_mean < 50:
+                    mean_pixel_colors.append("red")  # Pixels sombres
+                elif 50 <= object_mean < 100:
+                    mean_pixel_colors.append("orange")  # Pixels modérément sombres
+                elif 100 <= object_mean < 150:
+                    mean_pixel_colors.append("green")  # Pixels modérément clairs
                 else:
-                    percentage_difference = 0  # Si l'intensité du fond est nulle
-            else:
-                percentage_difference = 0  # Si aucun voisin détecté
+                    mean_pixel_colors.append("blue")  # Pixels très clairs
 
-            percentages.append(percentage_difference)
-
-    # Tracer le nuage de points
+    # Afficher un nuage de points avec des couleurs différentes selon les intensités moyennes
     plt.figure(figsize=(10, 6))
-    plt.scatter(diameters, percentages, color='blue', alpha=0.7, edgecolor='k')
-    plt.title("Nuage de points : Pourcentage de Différence Objet-Fond vs Diamètre")
-    plt.xlabel("Diamètre de l'objet (en pixels)")
+    for i in range(len(diameters)):
+        plt.scatter(diameters[i], ratios[i], color=mean_pixel_colors[i], alpha=0.7)
+
+    # Ajouter des lignes de référence et une légende
+    plt.axhline(0, color='black', linestyle='dashed', linewidth=1, label="Ratio = 0")
+    plt.title("Différence normalisée entre intensité des objets et voisinage")
+    plt.xlabel("Diamètre de la particule (pixels)")
     plt.ylabel("Pourcentage de différence (%)")
-    plt.grid(True)
+    plt.legend(["Ratio = 0", "Intensité < 50", "50 <= Intensité < 100", 
+                "100 <= Intensité < 150", "Intensité >= 150"])
+    plt.grid()
     plt.show()
