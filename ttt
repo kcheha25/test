@@ -781,3 +781,32 @@ plt.show()
 
 
 
+intervals = [
+    {"diameter": (0, 0.2), "difference": (0, 10), "color": "blue", "label": "Diamètre [0, 0.2], Différence [0, 10]"},
+    {"diameter": (0, 0.2), "difference": (10, 30), "color": "green", "label": "Diamètre [0, 0.2], Différence [10, 30]"},
+    {"diameter": (0.2, 0.5), "difference": (0, np.inf), "color": "orange", "label": "Diamètre [0.2, 0.5]"},
+    {"diameter": (0.5, np.inf), "difference": (0, np.inf), "color": "red", "label": "Diamètre > 0.5"},
+]
+
+# Créer le graphique
+if len(output_diameters) > 0 and len(output_differences) > 0:
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    # Afficher les points selon les intervalles
+    for interval in intervals:
+        diam_min, diam_max = interval["diameter"]
+        diff_min, diff_max = interval["difference"]
+
+        # Filtrer les points appartenant à l'intervalle
+        mask = (
+            (output_diameters >= diam_min) & (output_diameters < diam_max) &
+            (output_differences >= diff_min) & (output_differences < diff_max)
+        )
+        ax.scatter(
+            np.array(output_diameters)[mask],
+            np.array(output_differences)[mask],
+            color=interval["color"],
+            label=interval["label"],
+            alpha=0.7
+        )
+    
