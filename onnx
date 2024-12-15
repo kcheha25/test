@@ -314,3 +314,76 @@ onnx.checker.check_model(model)
 
 # To print a human readable representation of the graph use:
 print(onnx.helper.printable_graph(model.graph))
+
+
+import cv2
+import numpy as np
+import onnxruntime as ort
+from detectron2.utils.visualizer import Visualizer, ColorMode
+from detectron2.data import MetadataCatalog
+from detectron2.structures import Boxes, Instances
+import torch
+
+# Charger l'image pour l'inférence
+image_path = 'projetm1_data/test/Tbaro-WT-pyruvte-point-final_5C_ch00_part_7_jpg.rf.e8965bf5c4d972f9f102c03d4722fed8.jpg'
+image = cv2.imread(image_path)
+image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+# Prétraitement de l'image (redimensionner et normaliser si nécessaire)
+input_image = cv2.resize(image_rgb, (667, 1333))  # Redimensionner à la taille d'entrée attendue
+input_image = input_image.astype(np.float32)
+input_image = np.transpose(input_image, (2, 0, 1))  # Changer de HWC à CHW
+
+# Ajouter une dimension pour le batch size (forme: [1, C, H, W])
+input_image = np.expand_dims(input_image, axis=0)
+
+# Retirer la dimension supplémentaire pour correspondre à l'entrée attendue par le modèle (forme: [C, H, W])
+input_image = np.squeeze(input_image, axis=0)  # Retirer la dimension du batch
+
+# Charger le modèle ONNX
+onnx_model_path = 'onnx/model.onnx'
+session = ort.InferenceSession(onnx_model_path)
+
+# Préparer les entrées pour le modèle
+input_name = session.get_inputs()[0].name  # Nom de l'entrée du modèle
+inputs = {input_name: input_image}
+
+# Exécuter l'inférence
+outputs = session.run(None, inputs)
+
+# Afficher les sorties pour inspection
+print("Outputs:", outputs)
+for i, output in enumerate(outputs):
+    print(f"Output {i} shape: {output.shape}")
+
+# Extraire les informations pertinentes
+boxes = outputs[0]  # Boîtes de détection
+classes = outputs[1]  # Classes de détection (toutes 0 dans ton cas)
+masks = outputs[2]   # Masques de segmentation
+
+# Formater les prédictions pour Detectron2 Visualizer
+# Convertir les boîtes en objets "Boxes" de Detectron2
+boxes = Boxes(torch.tensor(boxes))  # Convertir en tensor PyTorch et encapsuler dans un objet "Boxes"
+
+# Créer un objet "Instances" de Detectron2
+instances = Instances(image_rgb.shape[:2])  # Créer un objet "Instances" vide avec la taille de l'image
+instances.pred_boxes = boxes  # Ajouter les boîtes détectées
+instances.pred_classes = torch.tensor(classes, dtype=torch.int64)  # Ajouter les classes détectées
+
+# Charger les métadonnées
+metadata = MetadataCatalog.get("my_dataset_train")  # Remplacez par votre dataset
+
+# Visualisation avec Detectron2 Visualizer
+v = Visualizer(image_rgb[:, :, ::-1],  # Convertir de RGB à BGR pour OpenCV
+               metadata=metadata,
+               scale=1.0,
+               instance_mode=ColorMode.IMAGE
+)
+
+# Dessiner les prédictions d'instances sur l'image
+v = v.draw_instance_predictions(instances)
+
+img = v.get_image()[:,:,[2,1,0]]
+img = Image.fromarray(img)
+plt.figure(figsize=(10, 10))
+plt.imshow(img)
