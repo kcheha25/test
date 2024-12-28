@@ -1,12 +1,13 @@
 import cv2
 import numpy as np
+import random
+from math import atan2, degrees
 import matplotlib.pyplot as plt
 from detectron2.utils.visualizer import Visualizer
-import matplotlib as mpl
+from skimage.measure import label, regionprops
 
 # Fonction de calcul de l'angle d'orientation d'un rectangle
 def get_angle(x1, y1, x2, y2):
-    from math import atan2, degrees
     angle = atan2(y2 - y1, x2 - x1)
     return degrees(angle)
 
@@ -36,6 +37,20 @@ def extract_feuillets(outputs):
         feuillets.append((center_x, center_y, angle))
     
     return feuillets
+
+# Calculer la longueur des feuillets à partir de leur masque
+def calculate_feuillet_length(mask):
+    # Utiliser `regionprops` de `skimage` pour obtenir les propriétés du masque
+    regions = regionprops(mask)
+    
+    # Extraire le diamètre du feuillet (diamètre équivalent)
+    lengths = []
+    for region in regions:
+        # Diamètre équivalent d'un objet, basé sur la région
+        length = np.sqrt(region.area)  # Approximation de la longueur en fonction de la surface
+        lengths.append(length)
+    
+    return lengths
 
 # Regrouper les feuillets par proximité et orientation
 def group_feuillets(feuillets):
@@ -67,17 +82,16 @@ def visualize_groups_with_overlay(image, outputs, feuillets, groups):
     # Créer un Visualizer pour afficher les résultats sur l'image
     v = Visualizer(image[:, :, ::-1], metadata=None, scale=1.0)
     
-    # Générer une palette de couleurs distinctes à partir de matplotlib
-    n_colors = len(groups)
-    cmap = mpl.cm.get_cmap('tab20', n_colors)  # Utilisation de la palette 'tab20' de matplotlib
-    colors = [cmap(i) for i in range(n_colors)]  # Générer des couleurs distinctes
+    # Créer un tableau de couleurs distinctes pour chaque groupe
+    colors = [tuple(np.random.rand(3)) for _ in groups]  # Couleurs aléatoires pour chaque groupe
     
     # Ajouter les instances avec les couleurs de groupe dans l'overlay
     instances = outputs['instances']
     masks = instances.pred_masks.cpu().numpy()  # Masques sous forme de tableau numpy (sur CPU)
     
     # Créer un tableau pour les couleurs des instances
-    instance_colors = np.zeros((len(instances), 4))  # Tableau pour stocker les couleurs RGBA
+    instance_colors = np.zeros((len(instances), 3))  # Tableau pour stocker les couleurs (RGB)
+    
     for group_idx, group in enumerate(groups):
         group_color = colors[group_idx]
         for idx in group:
@@ -114,6 +128,30 @@ def main(image_path, predictor):
     # 3. Regrouper les feuillets par proximité et orientation
     groups = group_feuillets(feuillets)
     
-    # 4. Visualiser les feuillets regroupés avec overlay
-    visualize_groups_with_overlay(image, outputs, feuillets, groups)
-
+    # 4. Calculer la longueur des feuillets
+    group_lengths = []
+    for group in groups:
+        group_masks = []
+        for idx in group:
+            mask = outputs['instances'].pred_masks[idx].cpu().numpy()
+            group_masks.append(mask)
+        
+        # Calculer la longueur pour chaque feuillet du groupe
+        group_length = []
+        for mask in group_masks:
+            lengths = calculate_feuillet_length(mask)
+            group_length.extend(lengths)
+        
+        group_lengths.append(group_length)
+    
+    # 5. Générer l'histogramme de la longueur moyenne des feuillets par groupe
+    group_avg_lengths = [np.mean(lengths) for lengths in group_lengths]
+    group_sizes = [len(lengths) for lengths in group_lengths]  # Nombre de feuillets par groupe
+    
+    # Tracer l'histogramme
+    plt.figure(figsize=(10, 6))
+    plt.bar(range(len(group_avg_lengths)), group_avg_lengths, tick_label=[f'Groupe {i+1}' for i in range(len(group_avg_lengths))])
+    plt.xlabel('Groupes')
+    plt.ylabel('Longueur moyenne des feuillets')
+    plt.title('Longueur moyenne des feuillets par groupe')
+    plt.show()
