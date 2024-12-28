@@ -155,3 +155,18 @@ def main(image_path, predictor):
     plt.ylabel('Longueur moyenne des feuillets')
     plt.title('Longueur moyenne des feuillets par groupe')
     plt.show()
+def calculate_feuillet_length(mask):
+    # Convertir le masque en labels d'objets distincts
+    labeled_mask = label(mask.astype(np.uint8))  # Assurez-vous que le masque est de type entier
+    
+    # Utiliser `regionprops` pour obtenir les propriétés des objets dans le masque étiqueté
+    regions = regionprops(labeled_mask)
+    
+    # Extraire le diamètre du feuillet (diamètre équivalent)
+    lengths = []
+    for region in regions:
+        # Diamètre équivalent d'un objet, basé sur la région
+        length = np.sqrt(region.area)  # Approximation de la longueur en fonction de la surface
+        lengths.append(length)
+    
+    return lengths
