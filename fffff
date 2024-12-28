@@ -26,7 +26,7 @@ def extract_feuillets(outputs):
     
     # Récupérer les coordonnées du centre de chaque feuillet et son orientation (angle)
     for i in range(len(instances)):
-        bbox = instances[i].pred_boxes.tensor.numpy().flatten()  # Boîte englobante
+        bbox = instances[i].pred_boxes.tensor.cpu().numpy().flatten()  # Boîte englobante (sur CPU)
         center_x, center_y = (bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2  # Centre du rectangle
         angle = get_angle(bbox[0], bbox[1], bbox[2], bbox[3])  # Angle d'orientation
         feuillets.append((center_x, center_y, angle))
@@ -45,23 +45,24 @@ def visualize_groups_with_overlay(image, outputs, feuillets, labels):
     # Créer un Visualizer pour afficher les résultats sur l'image
     v = Visualizer(image[:, :, ::-1], metadata=None, scale=1.0)
     
-    # Créer un tableau de couleurs pour chaque groupe
+    # Créer un tableau de couleurs distinctes pour chaque groupe
     unique_labels = np.unique(labels)
     colors = [tuple(np.random.rand(3)) for _ in unique_labels]  # Couleurs aléatoires pour chaque groupe
     
     # Ajouter les instances avec les couleurs de groupe dans l'overlay
     instances = outputs['instances']
-    masks = instances.pred_masks  # Masques sous forme de tenseur
+    masks = instances.pred_masks.cpu().numpy()  # Masques sous forme de tableau numpy (sur CPU)
     
     # Créer un tableau pour les couleurs des instances
     instance_colors = []
     for i in range(len(instances)):
         label = labels[i]
         # Assignation de couleur selon le groupe
-        instance_colors.append(colors[label])  
+        group_color = colors[label] if label != -1 else (1, 1, 1)  # Si le label est -1, c'est du bruit (DBSCAN)
+        instance_colors.append(group_color)
     
     # Appliquer l'overlay avec les couleurs associées à chaque instance
-    v.overlay_instances(masks=masks, color=instance_colors, alpha=0.5)
+    v.overlay_instances(masks=masks, assigned_colors=instance_colors)
     
     # Afficher l'image avec l'overlay des groupes
     result_image = v.get_output().get_image()
