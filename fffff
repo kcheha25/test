@@ -5,6 +5,8 @@ import matplotlib.pyplot as plt
 from detectron2.engine import DefaultPredictor
 from detectron2.config import get_cfg
 from detectron2 import model_zoo
+from detectron2.utils.visualizer import Visualizer
+from detectron2.structures import Instances
 from sklearn.cluster import DBSCAN
 
 # Chargement du modèle Detectron2
@@ -56,25 +58,6 @@ def group_feuillets_spatial_orientation(centers, orientations, eps=20, min_sampl
             clusters[len(clusters)] = ([center], [orientation])
     return clusters
 
-# Étape 4 : Calcul de la longueur moyenne pour chaque cluster
-def calculate_cluster_lengths(clusters, masks, boxes):
-    cluster_lengths = {}
-    for label, (centers, orientations) in clusters.items():
-        lengths = []
-        for center in centers:
-            # Trouver le masque correspondant au centre
-            distances = np.linalg.norm(centers - center, axis=1)
-            idx = np.argmin(distances)  # Trouver l'indice du centre le plus proche
-            mask = masks[idx]  # Sélectionner le masque associé à cet indice
-
-            # Calculer la longueur de la boîte pour ce masque
-            box = boxes[idx]
-            length = box[3] - box[1]  # Calculer la hauteur de la boîte englobante
-            lengths.append(length)
-
-        cluster_lengths[label] = np.mean(lengths)
-    return cluster_lengths
-
 # Fonction pour effectuer une inférence avec Detectron2 et charger une image
 def detect_feuillets(image_path):
     # Lire l'image
@@ -87,20 +70,39 @@ def detect_feuillets(image_path):
     # Masques et boîtes
     masks = outputs["instances"].pred_masks.cpu().numpy()  # Masques binaires
     boxes = outputs["instances"].pred_boxes.tensor.cpu().numpy()  # Bounding boxes
-    return masks, boxes, im
+    return masks, boxes, im, outputs
 
-# Fonction pour visualiser les regroupements sur l'image originale
-def visualize_clusters_on_image(image, clusters, centers, colors):
-    # Dessiner les clusters sur l'image originale
+# Fonction pour appliquer les couleurs et overlay les groupes sur l'image
+def visualize_clusters_on_image(image, clusters, masks, boxes):
+    # Utiliser OverlayInstances de Detectron2 pour colorier les prédictions par groupe
+    colors = plt.cm.get_cmap("tab20", len(clusters))  # Colormap pour attribuer une couleur à chaque groupe
+    instance_masks = []
+    instance_labels = []
     for label, (cluster_centers, cluster_orientations) in clusters.items():
-        color = colors[label % len(colors)]  # Attribuer une couleur unique par cluster
-        for center in cluster_centers:
-            cv2.circle(image, tuple(center.astype(int)), 10, color, -1)  # Marquer les centres
-    return image
+        color = colors(label)  # Récupérer la couleur pour le groupe
+        for i, center in enumerate(cluster_centers):
+            # Trouver l'indice correspondant au centre
+            distances = np.linalg.norm(masks - center, axis=1)
+            idx = np.argmin(distances)
+            
+            # Ajouter un masque pour cette instance (avec la couleur du groupe)
+            mask = masks[idx]
+            instance_masks.append(mask)
+            instance_labels.append(label)
+    
+    # Créer une nouvelle instance de "Instances" pour OverlayInstances
+    instances = Instances(image.shape[:2])
+    instances.pred_masks = torch.tensor(np.array(instance_masks))  # Masques des instances
+    instances.pred_classes = torch.tensor(instance_labels)  # Classes des instances (groupes ici)
+    
+    # Visualiser avec Visualizer et OverlayInstances
+    v = Visualizer(image, metadata=None, scale=1.0)
+    v.overlay_instances(masks=instances.pred_masks, labels=instances.pred_classes)
+    return v.get_image()
 
 # Exemple d'utilisation sur une image de ton jeu de test
 image_path = "path/to/your/image.jpg"  # Remplacer par le chemin de ton image
-masks, boxes, im = detect_feuillets(image_path)
+masks, boxes, im, outputs = detect_feuillets(image_path)
 
 # Calcul des centres
 centers = calculate_centers(masks)
@@ -111,31 +113,12 @@ orientations = calculate_orientations(boxes)
 # Regroupement spatial et orientation
 clusters = group_feuillets_spatial_orientation(centers, orientations, eps=30, min_samples=2, orientation_threshold=0.1)
 
-# Préparer une palette de couleurs pour chaque groupe
-colors = plt.cm.tab20.colors  # Extrait directement la liste des couleurs à partir de la colormap 'tab20'
-
 # Visualiser les regroupements sur l'image originale
-image_with_clusters = visualize_clusters_on_image(im.copy(), clusters, centers, colors)
+image_with_clusters = visualize_clusters_on_image(im.copy(), clusters, masks, boxes)
 
 # Affichage de l'image avec les regroupements
 plt.figure(figsize=(10, 6))
 plt.imshow(image_with_clusters)
 plt.title("Regroupement des feuillets (proximité et orientation)")
 plt.axis('off')  # Désactiver les axes
-plt.show()
-
-# Calcul des longueurs moyennes
-cluster_lengths = calculate_cluster_lengths(clusters, masks, boxes)
-
-# Préparation des données pour l'histogramme
-empilement_counts = [len(centers) for centers in clusters.values()]
-lengths_means = list(cluster_lengths.values())
-
-# Affichage de l'histogramme
-plt.figure(figsize=(10, 6))
-plt.bar(empilement_counts, lengths_means, color='skyblue')
-plt.xlabel("Nombre de feuillets par empilement")
-plt.ylabel("Longueur moyenne (pixels)")
-plt.title("Histogramme des longueurs moyennes par empilement (proximité et orientation)")
-plt.grid(True)
 plt.show()
