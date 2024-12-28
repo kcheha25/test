@@ -1,5 +1,8 @@
-# Visualisation des groupes avec des couleurs distinctes
-def visualize_groups_with_overlay(image, outputs, feuillets, labels):
+import numpy as np
+import matplotlib.pyplot as plt
+from detectron2.utils.visualizer import Visualizer
+
+def visualize_groups_with_overlay(image, outputs, labels):
     # Créer un Visualizer pour afficher les résultats sur l'image
     v = Visualizer(image[:, :, ::-1], metadata=None, scale=1.0)
     
@@ -9,23 +12,16 @@ def visualize_groups_with_overlay(image, outputs, feuillets, labels):
     
     # Ajouter les instances avec les couleurs de groupe dans l'overlay
     instances = outputs['instances']
-    boxes = instances.pred_boxes  # Boîtes englobantes sous forme d'objet Boxes
-    
-    # Boucler sur chaque instance et assigner une couleur par groupe
-    group_masks = []
-    for label in unique_labels:
-        mask = []
-        group = np.where(labels == label)[0]
-        for idx in group:
-            # Vérifier si l'index est valide
-            if idx < len(instances):
-                # Récupérer la boîte de chaque feuillet du groupe
-                bbox = boxes[idx].tensor.cpu().numpy()  # Extraire la boîte
-                mask.append(bbox)
-        
-        # Dessiner l'overlay avec la couleur associée au groupe
-        if mask:
-            v.overlay_instances(boxes=np.array(mask), color=colors[label], alpha=0.5)
+    masks = instances.pred_masks  # Masques sous forme de tenseur
+
+    # Mapper les prédictions aux couleurs selon les groupes
+    assigned_colors = []
+    for i in range(len(instances)):
+        label = labels[i]
+        assigned_colors.append(colors[label])  # Assigner la couleur du groupe à chaque prédiction
+
+    # Visualiser les masques avec les couleurs assignées
+    v.overlay_instances(masks=masks, assigned_colors=assigned_colors, alpha=0.5)
     
     # Afficher l'image avec l'overlay des groupes
     result_image = v.get_output().get_image()
