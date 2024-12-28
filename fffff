@@ -1,62 +1,83 @@
 import cv2
 import numpy as np
-import matplotlib.pyplot as plt
 from sklearn.cluster import DBSCAN
-import torch
-from detectron2.engine import DefaultPredictor
-from detectron2.config import get_cfg
-from detectron2 import model_zoo
+import matplotlib.pyplot as plt
 
-# Charger l'image de test
-image_path = "path_to_your_image.jpg"  # Remplace par le chemin de ton image
-image = cv2.imread(image_path)
-image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)  # Convertir l'image en RGB pour affichage
+# Étape 1 : Calcul des centres des feuillets
+def calculate_centers(masks):
+    centers = []
+    for mask in masks:
+        coords = np.argwhere(mask)  # Coordonnées des pixels du masque
+        center = coords.mean(axis=0)  # Moyenne des coordonnées (barycentre)
+        centers.append(center)
+    return np.array(centers)
 
-# Configurer et charger le modèle Detectron2
-cfg = get_cfg()
-cfg.merge_from_file(model_zoo.get_config_file("COCO-Detection/faster_rcnn_R_50_FPN_3x.yaml"))
-cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5  # Seuil pour la détection
-cfg.MODEL.WEIGHTS = "path_to_your_model_weights.pth"  # Remplace par le chemin de ton modèle entraîné
-predictor = DefaultPredictor(cfg)
+# Étape 2 : Calcul de l'orientation des feuillets (approximée par l'angle des boîtes englobantes)
+def calculate_orientations(boxes):
+    orientations = []
+    for box in boxes:
+        x1, y1, x2, y2 = box
+        angle = np.arctan2(y2 - y1, x2 - x1)  # Calcul de l'angle entre les coins
+        orientations.append(angle)
+    return np.array(orientations)
 
-# Faire des prédictions sur l'image
-outputs = predictor(image)
+# Étape 3 : Regroupement spatial et par orientation
+def group_feuillets_spatial_orientation(centers, orientations, eps=20, min_samples=2, orientation_threshold=0.1):
+    """Regroupe les feuillets en fonction de leur proximité et de leur orientation."""
+    clusters = {}
+    for i, (center, orientation) in enumerate(zip(centers, orientations)):
+        assigned = False
+        for label, (cluster_centers, cluster_orientations) in clusters.items():
+            # Vérification de la proximité spatiale
+            dist = np.linalg.norm(cluster_centers - center, axis=1)
+            if np.min(dist) < eps and np.abs(np.mean(cluster_orientations) - orientation) < orientation_threshold:
+                clusters[label][0].append(center)  # Ajouter le centre
+                clusters[label][1].append(orientation)  # Ajouter l'orientation
+                assigned = True
+                break
+        if not assigned:  # Si le feuillet n'a pas été assigné à un groupe existant
+            clusters[len(clusters)] = ([center], [orientation])
+    return clusters
 
-# Récupérer les centres des feuillets détectés
-centers = []
-for mask in outputs["instances"].pred_masks.cpu().numpy():
-    coords = np.argwhere(mask)  # Coordonnées des pixels du masque
-    center = coords.mean(axis=0)  # Moyenne des coordonnées (barycentre)
-    centers.append(center)
-centers = np.array(centers)
+# Étape 4 : Calcul de la longueur moyenne pour chaque cluster
+def calculate_cluster_lengths(clusters, masks, boxes):
+    cluster_lengths = {}
+    for label, (centers, orientations) in clusters.items():
+        lengths = []
+        for center in centers:
+            # Trouver l'index correspondant au centre
+            idx = np.argmin(np.linalg.norm(masks - center, axis=1))
+            box = boxes[idx]
+            length = box[3] - box[1]  # Calculer la hauteur (ou ajuster selon l'orientation)
+            lengths.append(length)
+        cluster_lengths[label] = np.mean(lengths)
+    return cluster_lengths
 
-# Appliquer DBSCAN pour regrouper les feuillets
-eps = 30  # Distance maximale entre les feuillets pour les regrouper
-min_samples = 2  # Nombre minimum de feuillets pour qu'un groupe soit formé
-clustering = DBSCAN(eps=eps, min_samples=min_samples).fit(centers)
+# Exemple complet
+masks = outputs["instances"].pred_masks.cpu().numpy()  # Masques binaires
+boxes = outputs["instances"].pred_boxes.tensor.cpu().numpy()  # Bounding boxes
 
-# Extraire les labels de chaque cluster
-labels = clustering.labels_
-unique_labels = set(labels)
+# Calcul des centres
+centers = calculate_centers(masks)
 
-# Affichage des résultats sur l'image
-plt.figure(figsize=(10, 10))
-plt.imshow(image_rgb)
+# Calcul des orientations (en radians)
+orientations = calculate_orientations(boxes)
 
-# Visualiser chaque cluster avec une couleur différente
-for label in unique_labels:
-    if label == -1:
-        color = "gray"  # Bruit
-        label_name = "Noise"
-    else:
-        color = plt.cm.tab20(label / len(unique_labels))
-        label_name = f"Cluster {label}"
+# Regroupement spatial et orientation
+clusters = group_feuillets_spatial_orientation(centers, orientations, eps=30, min_samples=2, orientation_threshold=0.1)
 
-    # Afficher les centres des clusters sur l'image
-    cluster_points = centers[labels == label]
-    for point in cluster_points:
-        plt.scatter(point[1], point[0], color=color, label=label_name, s=40, alpha=0.7)
+# Calcul des longueurs moyennes
+cluster_lengths = calculate_cluster_lengths(clusters, masks, boxes)
 
-plt.title("DBSCAN Clustering of Feuillets")
-plt.axis('off')
+# Préparation des données pour l'histogramme
+empilement_counts = [len(centers) for centers in clusters.values()]
+lengths_means = list(cluster_lengths.values())
+
+# Affichage de l'histogramme
+plt.figure(figsize=(10, 6))
+plt.bar(empilement_counts, lengths_means, color='skyblue')
+plt.xlabel("Nombre de feuillets par empilement")
+plt.ylabel("Longueur moyenne (pixels)")
+plt.title("Histogramme des longueurs moyennes par empilement (proximité et orientation)")
+plt.grid(True)
 plt.show()
