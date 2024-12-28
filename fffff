@@ -1,0 +1,62 @@
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.cluster import DBSCAN
+import torch
+from detectron2.engine import DefaultPredictor
+from detectron2.config import get_cfg
+from detectron2 import model_zoo
+
+# Charger l'image de test
+image_path = "path_to_your_image.jpg"  # Remplace par le chemin de ton image
+image = cv2.imread(image_path)
+image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)  # Convertir l'image en RGB pour affichage
+
+# Configurer et charger le modèle Detectron2
+cfg = get_cfg()
+cfg.merge_from_file(model_zoo.get_config_file("COCO-Detection/faster_rcnn_R_50_FPN_3x.yaml"))
+cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5  # Seuil pour la détection
+cfg.MODEL.WEIGHTS = "path_to_your_model_weights.pth"  # Remplace par le chemin de ton modèle entraîné
+predictor = DefaultPredictor(cfg)
+
+# Faire des prédictions sur l'image
+outputs = predictor(image)
+
+# Récupérer les centres des feuillets détectés
+centers = []
+for mask in outputs["instances"].pred_masks.cpu().numpy():
+    coords = np.argwhere(mask)  # Coordonnées des pixels du masque
+    center = coords.mean(axis=0)  # Moyenne des coordonnées (barycentre)
+    centers.append(center)
+centers = np.array(centers)
+
+# Appliquer DBSCAN pour regrouper les feuillets
+eps = 30  # Distance maximale entre les feuillets pour les regrouper
+min_samples = 2  # Nombre minimum de feuillets pour qu'un groupe soit formé
+clustering = DBSCAN(eps=eps, min_samples=min_samples).fit(centers)
+
+# Extraire les labels de chaque cluster
+labels = clustering.labels_
+unique_labels = set(labels)
+
+# Affichage des résultats sur l'image
+plt.figure(figsize=(10, 10))
+plt.imshow(image_rgb)
+
+# Visualiser chaque cluster avec une couleur différente
+for label in unique_labels:
+    if label == -1:
+        color = "gray"  # Bruit
+        label_name = "Noise"
+    else:
+        color = plt.cm.tab20(label / len(unique_labels))
+        label_name = f"Cluster {label}"
+
+    # Afficher les centres des clusters sur l'image
+    cluster_points = centers[labels == label]
+    for point in cluster_points:
+        plt.scatter(point[1], point[0], color=color, label=label_name, s=40, alpha=0.7)
+
+plt.title("DBSCAN Clustering of Feuillets")
+plt.axis('off')
+plt.show()
