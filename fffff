@@ -1,12 +1,12 @@
 import cv2
 import numpy as np
-import random
-from math import atan2, degrees
 import matplotlib.pyplot as plt
 from detectron2.utils.visualizer import Visualizer
+import matplotlib as mpl
 
 # Fonction de calcul de l'angle d'orientation d'un rectangle
 def get_angle(x1, y1, x2, y2):
+    from math import atan2, degrees
     angle = atan2(y2 - y1, x2 - x1)
     return degrees(angle)
 
@@ -40,7 +40,7 @@ def extract_feuillets(outputs):
 # Regrouper les feuillets par proximité et orientation
 def group_feuillets(feuillets):
     groups = []
-    assigned_groups = set()  # Utiliser un ensemble pour les groupes assignés
+    assigned_groups = []
     
     for i, feuillet1 in enumerate(feuillets):
         if i in assigned_groups:
@@ -48,7 +48,7 @@ def group_feuillets(feuillets):
         
         # Créer un nouveau groupe
         group = [i]
-        assigned_groups.add(i)  # Marquer ce feuillet comme assigné
+        assigned_groups.append(i)
         
         # Vérifier si d'autres feuillets peuvent être ajoutés au groupe
         for j, feuillet2 in enumerate(feuillets):
@@ -56,45 +56,42 @@ def group_feuillets(feuillets):
                 continue
             if are_feuillets_similar(feuillet1, feuillet2):
                 group.append(j)
-                assigned_groups.add(j)
+                assigned_groups.append(j)
         
         groups.append(group)
     
     return groups
 
 # Visualisation des groupes avec des couleurs distinctes
-def generate_unique_colors(num_colors):
-    colors = []
-    for i in range(num_colors):
-        # Utilisation de l'espace HSV pour générer une couleur distincte
-        hue = i / num_colors  # Espacement uniforme des teintes
-        color = plt.cm.hsv(hue)  # Génère une couleur en HSV
-        colors.append(tuple(int(c * 255) for c in color[:3]))  # Convertir en RGB avec une gamme [0, 255]
-    return colors
-
-# Exemple de génération de couleurs pour les groupes
 def visualize_groups_with_overlay(image, outputs, feuillets, groups):
-    # Extraire les instances et leur masque
+    # Créer un Visualizer pour afficher les résultats sur l'image
+    v = Visualizer(image[:, :, ::-1], metadata=None, scale=1.0)
+    
+    # Générer une palette de couleurs distinctes à partir de matplotlib
+    n_colors = len(groups)
+    cmap = mpl.cm.get_cmap('tab20', n_colors)  # Utilisation de la palette 'tab20' de matplotlib
+    colors = [cmap(i) for i in range(n_colors)]  # Générer des couleurs distinctes
+    
+    # Ajouter les instances avec les couleurs de groupe dans l'overlay
     instances = outputs['instances']
-    num_groups = len(groups)  # Nombre de groupes
-    colors = generate_unique_colors(num_groups)  # Générer des couleurs uniques pour chaque groupe
+    masks = instances.pred_masks.cpu().numpy()  # Masques sous forme de tableau numpy (sur CPU)
     
-    # Initialiser une liste de couleurs pour chaque feuillet
-    group_colors = []
+    # Créer un tableau pour les couleurs des instances
+    instance_colors = np.zeros((len(instances), 4))  # Tableau pour stocker les couleurs RGBA
+    for group_idx, group in enumerate(groups):
+        group_color = colors[group_idx]
+        for idx in group:
+            instance_colors[idx] = group_color  # Assigner la couleur au feuillet du groupe
     
-    # Assigner une couleur unique à chaque groupe
-    for group in groups:
-        for feuillet_idx in group:
-            group_colors.append(colors[groups.index(group)])
+    # Appliquer l'overlay avec les couleurs associées à chaque instance
+    v.overlay_instances(masks=masks, assigned_colors=instance_colors)
     
-    # Visualiser les groupes avec des couleurs uniques
-    v = Visualizer(image[:, :, ::-1], metadata=None, scale=1.2)
-    v.overlay_instances(masks=instances.pred_masks, assigned_colors=group_colors)
+    # Afficher l'image avec l'overlay des groupes
     result_image = v.get_output().get_image()
-    
+    plt.figure(figsize=(10, 10))
     plt.imshow(result_image)
     plt.axis('off')
-    plt.show() 
+    plt.show()
 
 # Effectuer l'inférence sur l'image avec le prédicteur existant
 def run_inference(image_path, predictor):
