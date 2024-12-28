@@ -7,7 +7,18 @@ from detectron2.config import get_cfg
 from detectron2 import model_zoo
 from sklearn.cluster import DBSCAN
 
+# Chargement du modèle Detectron2
+def setup_cfg():
+    cfg = get_cfg()
+    # Modèle pré-entraîné de Detectron2
+    cfg.merge_from_file(model_zoo.get_config_file("COCO-Detection/faster_rcnn_R_50_FPN_3x.yaml"))
+    cfg.MODEL.WEIGHTS = model_zoo.get_checkpoint_url("COCO-Detection/faster_rcnn_R_50_FPN_3x.yaml")
+    cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5  # Seuil de détection
+    cfg.MODEL.DEVICE = 'cuda'  # Utilisation du GPU si disponible
+    return cfg
 
+cfg = setup_cfg()
+predictor = DefaultPredictor(cfg)
 
 # Étape 1 : Calcul des centres des feuillets
 def calculate_centers(masks):
@@ -51,11 +62,16 @@ def calculate_cluster_lengths(clusters, masks, boxes):
     for label, (centers, orientations) in clusters.items():
         lengths = []
         for center in centers:
-            # Trouver l'index correspondant au centre
-            idx = np.argmin(np.linalg.norm(masks - center, axis=1))
+            # Trouver le masque correspondant au centre
+            distances = np.linalg.norm(centers - center, axis=1)
+            idx = np.argmin(distances)  # Trouver l'indice du centre le plus proche
+            mask = masks[idx]  # Sélectionner le masque associé à cet indice
+
+            # Calculer la longueur de la boîte pour ce masque
             box = boxes[idx]
-            length = box[3] - box[1]  # Calculer la hauteur (ou ajuster selon l'orientation)
+            length = box[3] - box[1]  # Calculer la hauteur de la boîte englobante
             lengths.append(length)
+
         cluster_lengths[label] = np.mean(lengths)
     return cluster_lengths
 
