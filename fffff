@@ -2,7 +2,6 @@ import cv2
 import numpy as np
 import random
 from math import atan2, degrees
-from sklearn.cluster import DBSCAN
 import matplotlib.pyplot as plt
 from detectron2.utils.visualizer import Visualizer
 
@@ -11,13 +10,18 @@ def get_angle(x1, y1, x2, y2):
     angle = atan2(y2 - y1, x2 - x1)
     return degrees(angle)
 
-# Fonction pour calculer la distance personnalisée (proximité et orientation)
-def custom_distance(feuillet1, feuillet2):
+# Vérifier si deux feuillets sont proches et ont des orientations similaires
+def are_feuillets_similar(feuillet1, feuillet2, distance_threshold=50, angle_threshold=15):
     # Distance euclidienne entre les centres des feuillets
     distance_position = np.sqrt((feuillet1[0] - feuillet2[0])**2 + (feuillet1[1] - feuillet2[1])**2)
+    
     # Différence d'orientation (en degrés)
     distance_orientation = abs(feuillet1[2] - feuillet2[2])
-    return np.sqrt(distance_position**2 + distance_orientation**2)
+    
+    # Vérifier si la distance et l'orientation sont suffisament proches
+    if distance_position < distance_threshold and distance_orientation < angle_threshold:
+        return True
+    return False
 
 # Extraire les informations des feuillets détectés
 def extract_feuillets(outputs):
@@ -33,33 +37,50 @@ def extract_feuillets(outputs):
     
     return feuillets
 
-# Appliquer DBSCAN pour regrouper les feuillets similaires
+# Regrouper les feuillets par proximité et orientation
 def group_feuillets(feuillets):
-    # DBSCAN avec une fonction de distance personnalisée
-    db = DBSCAN(eps=50, min_samples=2, metric=lambda x, y: custom_distance(x, y))
-    labels = db.fit_predict(feuillets)
-    return labels
+    groups = []
+    assigned_groups = []
+    
+    for i, feuillet1 in enumerate(feuillets):
+        if i in assigned_groups:
+            continue
+        
+        # Créer un nouveau groupe
+        group = [i]
+        assigned_groups.append(i)
+        
+        # Vérifier si d'autres feuillets peuvent être ajoutés au groupe
+        for j, feuillet2 in enumerate(feuillets):
+            if j == i or j in assigned_groups:
+                continue
+            if are_feuillets_similar(feuillet1, feuillet2):
+                group.append(j)
+                assigned_groups.append(j)
+        
+        groups.append(group)
+    
+    return groups
 
 # Visualisation des groupes avec des couleurs distinctes
-def visualize_groups_with_overlay(image, outputs, feuillets, labels):
+def visualize_groups_with_overlay(image, outputs, feuillets, groups):
     # Créer un Visualizer pour afficher les résultats sur l'image
     v = Visualizer(image[:, :, ::-1], metadata=None, scale=1.0)
     
     # Créer un tableau de couleurs distinctes pour chaque groupe
-    unique_labels = np.unique(labels)
-    colors = [tuple(np.random.rand(3)) for _ in unique_labels]  # Couleurs aléatoires pour chaque groupe
+    colors = [tuple(np.random.rand(3)) for _ in groups]  # Couleurs aléatoires pour chaque groupe
     
     # Ajouter les instances avec les couleurs de groupe dans l'overlay
     instances = outputs['instances']
     masks = instances.pred_masks.cpu().numpy()  # Masques sous forme de tableau numpy (sur CPU)
     
     # Créer un tableau pour les couleurs des instances
-    instance_colors = []
-    for i in range(len(instances)):
-        label = labels[i]
-        # Assignation de couleur selon le groupe
-        group_color = colors[label] if label != -1 else (1, 1, 1)  # Si le label est -1, c'est du bruit (DBSCAN)
-        instance_colors.append(group_color)
+    instance_colors = np.zeros((len(instances), 3))  # Tableau pour stocker les couleurs (RGB)
+    
+    for group_idx, group in enumerate(groups):
+        group_color = colors[group_idx]
+        for idx in group:
+            instance_colors[idx] = group_color  # Assigner la couleur au feuillet du groupe
     
     # Appliquer l'overlay avec les couleurs associées à chaque instance
     v.overlay_instances(masks=masks, assigned_colors=instance_colors)
@@ -89,9 +110,9 @@ def main(image_path, predictor):
     # 2. Extraire les feuillets et leurs propriétés
     feuillets = extract_feuillets(outputs)
     
-    # 3. Appliquer DBSCAN pour regrouper les feuillets ayant des orientations similaires et proches
-    labels = group_feuillets(feuillets)
+    # 3. Regrouper les feuillets par proximité et orientation
+    groups = group_feuillets(feuillets)
     
     # 4. Visualiser les feuillets regroupés avec overlay
-    visualize_groups_with_overlay(image, outputs, feuillets, labels)
+    visualize_groups_with_overlay(image, outputs, feuillets, groups)
 
