@@ -112,7 +112,7 @@ orientations = calculate_orientations(boxes)
 clusters = group_feuillets_spatial_orientation(centers, orientations, eps=30, min_samples=2, orientation_threshold=0.1)
 
 # Préparer une palette de couleurs pour chaque groupe
-colors = plt.cm.get_cmap('tab20', len(clusters))
+colors = plt.cm.tab20.colors  # Extrait directement la liste des couleurs à partir de la colormap 'tab20'
 
 # Visualiser les regroupements sur l'image originale
 image_with_clusters = visualize_clusters_on_image(im.copy(), clusters, centers, colors)
