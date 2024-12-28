@@ -1,124 +1,102 @@
-import torch
-import numpy as np
 import cv2
-import matplotlib.pyplot as plt
-from detectron2.engine import DefaultPredictor
-from detectron2.config import get_cfg
-from detectron2 import model_zoo
-from detectron2.utils.visualizer import Visualizer
-from detectron2.structures import Instances
+import numpy as np
+import random
+from math import atan2, degrees
 from sklearn.cluster import DBSCAN
+import matplotlib.pyplot as plt
+from detectron2.utils.visualizer import Visualizer
 
-# Chargement du modèle Detectron2
-def setup_cfg():
-    cfg = get_cfg()
-    # Modèle pré-entraîné de Detectron2
-    cfg.merge_from_file(model_zoo.get_config_file("COCO-Detection/faster_rcnn_R_50_FPN_3x.yaml"))
-    cfg.MODEL.WEIGHTS = model_zoo.get_checkpoint_url("COCO-Detection/faster_rcnn_R_50_FPN_3x.yaml")
-    cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5  # Seuil de détection
-    cfg.MODEL.DEVICE = 'cuda'  # Utilisation du GPU si disponible
-    return cfg
+# Fonction de calcul de l'angle d'orientation d'un rectangle
+def get_angle(x1, y1, x2, y2):
+    angle = atan2(y2 - y1, x2 - x1)
+    return degrees(angle)
 
-cfg = setup_cfg()
-predictor = DefaultPredictor(cfg)
+# Fonction pour calculer la distance personnalisée (proximité et orientation)
+def custom_distance(feuillet1, feuillet2):
+    # Distance euclidienne entre les centres des feuillets
+    distance_position = np.sqrt((feuillet1[0] - feuillet2[0])**2 + (feuillet1[1] - feuillet2[1])**2)
+    # Différence d'orientation (en degrés)
+    distance_orientation = abs(feuillet1[2] - feuillet2[2])
+    return np.sqrt(distance_position**2 + distance_orientation**2)
 
-# Étape 1 : Calcul des centres des feuillets
-def calculate_centers(masks):
-    centers = []
-    for mask in masks:
-        coords = np.argwhere(mask)  # Coordonnées des pixels du masque
-        center = coords.mean(axis=0)  # Moyenne des coordonnées (barycentre)
-        centers.append(center)
-    return np.array(centers)
-
-# Étape 2 : Calcul de l'orientation des feuillets (approximée par l'angle des boîtes englobantes)
-def calculate_orientations(boxes):
-    orientations = []
-    for box in boxes:
-        x1, y1, x2, y2 = box
-        angle = np.arctan2(y2 - y1, x2 - x1)  # Calcul de l'angle entre les coins
-        orientations.append(angle)
-    return np.array(orientations)
-
-# Étape 3 : Regroupement spatial et par orientation
-def group_feuillets_spatial_orientation(centers, orientations, eps=20, min_samples=2, orientation_threshold=0.1):
-    """Regroupe les feuillets en fonction de leur proximité et de leur orientation."""
-    clusters = {}
-    for i, (center, orientation) in enumerate(zip(centers, orientations)):
-        assigned = False
-        for label, (cluster_centers, cluster_orientations) in clusters.items():
-            # Vérification de la proximité spatiale
-            dist = np.linalg.norm(cluster_centers - center, axis=1)
-            if np.min(dist) < eps and np.abs(np.mean(cluster_orientations) - orientation) < orientation_threshold:
-                clusters[label][0].append(center)  # Ajouter le centre
-                clusters[label][1].append(orientation)  # Ajouter l'orientation
-                assigned = True
-                break
-        if not assigned:  # Si le feuillet n'a pas été assigné à un groupe existant
-            clusters[len(clusters)] = ([center], [orientation])
-    return clusters
-
-# Fonction pour effectuer une inférence avec Detectron2 et charger une image
-def detect_feuillets(image_path):
-    # Lire l'image
-    im = cv2.imread(image_path)
-    im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
+# Extraire les informations des feuillets détectés
+def extract_feuillets(outputs):
+    instances = outputs['instances']
+    feuillets = []
     
-    # Inference avec Detectron2
-    outputs = predictor(im)  # Inference sur l'image
-
-    # Masques et boîtes
-    masks = outputs["instances"].pred_masks.cpu().numpy()  # Masques binaires
-    boxes = outputs["instances"].pred_boxes.tensor.cpu().numpy()  # Bounding boxes
-    return masks, boxes, im, outputs
-
-# Fonction pour appliquer les couleurs et overlay les groupes sur l'image
-def visualize_clusters_on_image(image, clusters, masks, boxes):
-    # Utiliser OverlayInstances de Detectron2 pour colorier les prédictions par groupe
-    colors = plt.cm.get_cmap("tab20", len(clusters))  # Colormap pour attribuer une couleur à chaque groupe
-    instance_masks = []
-    instance_labels = []
-    for label, (cluster_centers, cluster_orientations) in clusters.items():
-        color = colors(label)  # Récupérer la couleur pour le groupe
-        for i, center in enumerate(cluster_centers):
-            # Trouver l'indice correspondant au centre
-            distances = np.linalg.norm(masks - center, axis=1)
-            idx = np.argmin(distances)
-            
-            # Ajouter un masque pour cette instance (avec la couleur du groupe)
-            mask = masks[idx]
-            instance_masks.append(mask)
-            instance_labels.append(label)
+    # Récupérer les coordonnées du centre de chaque feuillet et son orientation (angle)
+    for i in range(len(instances)):
+        bbox = instances[i].pred_boxes.tensor.numpy().flatten()  # Boîte englobante
+        center_x, center_y = (bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2  # Centre du rectangle
+        angle = get_angle(bbox[0], bbox[1], bbox[2], bbox[3])  # Angle d'orientation
+        feuillets.append((center_x, center_y, angle))
     
-    # Créer une nouvelle instance de "Instances" pour OverlayInstances
-    instances = Instances(image.shape[:2])
-    instances.pred_masks = torch.tensor(np.array(instance_masks))  # Masques des instances
-    instances.pred_classes = torch.tensor(instance_labels)  # Classes des instances (groupes ici)
+    return feuillets
+
+# Appliquer DBSCAN pour regrouper les feuillets similaires
+def group_feuillets(feuillets):
+    # DBSCAN avec une fonction de distance personnalisée
+    db = DBSCAN(eps=50, min_samples=2, metric=lambda x, y: custom_distance(x, y))
+    labels = db.fit_predict(feuillets)
+    return labels
+
+# Visualisation des groupes avec des couleurs distinctes
+def visualize_groups_with_overlay(image, outputs, feuillets, labels):
+    # Créer un Visualizer pour afficher les résultats sur l'image
+    v = Visualizer(image[:, :, ::-1], metadata=None, scale=1.0)
     
-    # Visualiser avec Visualizer et OverlayInstances
-    v = Visualizer(image, metadata=None, scale=1.0)
-    v.overlay_instances(masks=instances.pred_masks, labels=instances.pred_classes)
-    return v.get_image()
+    # Créer un tableau de couleurs pour chaque groupe
+    unique_labels = np.unique(labels)
+    colors = [tuple(np.random.rand(3)) for _ in unique_labels]  # Couleurs aléatoires pour chaque groupe
+    
+    # Ajouter les instances avec les couleurs de groupe dans l'overlay
+    instances = outputs['instances']
+    
+    # Boucler sur chaque instance et assigner une couleur par groupe
+    group_masks = []
+    for label in unique_labels:
+        mask = []
+        group = np.where(labels == label)[0]
+        for idx in group:
+            # Récupérer la boîte de chaque feuillet du groupe
+            bbox = instances[idx].pred_boxes.tensor.numpy().flatten()
+            mask.append(bbox)
+        
+        # Dessiner l'overlay avec la couleur associée au groupe
+        v.overlay_instances(boxes=np.array(mask), color=colors[label], alpha=0.5)
+    
+    # Afficher l'image avec l'overlay des groupes
+    result_image = v.get_output().get_image()
+    plt.figure(figsize=(10, 10))
+    plt.imshow(result_image)
+    plt.axis('off')
+    plt.show()
 
-# Exemple d'utilisation sur une image de ton jeu de test
-image_path = "path/to/your/image.jpg"  # Remplacer par le chemin de ton image
-masks, boxes, im, outputs = detect_feuillets(image_path)
+# Effectuer l'inférence sur l'image avec le prédicteur existant
+def run_inference(image_path, predictor):
+    # Charger l'image
+    image = cv2.imread(image_path)
+    image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
-# Calcul des centres
-centers = calculate_centers(masks)
+    # Effectuer l'inférence
+    outputs = predictor(image)
+    return image, outputs
 
-# Calcul des orientations (en radians)
-orientations = calculate_orientations(boxes)
+# Fonction principale pour effectuer l'inférence et afficher les résultats
+def main(image_path, predictor):
+    # 1. Effectuer l'inférence
+    image, outputs = run_inference(image_path, predictor)
+    
+    # 2. Extraire les feuillets et leurs propriétés
+    feuillets = extract_feuillets(outputs)
+    
+    # 3. Appliquer DBSCAN pour regrouper les feuillets ayant des orientations similaires et proches
+    labels = group_feuillets(feuillets)
+    
+    # 4. Visualiser les feuillets regroupés avec overlay
+    visualize_groups_with_overlay(image, outputs, feuillets, labels)
 
-# Regroupement spatial et orientation
-clusters = group_feuillets_spatial_orientation(centers, orientations, eps=30, min_samples=2, orientation_threshold=0.1)
-
-# Visualiser les regroupements sur l'image originale
-image_with_clusters = visualize_clusters_on_image(im.copy(), clusters, masks, boxes)
-
-# Affichage de l'image avec les regroupements
-plt.figure(figsize=(10, 6))
-plt.imshow(image_with_clusters)
-plt.title("Regroupement des feuillets (proximité et orientation)")
-plt.axis('off')  # Désactiver les axes
-plt.show()
+# Exemple d'appel avec un chemin d'image et un prédicteur existant
+image_path = "path_to_your_image.jpg"  # Remplace par le chemin de ton image
+# Le prédicteur est supposé être déjà défini ailleurs dans le code
+main(image_path, predictor)
