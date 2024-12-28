@@ -1,7 +1,13 @@
-import cv2
+import torch
 import numpy as np
-from sklearn.cluster import DBSCAN
+import cv2
 import matplotlib.pyplot as plt
+from detectron2.engine import DefaultPredictor
+from detectron2.config import get_cfg
+from detectron2 import model_zoo
+from sklearn.cluster import DBSCAN
+
+
 
 # Étape 1 : Calcul des centres des feuillets
 def calculate_centers(masks):
@@ -53,9 +59,23 @@ def calculate_cluster_lengths(clusters, masks, boxes):
         cluster_lengths[label] = np.mean(lengths)
     return cluster_lengths
 
-# Exemple complet
-masks = outputs["instances"].pred_masks.cpu().numpy()  # Masques binaires
-boxes = outputs["instances"].pred_boxes.tensor.cpu().numpy()  # Bounding boxes
+# Fonction pour effectuer une inférence avec Detectron2 et charger une image
+def detect_feuillets(image_path):
+    # Lire l'image
+    im = cv2.imread(image_path)
+    im = cv2.cvtColor(im, cv2.COLOR_BGR2RGB)
+    
+    # Inference avec Detectron2
+    outputs = predictor(im)  # Inference sur l'image
+
+    # Masques et boîtes
+    masks = outputs["instances"].pred_masks.cpu().numpy()  # Masques binaires
+    boxes = outputs["instances"].pred_boxes.tensor.cpu().numpy()  # Bounding boxes
+    return masks, boxes
+
+# Exemple d'utilisation sur une image de ton jeu de test
+image_path = "path/to/your/image.jpg"  # Remplacer par le chemin de ton image
+masks, boxes = detect_feuillets(image_path)
 
 # Calcul des centres
 centers = calculate_centers(masks)
