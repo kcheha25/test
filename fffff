@@ -87,11 +87,20 @@ def detect_feuillets(image_path):
     # Masques et boîtes
     masks = outputs["instances"].pred_masks.cpu().numpy()  # Masques binaires
     boxes = outputs["instances"].pred_boxes.tensor.cpu().numpy()  # Bounding boxes
-    return masks, boxes
+    return masks, boxes, im
+
+# Fonction pour visualiser les regroupements sur l'image originale
+def visualize_clusters_on_image(image, clusters, centers, colors):
+    # Dessiner les clusters sur l'image originale
+    for label, (cluster_centers, cluster_orientations) in clusters.items():
+        color = colors[label % len(colors)]  # Attribuer une couleur unique par cluster
+        for center in cluster_centers:
+            cv2.circle(image, tuple(center.astype(int)), 10, color, -1)  # Marquer les centres
+    return image
 
 # Exemple d'utilisation sur une image de ton jeu de test
 image_path = "path/to/your/image.jpg"  # Remplacer par le chemin de ton image
-masks, boxes = detect_feuillets(image_path)
+masks, boxes, im = detect_feuillets(image_path)
 
 # Calcul des centres
 centers = calculate_centers(masks)
@@ -101,6 +110,19 @@ orientations = calculate_orientations(boxes)
 
 # Regroupement spatial et orientation
 clusters = group_feuillets_spatial_orientation(centers, orientations, eps=30, min_samples=2, orientation_threshold=0.1)
+
+# Préparer une palette de couleurs pour chaque groupe
+colors = plt.cm.get_cmap('tab20', len(clusters))
+
+# Visualiser les regroupements sur l'image originale
+image_with_clusters = visualize_clusters_on_image(im.copy(), clusters, centers, colors)
+
+# Affichage de l'image avec les regroupements
+plt.figure(figsize=(10, 6))
+plt.imshow(image_with_clusters)
+plt.title("Regroupement des feuillets (proximité et orientation)")
+plt.axis('off')  # Désactiver les axes
+plt.show()
 
 # Calcul des longueurs moyennes
 cluster_lengths = calculate_cluster_lengths(clusters, masks, boxes)
