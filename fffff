@@ -1,8 +1,47 @@
+import cv2
 import numpy as np
+import random
+from math import atan2, degrees
+from sklearn.cluster import DBSCAN
 import matplotlib.pyplot as plt
 from detectron2.utils.visualizer import Visualizer
 
-def visualize_groups_with_overlay(image, outputs, labels):
+# Fonction de calcul de l'angle d'orientation d'un rectangle
+def get_angle(x1, y1, x2, y2):
+    angle = atan2(y2 - y1, x2 - x1)
+    return degrees(angle)
+
+# Fonction pour calculer la distance personnalisée (proximité et orientation)
+def custom_distance(feuillet1, feuillet2):
+    # Distance euclidienne entre les centres des feuillets
+    distance_position = np.sqrt((feuillet1[0] - feuillet2[0])**2 + (feuillet1[1] - feuillet2[1])**2)
+    # Différence d'orientation (en degrés)
+    distance_orientation = abs(feuillet1[2] - feuillet2[2])
+    return np.sqrt(distance_position**2 + distance_orientation**2)
+
+# Extraire les informations des feuillets détectés
+def extract_feuillets(outputs):
+    instances = outputs['instances']
+    feuillets = []
+    
+    # Récupérer les coordonnées du centre de chaque feuillet et son orientation (angle)
+    for i in range(len(instances)):
+        bbox = instances[i].pred_boxes.tensor.numpy().flatten()  # Boîte englobante
+        center_x, center_y = (bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2  # Centre du rectangle
+        angle = get_angle(bbox[0], bbox[1], bbox[2], bbox[3])  # Angle d'orientation
+        feuillets.append((center_x, center_y, angle))
+    
+    return feuillets
+
+# Appliquer DBSCAN pour regrouper les feuillets similaires
+def group_feuillets(feuillets):
+    # DBSCAN avec une fonction de distance personnalisée
+    db = DBSCAN(eps=50, min_samples=2, metric=lambda x, y: custom_distance(x, y))
+    labels = db.fit_predict(feuillets)
+    return labels
+
+# Visualisation des groupes avec des couleurs distinctes
+def visualize_groups_with_overlay(image, outputs, feuillets, labels):
     # Créer un Visualizer pour afficher les résultats sur l'image
     v = Visualizer(image[:, :, ::-1], metadata=None, scale=1.0)
     
@@ -13,15 +52,16 @@ def visualize_groups_with_overlay(image, outputs, labels):
     # Ajouter les instances avec les couleurs de groupe dans l'overlay
     instances = outputs['instances']
     masks = instances.pred_masks  # Masques sous forme de tenseur
-
-    # Mapper les prédictions aux couleurs selon les groupes
-    assigned_colors = []
+    
+    # Créer un tableau pour les couleurs des instances
+    instance_colors = []
     for i in range(len(instances)):
         label = labels[i]
-        assigned_colors.append(colors[label])  # Assigner la couleur du groupe à chaque prédiction
-
-    # Visualiser les masques avec les couleurs assignées
-    v.overlay_instances(masks=masks, assigned_colors=assigned_colors, alpha=0.5)
+        # Assignation de couleur selon le groupe
+        instance_colors.append(colors[label])  
+    
+    # Appliquer l'overlay avec les couleurs associées à chaque instance
+    v.overlay_instances(masks=masks, color=instance_colors, alpha=0.5)
     
     # Afficher l'image avec l'overlay des groupes
     result_image = v.get_output().get_image()
@@ -29,3 +69,28 @@ def visualize_groups_with_overlay(image, outputs, labels):
     plt.imshow(result_image)
     plt.axis('off')
     plt.show()
+
+# Effectuer l'inférence sur l'image avec le prédicteur existant
+def run_inference(image_path, predictor):
+    # Charger l'image
+    image = cv2.imread(image_path)
+    image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+    # Effectuer l'inférence
+    outputs = predictor(image)
+    return image, outputs
+
+# Fonction principale pour effectuer l'inférence et afficher les résultats
+def main(image_path, predictor):
+    # 1. Effectuer l'inférence
+    image, outputs = run_inference(image_path, predictor)
+    
+    # 2. Extraire les feuillets et leurs propriétés
+    feuillets = extract_feuillets(outputs)
+    
+    # 3. Appliquer DBSCAN pour regrouper les feuillets ayant des orientations similaires et proches
+    labels = group_feuillets(feuillets)
+    
+    # 4. Visualiser les feuillets regroupés avec overlay
+    visualize_groups_with_overlay(image, outputs, feuillets, labels)
+
