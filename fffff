@@ -1,172 +1,37 @@
-import cv2
-import numpy as np
-import random
-from math import atan2, degrees
-import matplotlib.pyplot as plt
-from detectron2.utils.visualizer import Visualizer
-from skimage.measure import label, regionprops
+from sklearn.cluster import DBSCAN
 
-# Fonction de calcul de l'angle d'orientation d'un rectangle
-def get_angle(x1, y1, x2, y2):
-    angle = atan2(y2 - y1, x2 - x1)
-    return degrees(angle)
+# Regrouper les feuillets par proximité et orientation avec DBSCAN
+def group_feuillets_with_dbscan(feuillets, eps_distance=50, eps_orientation=15, min_samples=2):
+    # Convertir les feuillets en une matrice de caractéristiques (position x, y, orientation)
+    features = np.array([[f[0], f[1], f[2]] for f in feuillets])
 
-# Vérifier si deux feuillets sont proches et ont des orientations similaires
-def are_feuillets_similar(feuillet1, feuillet2, distance_threshold=50, angle_threshold=15):
-    # Distance euclidienne entre les centres des feuillets
-    distance_position = np.sqrt((feuillet1[0] - feuillet2[0])**2 + (feuillet1[1] - feuillet2[1])**2)
-    
-    # Différence d'orientation (en degrés)
-    distance_orientation = abs(feuillet1[2] - feuillet2[2])
-    
-    # Vérifier si la distance et l'orientation sont suffisamment proches
-    if distance_position < distance_threshold and distance_orientation < angle_threshold:
-        return True
-    return False
+    # Normaliser les dimensions pour éviter que l'orientation ait trop de poids
+    features[:, 2] /= 360  # L'orientation est divisée par 360 pour être comparable aux positions
 
-# Extraire les informations des feuillets détectés
-def extract_feuillets(outputs):
-    instances = outputs['instances']
-    feuillets = []
-    
-    # Récupérer les coordonnées du centre de chaque feuillet et son orientation (angle)
-    for i in range(len(instances)):
-        bbox = instances[i].pred_boxes.tensor.cpu().numpy().flatten()  # Boîte englobante (sur CPU)
-        center_x, center_y = (bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2  # Centre du rectangle
-        angle = get_angle(bbox[0], bbox[1], bbox[2], bbox[3])  # Angle d'orientation
-        feuillets.append((center_x, center_y, angle))
-    
-    return feuillets
+    # Appliquer DBSCAN
+    clustering = DBSCAN(eps=eps_distance, min_samples=min_samples, metric='euclidean').fit(features)
 
-# Calculer la longueur des feuillets à partir de leur masque
-def calculate_feuillet_length(mask):
-    # Utiliser `regionprops` de `skimage` pour obtenir les propriétés du masque
-    regions = regionprops(mask)
-    
-    # Extraire le diamètre du feuillet (diamètre équivalent)
-    lengths = []
-    for region in regions:
-        # Diamètre équivalent d'un objet, basé sur la région
-        length = np.sqrt(region.area)  # Approximation de la longueur en fonction de la surface
-        lengths.append(length)
-    
-    return lengths
+    # Regrouper les indices des feuillets par labels de cluster
+    groups = {}
+    for idx, label in enumerate(clustering.labels_):
+        if label == -1:
+            continue  # Ignorer les "outliers"
+        if label not in groups:
+            groups[label] = []
+        groups[label].append(idx)
 
-# Regrouper les feuillets par proximité et orientation
-def group_feuillets(feuillets):
-    groups = []
-    assigned_groups = []
-    
-    for i, feuillet1 in enumerate(feuillets):
-        if i in assigned_groups:
-            continue
-        
-        # Créer un nouveau groupe
-        group = [i]
-        assigned_groups.append(i)
-        
-        # Vérifier si d'autres feuillets peuvent être ajoutés au groupe
-        for j, feuillet2 in enumerate(feuillets):
-            if j == i or j in assigned_groups:
-                continue
-            if are_feuillets_similar(feuillet1, feuillet2):
-                group.append(j)
-                assigned_groups.append(j)
-        
-        groups.append(group)
-    
-    return groups
+    return list(groups.values())
 
-# Visualisation des groupes avec des couleurs distinctes
-def visualize_groups_with_overlay(image, outputs, feuillets, groups):
-    # Créer un Visualizer pour afficher les résultats sur l'image
-    v = Visualizer(image[:, :, ::-1], metadata=None, scale=1.0)
-    
-    # Créer un tableau de couleurs distinctes pour chaque groupe
-    colors = [tuple(np.random.rand(3)) for _ in groups]  # Couleurs aléatoires pour chaque groupe
-    
-    # Ajouter les instances avec les couleurs de groupe dans l'overlay
-    instances = outputs['instances']
-    masks = instances.pred_masks.cpu().numpy()  # Masques sous forme de tableau numpy (sur CPU)
-    
-    # Créer un tableau pour les couleurs des instances
-    instance_colors = np.zeros((len(instances), 3))  # Tableau pour stocker les couleurs (RGB)
-    
-    for group_idx, group in enumerate(groups):
-        group_color = colors[group_idx]
-        for idx in group:
-            instance_colors[idx] = group_color  # Assigner la couleur au feuillet du groupe
-    
-    # Appliquer l'overlay avec les couleurs associées à chaque instance
-    v.overlay_instances(masks=masks, assigned_colors=instance_colors)
-    
-    # Afficher l'image avec l'overlay des groupes
-    result_image = v.get_output().get_image()
-    plt.figure(figsize=(10, 10))
-    plt.imshow(result_image)
-    plt.axis('off')
-    plt.show()
-
-# Effectuer l'inférence sur l'image avec le prédicteur existant
-def run_inference(image_path, predictor):
-    # Charger l'image
-    image = cv2.imread(image_path)
-    image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
-    # Effectuer l'inférence
-    outputs = predictor(image)
-    return image, outputs
-
-# Fonction principale pour effectuer l'inférence et afficher les résultats
-def main(image_path, predictor):
+# Ajuster la fonction principale pour utiliser DBSCAN
+def main_with_dbscan(image_path, predictor):
     # 1. Effectuer l'inférence
     image, outputs = run_inference(image_path, predictor)
     
     # 2. Extraire les feuillets et leurs propriétés
     feuillets = extract_feuillets(outputs)
     
-    # 3. Regrouper les feuillets par proximité et orientation
-    groups = group_feuillets(feuillets)
+    # 3. Regrouper les feuillets avec DBSCAN
+    groups = group_feuillets_with_dbscan(feuillets)
     
-    # 4. Calculer la longueur des feuillets
-    group_lengths = []
-    for group in groups:
-        group_masks = []
-        for idx in group:
-            mask = outputs['instances'].pred_masks[idx].cpu().numpy()
-            group_masks.append(mask)
-        
-        # Calculer la longueur pour chaque feuillet du groupe
-        group_length = []
-        for mask in group_masks:
-            lengths = calculate_feuillet_length(mask)
-            group_length.extend(lengths)
-        
-        group_lengths.append(group_length)
-    
-    # 5. Générer l'histogramme de la longueur moyenne des feuillets par groupe
-    group_avg_lengths = [np.mean(lengths) for lengths in group_lengths]
-    group_sizes = [len(lengths) for lengths in group_lengths]  # Nombre de feuillets par groupe
-    
-    # Tracer l'histogramme
-    plt.figure(figsize=(10, 6))
-    plt.bar(range(len(group_avg_lengths)), group_avg_lengths, tick_label=[f'Groupe {i+1}' for i in range(len(group_avg_lengths))])
-    plt.xlabel('Groupes')
-    plt.ylabel('Longueur moyenne des feuillets')
-    plt.title('Longueur moyenne des feuillets par groupe')
-    plt.show()
-def calculate_feuillet_length(mask):
-    # Convertir le masque en labels d'objets distincts
-    labeled_mask = label(mask.astype(np.uint8))  # Assurez-vous que le masque est de type entier
-    
-    # Utiliser `regionprops` pour obtenir les propriétés des objets dans le masque étiqueté
-    regions = regionprops(labeled_mask)
-    
-    # Extraire le diamètre du feuillet (diamètre équivalent)
-    lengths = []
-    for region in regions:
-        # Diamètre équivalent d'un objet, basé sur la région
-        length = np.sqrt(region.area)  # Approximation de la longueur en fonction de la surface
-        lengths.append(length)
-    
-    return lengths
+    # 4. Visualiser les feuillets regroupés avec overlay
+    visualize_groups_with_overlay(image, outputs, feuillets, groups)
