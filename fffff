@@ -1,31 +1,3 @@
-import numpy as np
-import cv2
-import matplotlib.pyplot as plt
-from math import atan2, degrees
-from sklearn.cluster import AgglomerativeClustering
-from scipy.spatial.distance import squareform
-from detectron2.utils.visualizer import Visualizer
-import networkx as nx  # Pour la gestion des graphes de proximité
-
-# Fonction pour calculer l'angle d'orientation d'un rectangle
-def get_angle(x1, y1, x2, y2):
-    angle = atan2(y2 - y1, x2 - x1)
-    return degrees(angle)
-
-# Fonction pour extraire les informations des feuillets détectés
-def extract_feuillets(outputs):
-    instances = outputs['instances']
-    feuillets = []
-    
-    for i in range(len(instances)):
-        bbox = instances[i].pred_boxes.tensor.cpu().numpy().flatten()  # Boîte englobante (sur CPU)
-        center_x, center_y = (bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2  # Centre du rectangle
-        angle = get_angle(bbox[0], bbox[1], bbox[2], bbox[3])  # Angle d'orientation
-        feuillets.append((center_x, center_y, angle))
-    
-    return feuillets
-
-# Fonction pour calculer une distance personnalisée (proximité et orientation)
 def custom_distance(feuillets, distance_threshold=50, angle_threshold=15):
     n = len(feuillets)
     graph = nx.Graph()  # Créer un graphe vide
@@ -34,7 +6,7 @@ def custom_distance(feuillets, distance_threshold=50, angle_threshold=15):
     for i in range(n):
         graph.add_node(i, data=feuillets[i])
 
-    # Ajouter des arêtes entre les nœuds si les feuillets sont proches
+    # Ajouter des arêtes entre les nœuds si les feuillets sont proches (soit côte à côte, soit en dessous)
     for i in range(n):
         for j in range(i + 1, n):
             # Calcul de la distance spatiale
@@ -42,87 +14,14 @@ def custom_distance(feuillets, distance_threshold=50, angle_threshold=15):
             dy = feuillets[i][1] - feuillets[j][1]
             spatial_distance = np.sqrt(dx**2 + dy**2)
 
-            # Calcul de la différence d'orientation
-            orientation_diff = abs(feuillets[i][2] - feuillets[j][2])
-            orientation_diff = min(orientation_diff, 360 - orientation_diff)  # Modulo 360
+            # Vérifier si les feuillets sont soit côte à côte, soit en dessous
+            if (abs(dx) <= distance_threshold and abs(dy) <= distance_threshold):  # Côté à côté ou en dessous
+                # Calcul de la différence d'orientation
+                orientation_diff = abs(feuillets[i][2] - feuillets[j][2])
+                orientation_diff = min(orientation_diff, 360 - orientation_diff)  # Modulo 360
 
-            # Si les critères de proximité et d'orientation sont satisfaits, ajouter une arête
-            if spatial_distance <= distance_threshold and orientation_diff <= angle_threshold:
-                graph.add_edge(i, j, weight=spatial_distance)
+                # Si les critères d'orientation sont satisfaits, ajouter une arête
+                if orientation_diff <= angle_threshold:
+                    graph.add_edge(i, j, weight=spatial_distance)
     
     return graph
-
-# Fonction pour obtenir les composantes connexes du graphe
-def get_connected_components(graph):
-    # Trouver les composantes connexes dans le graphe
-    components = list(nx.connected_components(graph))
-    return components
-
-# Fonction pour générer une couleur unique
-def generate_unique_color(existing_colors):
-    while True:
-        color = tuple(np.random.rand(3))  # Générer une nouvelle couleur (un tuple RGB)
-        if color not in existing_colors:  # Vérifier si la couleur existe déjà
-            existing_colors.add(color)  # Ajouter la nouvelle couleur à l'ensemble
-            return color
-
-# Visualisation des groupes avec des couleurs distinctes
-def visualize_groups_with_overlay(image, outputs, feuillets, groups):
-    v = Visualizer(image[:, :, ::-1], metadata=None, scale=1.0)
-    
-    # Créer un ensemble pour stocker les couleurs uniques
-    existing_colors = set()
-    
-    # Générer des couleurs uniques pour chaque groupe
-    colors = [generate_unique_color(existing_colors) for _ in groups]
-    
-    instances = outputs['instances']
-    masks = instances.pred_masks.cpu().numpy()  # Masques sous forme de tableau numpy (sur CPU)
-    
-    # Créer un tableau pour les couleurs des instances
-    instance_colors = np.zeros((len(instances), 3))  # Tableau pour stocker les couleurs (RGB)
-    
-    for group_idx, group in enumerate(groups):
-        group_color = colors[group_idx]
-        for idx in group:
-            instance_colors[idx] = group_color  # Assigner la couleur au feuillet du groupe
-    
-    # Appliquer l'overlay avec les couleurs associées à chaque instance
-    v.overlay_instances(masks=masks, assigned_colors=instance_colors)
-    
-    # Afficher l'image avec l'overlay des groupes
-    result_image = v.get_output().get_image()
-    plt.figure(figsize=(10, 10))
-    plt.imshow(result_image)
-    plt.axis('off')
-    plt.show()
-
-# Effectuer l'inférence sur l'image avec le prédicteur existant
-def run_inference(image_path, predictor):
-    image = cv2.imread(image_path)
-    image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
-    outputs = predictor(image)
-    return image, outputs
-
-# Fonction principale pour effectuer l'inférence et afficher les résultats
-def main(image_path, predictor):
-    # 1. Effectuer l'inférence
-    image, outputs = run_inference(image_path, predictor)
-    
-    # 2. Extraire les feuillets et leurs propriétés
-    feuillets = extract_feuillets(outputs)
-    
-    # 3. Créer un graphe de proximité
-    graph = custom_distance(feuillets)
-    
-    # 4. Trouver les composantes connexes
-    components = get_connected_components(graph)
-    
-    # 5. Visualiser les feuillets regroupés avec overlay
-    visualize_groups_with_overlay(image, outputs, feuillets, components)
-
-# Exemple d'appel avec un chemin d'image et un prédicteur existant
-image_path = "path_to_your_image.jpg"  # Remplace par le chemin de ton image
-# Le prédicteur est supposé être déjà défini ailleurs dans le code
-main(image_path, predictor)
