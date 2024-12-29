@@ -1,27 +1,56 @@
-def custom_distance(feuillets, distance_threshold=50, angle_threshold=15):
-    n = len(feuillets)
-    graph = nx.Graph()  # Créer un graphe vide
+# Fonction pour extraire les informations des feuillets détectés
+def extract_feuillets(outputs):
+    masks = outputs['instances'].pred_masks.cpu().numpy()  # Masques sous forme de tableau numpy
+    feuillets = []
+
+    for mask in masks:
+        # Obtenir les propriétés des régions dans le masque
+        labeled_mask = label(mask.astype(np.uint8))  # Assurez-vous que le masque est de type entier
+        regions = regionprops(labeled_mask)
+        
+        # Extraire les informations de chaque feuillet
+        for region in regions:
+            length = np.sqrt(region.area)  # Diamètre équivalent
+            center_y, center_x = region.centroid
+            angle = get_angle(region.bbox[0], region.bbox[1], region.bbox[2], region.bbox[3])
+            
+            # Ajouter un tuple contenant le centre, l'angle et la longueur
+            feuillets.append((center_x, center_y, angle, length))
     
-    # Ajouter un nœud pour chaque feuillet
-    for i in range(n):
-        graph.add_node(i, data=feuillets[i])
+    return feuillets
+def plot_group_lengths(groups, feuillets):
+    group_lengths = []
+    group_sizes = []
 
-    # Ajouter des arêtes entre les nœuds si les feuillets sont proches (soit côte à côte, soit en dessous)
-    for i in range(n):
-        for j in range(i + 1, n):
-            # Calcul de la distance spatiale
-            dx = feuillets[i][0] - feuillets[j][0]
-            dy = feuillets[i][1] - feuillets[j][1]
-            spatial_distance = np.sqrt(dx**2 + dy**2)
+    for group in groups:
+        group_lengths.append(np.mean([feuillets[i][3] for i in group]))  # Index 3 pour la longueur
+        group_sizes.append(len(group))
 
-            # Vérifier si les feuillets sont soit côte à côte, soit en dessous
-            if (abs(dx) <= distance_threshold and abs(dy) <= distance_threshold):  # Côté à côté ou en dessous
-                # Calcul de la différence d'orientation
-                orientation_diff = abs(feuillets[i][2] - feuillets[j][2])
-                orientation_diff = min(orientation_diff, 360 - orientation_diff)  # Modulo 360
+    plt.figure(figsize=(8, 6))
+    plt.scatter(group_sizes, group_lengths, c='blue', alpha=0.7)
+    plt.xlabel("Nombre de feuillets empilés (par groupe)")
+    plt.ylabel("Longueur moyenne des feuillets (nm)")
+    plt.title("Longueur moyenne des feuillets en fonction du nombre de feuillets empilés")
+    plt.grid(True)
+    plt.show()
 
-                # Si les critères d'orientation sont satisfaits, ajouter une arête
-                if orientation_diff <= angle_threshold:
-                    graph.add_edge(i, j, weight=spatial_distance)
-    
-    return graph
+def main(image_path, predictor):
+    # 1. Effectuer l'inférence
+    image = cv2.imread(image_path)
+    image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    outputs = predictor(image)
+
+    # 2. Extraire les feuillets et leurs propriétés
+    feuillets = extract_feuillets(outputs)
+
+    # 3. Créer un graphe de proximité
+    graph = custom_distance(feuillets)
+
+    # 4. Trouver les composantes connexes
+    components = get_connected_components(graph)
+
+    # 5. Visualiser les feuillets regroupés
+    visualize_groups_with_overlay(image, outputs, feuillets, components)
+
+    # 6. Générer le graphique des longueurs moyennes
+    plot_group_lengths(components, feuillets)
