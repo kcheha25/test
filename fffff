@@ -1,21 +1,24 @@
-# Fonction pour extraire les informations des feuillets détectés
 def extract_feuillets(outputs):
-    masks = outputs['instances'].pred_masks.cpu().numpy()  # Masques sous forme de tableau numpy
+    instances = outputs['instances']
+    masks = instances.pred_masks.cpu().numpy()
     feuillets = []
-
-    for mask in masks:
-        # Obtenir les propriétés des régions dans le masque
-        labeled_mask = label(mask.astype(np.uint8))  # Assurez-vous que le masque est de type entier
-        regions = regionprops(labeled_mask)
+    
+    for i in range(len(instances)):
+        # Obtenir la boîte englobante
+        bbox = instances.pred_boxes.tensor[i].cpu().numpy().flatten()
+        center_x, center_y = (bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2
+        angle = get_angle(bbox[0], bbox[1], bbox[2], bbox[3])
         
-        # Extraire les informations de chaque feuillet
-        for region in regions:
-            length = np.sqrt(region.area)  # Diamètre équivalent
-            center_y, center_x = region.centroid
-            angle = get_angle(region.bbox[0], region.bbox[1], region.bbox[2], region.bbox[3])
-            
-            # Ajouter un tuple contenant le centre, l'angle et la longueur
-            feuillets.append((center_x, center_y, angle, length))
+        # Calculer la longueur via les masques et `regionprops`
+        labeled_mask = label(masks[i].astype(np.uint8))
+        regions = regionprops(labeled_mask)
+        if len(regions) > 0:
+            length = np.sqrt(regions[0].area)  # Longueur basée sur la région principale
+        else:
+            length = 0  # Longueur par défaut si aucune région n'est trouvée
+
+        # Ajouter les propriétés du feuillet
+        feuillets.append((center_x, center_y, angle, length))
     
     return feuillets
 def plot_group_lengths(groups, feuillets):
