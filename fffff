@@ -1,37 +1,21 @@
-from sklearn.cluster import DBSCAN
-
-# Regrouper les feuillets par proximité et orientation avec DBSCAN
-def group_feuillets_with_dbscan(feuillets, eps_distance=50, eps_orientation=15, min_samples=2):
-    # Convertir les feuillets en une matrice de caractéristiques (position x, y, orientation)
-    features = np.array([[f[0], f[1], f[2]] for f in feuillets])
-
-    # Normaliser les dimensions pour éviter que l'orientation ait trop de poids
-    features[:, 2] /= 360  # L'orientation est divisée par 360 pour être comparable aux positions
-
-    # Appliquer DBSCAN
-    clustering = DBSCAN(eps=eps_distance, min_samples=min_samples, metric='euclidean').fit(features)
-
-    # Regrouper les indices des feuillets par labels de cluster
-    groups = {}
-    for idx, label in enumerate(clustering.labels_):
-        if label == -1:
-            continue  # Ignorer les "outliers"
-        if label not in groups:
-            groups[label] = []
-        groups[label].append(idx)
-
-    return list(groups.values())
-
-# Ajuster la fonction principale pour utiliser DBSCAN
-def main_with_dbscan(image_path, predictor):
-    # 1. Effectuer l'inférence
-    image, outputs = run_inference(image_path, predictor)
+def group_feuillets(feuillets):
+    groups = []
+    visited = set()
     
-    # 2. Extraire les feuillets et leurs propriétés
-    feuillets = extract_feuillets(outputs)
+    for i, feuillet1 in enumerate(feuillets):
+        if i in visited:
+            continue
+        
+        # Créer un nouveau groupe
+        group = [i]
+        visited.add(i)
+        
+        # Vérifier si d'autres feuillets peuvent être ajoutés au groupe
+        for j, feuillet2 in enumerate(feuillets):
+            if j not in visited and are_feuillets_similar(feuillet1, feuillet2):
+                group.append(j)
+                visited.add(j)
+        
+        groups.append(group)
     
-    # 3. Regrouper les feuillets avec DBSCAN
-    groups = group_feuillets_with_dbscan(feuillets)
-    
-    # 4. Visualiser les feuillets regroupés avec overlay
-    visualize_groups_with_overlay(image, outputs, feuillets, groups)
+    return groups
