@@ -57,3 +57,41 @@ def main(image_path, predictor):
 
     # 6. Générer le graphique des longueurs moyennes
     plot_group_lengths(components, feuillets)
+
+import os
+import tifffile
+
+def combine_images_to_tiff(input_folder, output_file):
+    """
+    Combine toutes les images .tif d'un dossier en un seul fichier TIFF multi-pages.
+    
+    Args:
+        input_folder (str): Chemin vers le dossier contenant les images .tif.
+        output_file (str): Chemin du fichier TIFF multi-pages de sortie.
+    """
+    # Liste pour stocker toutes les images
+    images = []
+
+    # Parcourir les fichiers dans le dossier
+    for file_name in sorted(os.listdir(input_folder)):
+        if file_name.endswith(".tif"):
+            file_path = os.path.join(input_folder, file_name)
+            # Charger l'image
+            image = tifffile.imread(file_path)
+            images.append(image)
+
+    # Écrire toutes les images dans un fichier TIFF multi-pages
+    with tifffile.TiffWriter(output_file) as tiff:
+        for img in images:
+            tiff.write(img)
+
+# Chemin du dossier contenant les images
+input_folder = "/chemin/vers/ton/dossier_images"
+
+# Chemin du fichier TIFF multi-pages de sortie
+output_file = "/chemin/vers/ton_fichier_multi_pages.tif"
+
+# Appeler la fonction pour regrouper les images
+combine_images_to_tiff(input_folder, output_file)
+
+print(f"Les images ont été regroupées dans le fichier : {output_file}")
