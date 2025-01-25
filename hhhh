@@ -1,0 +1,123 @@
+import os
+import cv2
+import numpy as np
+import json
+import shutil
+from sklearn.model_selection import train_test_split
+
+def get_image_mask_pairs(data_dir):
+    image_paths = []
+    mask_paths = []
+    
+    for root, _, files in os.walk(data_dir):
+        if 'tissue images' in root:
+            for file in files:
+                if file.endswith('.png'):
+                    image_paths.append(os.path.join(root, file))
+                    mask_paths.append(os.path.join(root.replace('tissue images', 'label masks modify'), file.replace('.png', '.tif')))
+    
+    return image_paths, mask_paths
+
+def mask_to_polygons_and_rotated_bbox(mask, epsilon=1.0):
+    """
+    Convert a binary mask into polygons and rotated bounding boxes.
+    """
+    contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    polygons = []
+    rotated_bboxes = []
+    
+    for contour in contours:
+        if len(contour) > 2:
+            poly = contour.reshape(-1).tolist()
+            if len(poly) > 4:  # Ensure valid polygon
+                polygons.append(poly)
+            
+            # Calculate rotated bounding box
+            rect = cv2.minAreaRect(contour)
+            box = cv2.boxPoints(rect)
+            box = np.int0(box)  # Convert to integer
+            x_c, y_c = rect[0]  # Center of the box
+            w, h = rect[1]  # Width and height of the box
+            theta = rect[2]  # Angle of rotation
+            
+            # Normalize the angle to be between -90 and 90
+            if w < h:
+                w, h = h, w
+                theta += 90
+            
+            rotated_bboxes.append([x_c, y_c, w, h, theta])
+    
+    return polygons, rotated_bboxes
+
+def process_data(image_paths, mask_paths, output_dir):
+    annotations = []
+    images = []
+    image_id = 0
+    ann_id = 0
+    
+    for img_path, mask_path in zip(image_paths, mask_paths):
+        image_id += 1
+        img = cv2.imread(img_path)
+        mask = cv2.imread(mask_path, cv2.IMREAD_UNCHANGED)
+        
+        # Copy image to output directory
+        shutil.copy(img_path, os.path.join(output_dir, os.path.basename(img_path)))
+        
+        images.append({
+            "id": image_id,
+            "file_name": os.path.basename(img_path),
+            "height": img.shape[0],
+            "width": img.shape[1]
+        })
+        
+        unique_values = np.unique(mask)
+        for value in unique_values:
+            if value == 0:  # Ignore background
+                continue
+            
+            object_mask = (mask == value).astype(np.uint8) * 255
+            polygons, rotated_bboxes = mask_to_polygons_and_rotated_bbox(object_mask)
+            
+            for poly, rotated_bbox in zip(polygons, rotated_bboxes):
+                ann_id += 1
+                x_c, y_c, w, h, theta = rotated_bbox
+                annotations.append({
+                    "id": ann_id,
+                    "image_id": image_id,
+                    "category_id": 1,  # Only one category: Nuclei
+                    "segmentation": [poly],
+                    "area": cv2.contourArea(np.array(poly).reshape(-1, 2)),
+                    "bbox": [x_c, y_c, w, h, theta],  # Rotated bbox
+                    "iscrowd": 0
+                })
+    
+    coco_output = {
+        "images": images,
+        "annotations": annotations,
+        "categories": [{"id": 1, "name": "Nuclei"}]
+    }
+    
+    with open(os.path.join(output_dir, 'coco_annotations.json'), 'w') as f:
+        json.dump(coco_output, f)
+
+def main():
+    data_dir = 'Data'
+    output_dir = 'COCO_output'
+    train_dir = os.path.join(output_dir, 'train')
+    val_dir = os.path.join(output_dir, 'val')
+    
+    # Create output directories
+    os.makedirs(train_dir, exist_ok=True)
+    os.makedirs(val_dir, exist_ok=True)
+    
+    image_paths, mask_paths = get_image_mask_pairs(data_dir)
+    
+    # Split data into train and val
+    train_img_paths, val_img_paths, train_mask_paths, val_mask_paths = train_test_split(image_paths, mask_paths, test_size=0.2, random_state=42)
+    
+    # Process train and val data
+    process_data(train_img_paths, train_mask_paths, train_dir)
+    process_data(val_img_paths, val_mask_paths, val_dir)
+
+if __name__ == '__main__':
+    main()
