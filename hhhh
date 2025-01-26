@@ -221,7 +221,13 @@ def process_data(image_paths, mask_paths, output_dir, class_id=1):
     for ann in annotations:
         poly = ann['segmentation'][0]
         # Format DOTA : A[0:8]: Polygone en 8 coordonnées, A[8]: Catégorie, A[9]: Difficulté
-        dota_output.append(' '.join(map(str, poly)) + f" {ann['category_id']} 0")
+        # Assurer que le polygone a bien 8 points, même si moins de 4 sont présents
+        if len(poly) < 8:
+            poly += [0] * (8 - len(poly))  # Compléter avec des zéros si moins de 8 points
+
+        # Afficher les coordonnées sous forme correcte dans le fichier .txt
+        poly_str = " ".join([str(int(coord)) for coord in poly])
+        dota_output.append(f"{poly_str} {ann['category_id']} 0")
     
     # Sauvegarder les annotations DOTA dans un fichier .txt
     with open(os.path.join(output_dir, 'dota_annotations.txt'), 'w') as f:
