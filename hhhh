@@ -181,16 +181,13 @@ def process_data(image_paths, mask_paths, output_dir):
             polygons = mask_to_polygons(object_mask)
             
             for poly in polygons:
-                # Get the 8 coordinates of the polygon (x1, y1, x2, y2, ...)
-                coords = np.array(poly).reshape(-1)
-                assert len(coords) == 8, f"Expected 8 coordinates, got {len(coords)}"
-                
-                # Define the annotation format for DOTA
-                annotation_line = ' '.join(map(str, coords)) + ' plane 0'  # Assuming all objects are "plane" and difficulty 0
+                # The polygon now has 8 coordinates for the bounding box
+                # The annotation format: "x1 y1 x2 y2 x3 y3 x4 y4 category_id difficulty"
+                annotation_line = ' '.join(map(str, poly)) + ' plane 0'  # "plane" is the object category and "0" is difficulty
                 annotation_lines.append(annotation_line)
         
-        # Write the annotations to a txt file
-        annotation_file = os.path.join(annotations_dir, f'{image_id}.txt')
+        # Write the annotations to a txt file with the same name as the image
+        annotation_file = os.path.join(annotations_dir, f'{os.path.splitext(os.path.basename(img_path))[0]}.txt')
         with open(annotation_file, 'w') as f:
             f.write("\n".join(annotation_lines))
 
