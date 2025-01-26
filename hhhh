@@ -148,9 +148,10 @@ def mask_to_polygons(mask, epsilon=1.0):
     polygons = []
     for contour in contours:
         if len(contour) > 2:
-            poly = contour.reshape(-1).tolist()
-            if len(poly) > 4:  # Ensure valid polygon
-                polygons.append(poly)
+            # Get the bounding rectangle for each contour (4 points: x1, y1, x2, y2)
+            x, y, w, h = cv2.boundingRect(contour)
+            # Add the 4 corners of the bounding box as the polygon
+            polygons.append([x, y, x + w, y, x + w, y + h, x, y + h])
     return polygons
 
 def process_data(image_paths, mask_paths, output_dir):
