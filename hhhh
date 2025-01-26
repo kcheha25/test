@@ -259,3 +259,7 @@ def get_polygon(box):
     return Polygon(rotated_corners)
 pip uninstall detectron2 -y
 pip install 'detectron2 -f https://dl.fbaipublicfiles.com/detectron2/wheels/cu118/torch2.0/index.html'
+
+
+Une vérification visuelle a été réalisée sur plusieurs images de test pour valider les résultats.
+Élimination possible des faux positifs en utilisant la différence de valeurs de pixels entre les objets détectés et le fond.
