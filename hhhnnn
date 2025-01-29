@@ -1,0 +1,28 @@
+# Spécifier ici le chemin de l'image sur laquelle on souhaite effectuer la détection.
+# L'image doit avoir une taille de 1024x1024 pixels.
+# Si l'on souhaite traiter plusieurs images et générer les différents histogrammes
+# présentés lors de la présentation, utiliser 'image_dir' pour spécifier un fichier
+# contenant la liste des images à analyser.
+# 'gt_mask_dir' doit être utilisé pour référencer les images masques de vérité terrain.
+
+
+
+# En lançant cette section, on obtient l'image spécifiée dans 'image_path' 
+# avec les différentes prédictions du modèle colorées selon le code suivant :
+# - Score de confiance > 70%  → Vert
+# - Score de confiance entre 50% et 70%  → Bleu
+# - Score de confiance entre 40% et 50%  → Jaune
+# - Score de confiance entre 30% et 40%  → Rouge
+
+
+# En lançant cette section, on obtient le nuage de points représentant 
+# la différence entre la valeur moyenne des objets détectés et la valeur 
+# moyenne du voisinage, en fonction du diamètre (en nm) des particules détectées. 
+# Cette analyse est réalisée pour l'image spécifiée dans 'image_path'.
+
+
+# En lançant cette section, on obtient le nuage de points représentant 
+# la différence entre la valeur moyenne des objets détectés et la valeur 
+# moyenne du voisinage, en fonction du diamètre (en nm) des particules détectées. 
+# Cette analyse est effectuée pour toutes les images présentes dans le fichier 
+# spécifié dans 'image_dir'.
