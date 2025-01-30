@@ -26,3 +26,14 @@
 # moyenne du voisinage, en fonction du diamètre (en nm) des particules détectées. 
 # Cette analyse est effectuée pour toutes les images présentes dans le fichier 
 # spécifié dans 'image_dir'.
+
+
+
+# En lançant cette section, on obtient la fréquence normalisée en nombre 
+# en fonction de la surface des particules. Cette analyse est effectuée 
+# pour toutes les images présentes dans le fichier spécifié dans 'image_dir'.
+
+# En lançant cette section, on obtient le diamètre moyen des nanoparticules (> 0.5 nm) 
+# en fonction du rapport nanoparticules / nombre total des particules détectées. 
+# Cette analyse est effectuée pour toutes les images présentes dans le fichier spécifié dans 'image_dir'.
+
