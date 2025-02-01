@@ -54,7 +54,8 @@ def get_bboxes_from_result(result):
     :return: Liste des boîtes englobantes [x, y, w, h, angle, score]
     """
     bboxes = []
-    for bbox in result:
+    # Accéder aux bboxes depuis le tableau dans result[0]
+    for bbox in result[0]:  # result[0] contient le tableau de bboxes
         x, y, w, h, angle, score = bbox
         bboxes.append([x, y, w, h, angle, score])
     return bboxes
