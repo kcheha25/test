@@ -110,3 +110,23 @@ if len(points) == 4:
     print(f"Taux de blanc: {white_ratio:.2%}")
 else:
     print("Veuillez sélectionner exactement 4 points.")
+
+
+Avant d'exécuter le code, assure-toi de modifier le chemin complet de l'image pour spécifier l'emplacement où ton fichier est sauvegardé.
+
+Une fois le code lancé, l'image s'affichera et tu pourras sélectionner quatre points rouges pour définir la zone souhaitée.
+
+Après la sélection, le programme affichera :
+
+La zone spécifiée extraite de l'image.
+Un masque binaire mettant en évidence les zones noires et blanches.
+Le taux de noir et de blanc dans la zone sélectionnée.
+
+Si l’exécution de la première cellule contenant :
+
+!pip install opencv-python
+!pip install matplotlib
+
+pose problème, cela est dû à des restrictions du réseau IFPEN qui bloquent l’installation des librairies.
+
+Dans ce cas, il faut exécuter cette cellule avant de se connecter au réseau IFPEN, ou bien tester sur un autre réseau. Tu peux aussi demander à Clément ou Firat de l’exécuter, car j’ai déjà configuré leur environnement pour permettre l’installation des librairies sur le réseau IFPEN. De mon côté, je pourrai également te faire cette configuration lorsque je rentrerai de Brest.
