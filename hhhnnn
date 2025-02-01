@@ -37,3 +37,76 @@
 # en fonction du rapport nanoparticules / nombre total des particules détectées. 
 # Cette analyse est effectuée pour toutes les images présentes dans le fichier spécifié dans 'image_dir'.
 
+
+!pip install opencv-python
+!pip install matplotlib
+
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+
+points = []
+
+def select_points(event, x, y, flags, param):
+    """Fonction de callback pour enregistrer les points cliqués."""
+    global points, temp_image
+    if event == cv2.EVENT_LBUTTONDOWN:
+        points.append((x, y))
+        cv2.circle(temp_image, (x, y), 5, (0, 0, 255), -1)
+        cv2.imshow("Sélection des points", temp_image)
+
+        if len(points) == 4:
+            cv2.destroyAllWindows()
+
+def compute_black_white_ratio(image, points):
+    """Calcule le taux de noir et de blanc dans la zone sélectionnée et affiche les images."""
+    points = np.array(points, dtype=np.int32)
+    x_min, y_min = np.min(points, axis=0)
+    x_max, y_max = np.max(points, axis=0)
+    
+    size = max(x_max - x_min, y_max - y_min)
+    x_max, y_max = x_min + size, y_min + size
+
+    roi = image[y_min:y_max, x_min:x_max]
+
+    if len(roi.shape) == 3:
+        roi_gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+    else:
+        roi_gray = roi
+
+    _, binary = cv2.threshold(roi_gray, 140, 255, cv2.THRESH_BINARY)
+
+    total_pixels = binary.size
+    black_pixels = np.sum(binary == 0)
+    white_pixels = np.sum(binary == 255)
+
+    black_ratio = black_pixels / total_pixels
+    white_ratio = white_pixels / total_pixels
+
+    fig, axes = plt.subplots(1, 2, figsize=(10, 5))
+    axes[0].imshow(roi_gray, cmap="gray")
+    axes[0].set_title("Zone sélectionnée")
+    axes[0].axis("off")
+
+    axes[1].imshow(binary, cmap="gray")
+    axes[1].set_title("Image binarisée (Noir & Blanc)")
+    axes[1].axis("off")
+
+    plt.show()
+
+    return black_ratio, white_ratio
+
+image_path = r"C:\Users\karim\Desktop\130423_WT_pyruvate_9B vide_ch00.tif"
+image = cv2.imread(image_path, cv2.IMREAD_UNCHANGED)
+temp_image = image.copy()
+
+cv2.imshow("Sélection des points", temp_image)
+cv2.setMouseCallback("Sélection des points", select_points)
+cv2.waitKey(0)
+
+if len(points) == 4:
+    black_ratio, white_ratio = compute_black_white_ratio(image, points)
+    print(f"Taux de noir: {black_ratio:.2%}")
+    print(f"Taux de blanc: {white_ratio:.2%}")
+else:
+    print("Veuillez sélectionner exactement 4 points.")
