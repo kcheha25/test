@@ -1,24 +1,39 @@
-import cv2
-import numpy as np
-import matplotlib.pyplot as plt
-from mmrotate.apis import inference_detector, init_detector
-
 def count_black_pixels_in_bbox(image, bbox, angle):
     """
     Compter les pixels noirs dans une bbox après rotation.
     :param image: Image d'entrée (numpy array)
     :param bbox: La boîte englobante (x, y, w, h, angle, score)
-    :param angle: L'angle de rotation de la bbox
+    :param angle: L'angle de rotation de la bbox (en radians)
     :return: Le nombre de pixels noirs dans la bbox
     """
     x, y, w, h, angle, score = bbox
 
+    # Assurez-vous que la largeur et la hauteur sont valides
+    if w <= 0 or h <= 0:
+        print(f"Invalid bounding box dimensions: w={w}, h={h}. Skipping this bbox.")
+        return 0, None
+
     # Découper la région de la bbox dans l'image
     roi = image[int(y):int(y+h), int(x):int(x+w)]
 
+    # Assurez-vous que roi n'est pas vide
+    if roi.size == 0:
+        print(f"Empty region of interest for bbox: {bbox}. Skipping this bbox.")
+        return 0, None
+
+    # Convertir l'angle de radians en degrés
+    angle_degrees = angle * (180.0 / np.pi)
+
     # Effectuer la rotation de l'image dans la bbox
-    M = cv2.getRotationMatrix2D((w // 2, h // 2), angle, 1.0)
-    rotated_roi = cv2.warpAffine(roi, M, (w, h))
+    center = (w // 2, h // 2)
+    M = cv2.getRotationMatrix2D(center, angle_degrees, 1.0)
+
+    # Si la taille de la rotation est valide
+    try:
+        rotated_roi = cv2.warpAffine(roi, M, (w, h))
+    except cv2.error as e:
+        print(f"Error in warpAffine: {e}. Skipping this bbox.")
+        return 0, None
 
     # Convertir l'image en niveau de gris et appliquer un seuil pour les pixels noirs
     gray = cv2.cvtColor(rotated_roi, cv2.COLOR_BGR2GRAY)
@@ -28,68 +43,3 @@ def count_black_pixels_in_bbox(image, bbox, angle):
     black_pixels = np.sum(thresh == 255)
     
     return black_pixels, thresh
-
-def plot_integral_curve(thresh, title="Integral Curve"):
-    """
-    Tracer la courbe de l'intégrale des pixels noirs dans la bbox.
-    :param thresh: L'image binaire après seuil (pixels noirs)
-    :param title: Titre du graphique
-    """
-    # Calcul de l'intégrale cumulée des pixels noirs le long de l'axe horizontal (par ligne)
-    integral_curve = np.sum(thresh == 255, axis=1)
-
-    # Tracer la courbe d'intégrale
-    plt.figure(figsize=(6, 3))
-    plt.plot(integral_curve)
-    plt.title(title)
-    plt.xlabel('Position verticale dans la bbox')
-    plt.ylabel('Nombre de pixels noirs')
-    plt.grid(True)
-    plt.show()
-
-def get_bboxes_from_result(result):
-    """
-    Extraire les boîtes englobantes à partir des résultats du modèle.
-    :param result: Le tableau numpy des résultats (nb_bboxes, 6)
-    :return: Liste des boîtes englobantes [x, y, w, h, angle, score]
-    """
-    bboxes = []
-    # Accéder aux bboxes depuis le tableau dans result[0]
-    for bbox in result[0]:  # result[0] contient le tableau de bboxes
-        x, y, w, h, angle, score = bbox
-        bboxes.append([x, y, w, h, angle, score])
-    return bboxes
-
-# Charger le modèle et les poids
-config_file = 'configs/s2anet/s2anet_r50_fpn_1x_dota.py'
-checkpoint_file = 'checkpoints/s2anet_r50.pth'
-model = init_detector(config_file, checkpoint_file, device='cuda:0')
-
-# Charger l'image à traiter
-image_path = 'path_to_your_image.jpg'
-image = cv2.imread(image_path)
-
-# Faire les prédictions avec le modèle
-result = inference_detector(model, image)
-
-# Récupérer les boîtes englobantes (bboxes)
-bboxes = get_bboxes_from_result(result)
-
-# Traiter chaque bbox et afficher l'image + courbe d'intégrale
-for i, bbox in enumerate(bboxes):
-    black_pixel_count, thresh = count_black_pixels_in_bbox(image, bbox, bbox[4])  # bbox[4] est l'angle
-    print(f"Box {i}: {bbox} -> Black pixel count: {black_pixel_count}")
-
-    # Afficher l'image avec la bbox
-    x, y, w, h, angle, score = bbox
-    cv2.rectangle(image, (int(x), int(y)), (int(x + w), int(y + h)), (0, 255, 0), 2)
-
-    # Tracer la courbe d'intégrale
-    plot_integral_curve(thresh, title=f'Integral Curve for bbox {i}')
-
-    # Afficher l'image avec la bbox
-    plt.figure(figsize=(6, 6))
-    plt.imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-    plt.title(f'Image with bbox {i}')
-    plt.axis('off')
-    plt.show()
