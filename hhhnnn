@@ -1,45 +1,75 @@
-def count_black_pixels_in_bbox(image, bbox, angle):
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+from mmrotate.apis import inference_detector, init_detector
+
+def apply_fourier_transform(image):
     """
-    Compter les pixels noirs dans une bbox après rotation.
+    Applique la transformée de Fourier sur une image et retourne le spectre de fréquence.
     :param image: Image d'entrée (numpy array)
-    :param bbox: La boîte englobante (x, y, w, h, angle, score)
-    :param angle: L'angle de rotation de la bbox (en radians)
-    :return: Le nombre de pixels noirs dans la bbox
+    :return: Spectre de fréquence
     """
-    x, y, w, h, angle, score = bbox
+    # Convertir l'image en niveau de gris si nécessaire
+    gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-    # Assurez-vous que la largeur et la hauteur sont valides
-    if w <= 0 or h <= 0:
-        print(f"Invalid bounding box dimensions: w={w}, h={h}. Skipping this bbox.")
-        return 0, None
+    # Appliquer la transformée de Fourier sur l'image
+    f = np.fft.fft2(gray_image)
+    fshift = np.fft.fftshift(f)  # Décaler les fréquences basses au centre
 
-    # Découper la région de la bbox dans l'image
-    roi = image[int(y):int(y+h), int(x):int(x+w)]
+    # Calculer la magnitude du spectre
+    magnitude_spectrum = np.abs(fshift)
 
-    # Assurez-vous que roi n'est pas vide
-    if roi.size == 0:
-        print(f"Empty region of interest for bbox: {bbox}. Skipping this bbox.")
-        return 0, None
+    return magnitude_spectrum, fshift
 
-    # Convertir l'angle de radians en degrés
-    angle_degrees = angle * (180.0 / np.pi)
+def plot_bboxes_with_fourier(image, result):
+    """
+    Affiche l'image avec les boîtes englobantes détectées et à côté, la transformée de Fourier pour chaque ROI.
+    :param image: Image originale (numpy array)
+    :param result: Résultats des détections (liste de bboxes [x, y, w, h, angle, score])
+    """
+    # Copier l'image originale pour dessiner les boîtes englobantes
+    image_copy = image.copy()
 
-    # Effectuer la rotation de l'image dans la bbox
-    center = (w // 2, h // 2)
-    M = cv2.getRotationMatrix2D(center, angle_degrees, 1.0)
+    for i, bbox in enumerate(result[0]):  # result[0] est un tableau de bboxes
+        x, y, w, h, angle, score = bbox
 
-    # Si la taille de la rotation est valide
-    try:
-        rotated_roi = cv2.warpAffine(roi, M, (w, h))
-    except cv2.error as e:
-        print(f"Error in warpAffine: {e}. Skipping this bbox.")
-        return 0, None
+        # Découper la région d'intérêt (ROI) de l'image
+        roi = image[int(y):int(y+h), int(x):int(x+w)]
 
-    # Convertir l'image en niveau de gris et appliquer un seuil pour les pixels noirs
-    gray = cv2.cvtColor(rotated_roi, cv2.COLOR_BGR2GRAY)
-    _, thresh = cv2.threshold(gray, 30, 255, cv2.THRESH_BINARY_INV)
+        # Appliquer la transformée de Fourier sur la ROI
+        magnitude_spectrum, _ = apply_fourier_transform(roi)
 
-    # Comptage des pixels noirs (lignes noires)
-    black_pixels = np.sum(thresh == 255)
-    
-    return black_pixels, thresh
+        # Afficher l'image originale avec la boîte englobante
+        cv2.rectangle(image_copy, (int(x), int(y)), (int(x + w), int(y + h)), (0, 255, 0), 2)
+
+        # Tracer l'image avec la transformée de Fourier
+        plt.figure(figsize=(12, 6))
+
+        # Image originale avec bbox
+        plt.subplot(1, 2, 1)
+        plt.imshow(cv2.cvtColor(image_copy, cv2.COLOR_BGR2RGB))
+        plt.title(f"Image with bbox {i}")
+        plt.axis('off')
+
+        # Transformée de Fourier pour la ROI
+        plt.subplot(1, 2, 2)
+        plt.imshow(np.log(1 + magnitude_spectrum), cmap='gray')
+        plt.title(f"Fourier Transform for bbox {i}")
+        plt.axis('off')
+
+        plt.show()
+
+# Charger le modèle et les poids
+config_file = 'configs/s2anet/s2anet_r50_fpn_1x_dota.py'
+checkpoint_file = 'checkpoints/s2anet_r50.pth'
+model = init_detector(config_file, checkpoint_file, device='cuda:0')
+
+# Charger l'image à traiter
+image_path = 'path_to_your_image.jpg'
+image = cv2.imread(image_path)
+
+# Faire les prédictions avec le modèle
+result = inference_detector(model, image)
+
+# Afficher les boîtes englobantes avec la transformée de Fourier pour chaque ROI
+plot_bboxes_with_fourier(image, result)
