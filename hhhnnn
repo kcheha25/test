@@ -4,12 +4,25 @@ import numpy as np
 import matplotlib.pyplot as plt
 from mmrotate.apis import inference_detector
 
-def analyze_and_plot(image, model, score_threshold=0.2):
-    # Effectuer l'inférence
-    result = inference_detector(model, image)
-    
+def resize_image(image, max_size=65536):
+    """Redimensionner l'image pour s'assurer que chaque dimension est < max_size"""
+    h, w = image.shape[:2]
+    if h * w > max_size:
+        scaling_factor = np.sqrt(max_size / float(h * w))
+        new_w = int(w * scaling_factor)
+        new_h = int(h * scaling_factor)
+        image = cv2.resize(image, (new_w, new_h))
+    return image
+
+def analyze_and_plot(image_path, model, score_threshold=0.2):
     # Charger l'image
-    img = mmcv.imread(image)
+    img = mmcv.imread(image_path)
+    
+    # Redimensionner si nécessaire
+    img = resize_image(img)
+
+    # Effectuer l'inférence
+    result = inference_detector(model, img)
     
     # Créer un plot avec des sous-graphes
     num_bboxes = len(result[0])
