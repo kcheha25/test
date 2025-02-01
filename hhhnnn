@@ -1,0 +1,77 @@
+import mmcv
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+from mmrotate.apis import inference_detector
+
+def analyze_and_plot(image, model, score_threshold=0.2):
+    # Effectuer l'inférence
+    result = inference_detector(model, image)
+    
+    # Charger l'image
+    img = mmcv.imread(image)
+    
+    # Créer un plot avec des sous-graphes
+    num_bboxes = len(result[0])
+    fig, axes = plt.subplots(num_bboxes, 2, figsize=(12, 5 * num_bboxes))
+    
+    # Si il n'y a qu'une seule bbox, `axes` sera un tableau 1D, alors ajustons
+    if num_bboxes == 1:
+        axes = np.expand_dims(axes, axis=0)
+
+    for i, bbox in enumerate(result[0]):
+        x, y, w, h, angle, score = bbox
+        
+        # Filtrer selon le score de confiance
+        if score < score_threshold:
+            continue
+        
+        # Convertir en entiers
+        x, y, w, h = int(x), int(y), int(w), int(h)
+        
+        # Convertir l'angle en radians et calculer la direction perpendiculaire
+        perp_angle = angle + np.pi / 2  # Calculer l'angle perpendiculaire en radians
+        
+        # Définir la boîte englobante sous forme de boîte rotative
+        rect = ((x, y), (w, h), angle * 180 / np.pi)  # Convertir l'angle en degrés pour OpenCV
+        box = cv2.boxPoints(rect).astype(np.int32)
+
+        # Extraire la région d'intérêt
+        mask = np.zeros_like(img, dtype=np.uint8)
+        cv2.drawContours(mask, [box], 0, (255, 255, 255), -1)
+        roi = cv2.bitwise_and(img, img, mask=mask[:, :, 0])
+        
+        # Convertir en niveaux de gris
+        gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+        
+        # Appliquer un seuillage pour isoler les traits noirs
+        _, binary = cv2.threshold(gray, 50, 255, cv2.THRESH_BINARY_INV)
+        
+        # Rotation pour aligner l'intégrale sur l'axe perpendiculaire
+        M = cv2.getRotationMatrix2D((w/2, h/2), perp_angle * 180 / np.pi, 1)  # Convertir perp_angle en degrés
+        rotated_binary = cv2.warpAffine(binary, M, (w, h))
+        
+        # Intégrale des pixels noirs selon l'axe perpendiculaire (somme des pixels noirs)
+        projection = np.sum(rotated_binary, axis=1)  # Projeter sur l'axe perpendiculaire
+        
+        # Normalisation de la projection
+        projection_normalized = projection / np.max(projection)
+
+        # Afficher la région de la bbox (à gauche)
+        axes[i, 0].imshow(cv2.cvtColor(roi, cv2.COLOR_BGR2RGB))
+        axes[i, 0].set_title(f"BBox {i+1} - Angle: {angle:.2f} rad")
+        axes[i, 0].axis('off')
+
+        # Afficher la courbe d'intégrale (à droite)
+        axes[i, 1].plot(projection_normalized)
+        axes[i, 1].set_title(f"Intégrale des traits noirs - BBox {i+1}")
+        axes[i, 1].set_xlabel("Position dans la BBox (direction perpendiculaire)")
+        axes[i, 1].set_ylabel("Intégrale Normalisée")
+    
+    plt.tight_layout()
+    plt.show()
+
+# Exemple d'utilisation
+# model = init_detector(config_file, checkpoint_file, device='cuda:0')
+image_path = "chemin/vers/image.jpg"
+analyze_and_plot(image_path, model)
