@@ -81,54 +81,66 @@ import matplotlib.pyplot as plt
 from scipy.signal import find_peaks
 
 def rotate_image(image, angle):
-    """ Effectue une rotation de l'image pour aligner les feuillets horizontalement. """
+    """ Effectue une rotation pour aligner l'axe des feuillets verticalement. """
     h, w = image.shape[:2]
     center = (w // 2, h // 2)
     
-    # Matrice de rotation inverse (-angle pour aligner horizontalement)
+    # Matrice de rotation pour aligner la bbox selon son angle
     M = cv2.getRotationMatrix2D(center, -angle, 1.0)
     rotated = cv2.warpAffine(image, M, (w, h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)
     
     return rotated
 
+def project_along_angle(image, angle):
+    """ Projette l'intensité des pixels suivant l'axe des feuillets. """
+    h, w = image.shape
+    diag_length = int(np.sqrt(h**2 + w**2))  # Longueur diagonale pour éviter les coupures
+    
+    # Créer une nouvelle image avec une marge pour éviter les artefacts
+    padded = np.zeros((diag_length, diag_length), dtype=np.uint8)
+    y_offset = (diag_length - h) // 2
+    x_offset = (diag_length - w) // 2
+    padded[y_offset:y_offset+h, x_offset:x_offset+w] = image
+    
+    # Faire pivoter l’image pour aligner l’axe des feuillets avec l’axe Y
+    rotated = rotate_image(padded, angle)
+    
+    # Projeter les intensités le long de l'axe des feuillets (somme sur les colonnes)
+    projection = np.sum(rotated, axis=0)
+    
+    return projection
+
 def count_sheets_in_bbox(image, bbox):
     """
-    Compte les feuillets dans une bbox en analysant les pics dans la direction de l'angle des feuillets.
+    Compte les feuillets dans une bbox en projetant les intensités le long de l’orientation des feuillets.
     """
-    x, y, w, h, angle, score = bbox  # Récupérer bbox et angle détecté par MMRotate
+    x, y, w, h, angle, score = bbox  # Récupérer bbox et angle
     x, y, w, h = map(int, [x, y, w, h])  # Convertir en entiers
-
+    
     roi = image[y:y+h, x:x+w]  # Extraire la région d'intérêt
-
-    # Convertir en niveaux de gris
     gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
 
-    # 🔹 Étape 1 : Faire pivoter l’image pour aligner les feuillets horizontalement
-    aligned_roi = rotate_image(gray_roi, angle)
+    # 🔹 Étape 1 : Projection des intensités selon l'angle des feuillets
+    intensity_profile = project_along_angle(gray_roi, angle)
+    
+    # 🔹 Étape 2 : Détection des pics dans la direction des feuillets
+    peaks, _ = find_peaks(intensity_profile, distance=5, height=np.max(intensity_profile) * 0.3)
 
-    # 🔹 Étape 2 : Appliquer un filtre de détection des contours (Sobel sur l'axe des X)
-    edges = cv2.Sobel(aligned_roi, cv2.CV_64F, 1, 0, ksize=3)  # Sobel en X pour voir les feuillets alignés
-    edges = np.abs(edges)
-
-    # 🔹 Étape 3 : Projection horizontale et détection des pics
-    horizontal_profile = np.sum(edges, axis=1)  # Projection selon l'axe des feuillets
-    peaks, _ = find_peaks(horizontal_profile, distance=5, height=np.max(horizontal_profile) * 0.3)
-
-    # 🔹 Étape 4 : Transformée de Fourier pour confirmer la fréquence des feuillets
-    f_transform = np.fft.fftshift(np.fft.fft(horizontal_profile))
+    # 🔹 Étape 3 : Transformée de Fourier pour vérifier la périodicité
+    f_transform = np.fft.fftshift(np.fft.fft(intensity_profile))
     freq_spectrum = np.abs(f_transform)
 
     # Affichage des résultats
     plt.figure(figsize=(12, 4))
 
     plt.subplot(1, 3, 1)
-    plt.imshow(aligned_roi, cmap='gray')
-    plt.title(f"ROI alignée - {len(peaks)} feuillets détectés")
+    plt.imshow(gray_roi, cmap='gray')
+    plt.title(f"ROI - {len(peaks)} feuillets détectés")
 
     plt.subplot(1, 3, 2)
-    plt.plot(horizontal_profile)
-    plt.scatter(peaks, horizontal_profile[peaks], color='r')
-    plt.title("Profil horizontal avec pics")
+    plt.plot(intensity_profile)
+    plt.scatter(peaks, intensity_profile[peaks], color='r')
+    plt.title("Profil d'intensité projeté avec pics")
 
     plt.subplot(1, 3, 3)
     plt.plot(freq_spectrum)
