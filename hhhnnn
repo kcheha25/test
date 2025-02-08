@@ -82,24 +82,23 @@ from scipy.signal import find_peaks
 
 def extract_intensity_profile(image, bbox):
     """
-    Extrait le profil d'intensité en suivant l’angle donné par la bbox
-    sans rotation complète de l'image.
+    Extrait le profil d'intensité suivant l’angle détecté dans bbox.
     """
     x, y, w, h, angle, score = bbox
     x, y, w, h = map(int, [x, y, w, h])  # Convertir en entiers
-
+    
     roi = image[y:y+h, x:x+w]  # Extraire la région d’intérêt
-    gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+    gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)  # Convertir en niveaux de gris
 
-    # 🔹 Convertir l’angle de radians → degrés
-    theta = angle  # ⚠️ On garde l'angle en radians car cos/sin utilisent radians
+    # 🔹 Convertir l’angle de radians → direction de balayage
+    theta = angle  # On garde en radians pour cos/sin
     cos_theta, sin_theta = np.cos(theta), np.sin(theta)
 
-    num_samples = h  # Nombre de lignes d'échantillonnage = hauteur de la bbox
+    num_samples = h  # Nombre de lignes de balayage = hauteur bbox
     intensities = np.zeros(num_samples)
 
     for i in range(num_samples):
-        # Calcul des coordonnées suivant l'angle détecté
+        # Calcul des coordonnées suivant l'angle
         x1 = int((w / 2) + i * cos_theta)
         y1 = int((h / 2) + i * sin_theta)
 
@@ -110,28 +109,26 @@ def extract_intensity_profile(image, bbox):
         line = cv2.line(np.zeros_like(gray_roi), (x1, y1), (x2, y2), 255, 1)
         intensities[i] = np.sum(gray_roi[line > 0])  # Somme des intensités sur la ligne
 
-    return intensities
+    return intensities, roi
 
 def count_sheets_in_bbox(image, bbox):
     """
-    Compte les feuillets dans une bbox en détectant les pics le long de la direction des feuillets.
+    Compte les feuillets dans une bbox et affiche la région bbox avec le graphe des pics.
     """
-    intensity_profile = extract_intensity_profile(image, bbox)
+    intensity_profile, bbox_region = extract_intensity_profile(image, bbox)
     
     # 🔹 Détection des pics suivant l’orientation du feuillet
     peaks, _ = find_peaks(intensity_profile, distance=5, height=np.max(intensity_profile) * 0.3)
 
-    # 🔹 Affichage
-    plt.figure(figsize=(10, 4))
+    # 🔹 Affichage de la région bbox + graphe des pics
+    fig, axs = plt.subplots(1, 2, figsize=(12, 4))
 
-    plt.subplot(1, 2, 1)
-    plt.imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
-    plt.title("Image originale avec bbox")
+    axs[0].imshow(cv2.cvtColor(bbox_region, cv2.COLOR_BGR2RGB))
+    axs[0].set_title("Région de la bbox détectée")
 
-    plt.subplot(1, 2, 2)
-    plt.plot(intensity_profile)
-    plt.scatter(peaks, intensity_profile[peaks], color='r')
-    plt.title("Profil d'intensité avec pics détectés")
+    axs[1].plot(intensity_profile)
+    axs[1].scatter(peaks, intensity_profile[peaks], color='r')
+    axs[1].set_title("Profil d'intensité avec pics détectés")
 
     plt.show()
 
@@ -148,3 +145,4 @@ result = inference_detector(model, image)
 for bbox in result[0]:  
     num_sheets = count_sheets_in_bbox(image, bbox)
     print(f"Nombre estimé de feuillets dans la bbox {bbox[:4]} : {num_sheets}")
+
