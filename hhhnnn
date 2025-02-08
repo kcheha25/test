@@ -82,6 +82,7 @@ from scipy.signal import find_peaks
 def rotate_and_crop(image, bbox):
     """
     Effectue une rotation et extrait la région d'intérêt (ROI) en tenant compte de l'angle.
+    Applique des transformations pour améliorer la qualité de la région.
     """
     x, y, w, h, angle_rad, _ = bbox
     x, y, w, h = map(int, [x, y, w, h])
@@ -94,7 +95,7 @@ def rotate_and_crop(image, bbox):
     M = cv2.getRotationMatrix2D(center, -angle_deg, 1.0)
 
     # Faire pivoter l'image entière
-    rotated_img = cv2.warpAffine(image, M, (image.shape[1], image.shape[0]),
+    rotated_img = cv2.warpAffine(image, M, (image.shape[1], image.shape[0]), 
                                  flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)
 
     # Extraire la région rectangulaire après rotation
@@ -102,39 +103,25 @@ def rotate_and_crop(image, bbox):
     x2, y2 = int(x + w / 2), int(y + h / 2)
 
     roi = rotated_img[max(y1, 0):min(y2, image.shape[0]), max(x1, 0):min(x2, image.shape[1])]
+
+    # Normalisation de l'image pour étendre sa plage de valeurs entre 0 et 255
+    normalized_image = cv2.normalize(roi, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX)
     
-    return roi
+    # Application d'un flou bilatéral pour réduire le bruit tout en préservant les contours
+    blurred_image = cv2.bilateralFilter(normalized_image, 5, 75, 75)
+    
+    # Création et application d'un objet CLAHE (Contrast Limited Adaptive Histogram Equalization) pour améliorer le contraste de l'image
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+    equalized_image = clahe.apply(blurred_image)
+    
+    # Définition d'un noyau de netteté
+    sharp_kernel = np.array([[-1, -1, -1],
+                             [-1,  9, -1],
+                             [-1, -1, -1]])
+    # Application du noyau de netteté à "equalized_image" en les convoluant
+    sharpened_image = cv2.filter2D(equalized_image, -1, sharp_kernel)
 
-def improve_contrast_and_smooth(image):
-    """
-    Applique une amélioration de contraste, un lissage et une détection de bords Canny.
-    """
-    # Convertir l'image en niveaux de gris
-    gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-
-    # 🔹 Amélioration du contraste (équalisation d'histogramme)
-    equalized_image = cv2.equalizeHist(gray_image)
-
-    # 🔹 Appliquer un filtre de flou gaussien pour lisser l'image
-    blurred_image = cv2.GaussianBlur(equalized_image, (5, 5), 0)
-
-    # 🔹 Appliquer un filtre Canny pour détecter les bords
-    edges = cv2.Canny(blurred_image, 100, 200)
-
-    return edges, blurred_image
-
-def morphological_processing(edges):
-    """
-    Applique une analyse morphologique pour combler les trous dans les objets.
-    """
-    # 🔹 Appliquer une dilatation pour combler les trous dans les objets
-    kernel = np.ones((5, 5), np.uint8)
-    dilated = cv2.dilate(edges, kernel, iterations=1)
-
-    # 🔹 Appliquer une érosion pour affiner les objets
-    eroded = cv2.erode(dilated, kernel, iterations=1)
-
-    return eroded
+    return sharpened_image
 
 def integrate_in_orientation(image, bbox):
     """
@@ -143,13 +130,29 @@ def integrate_in_orientation(image, bbox):
     x, y, w, h, angle_rad, _ = bbox  # Décompositions du bbox
     roi = rotate_and_crop(image, bbox)
 
-    # Appliquer les traitements pour améliorer l'image
-    edges, blurred_image = improve_contrast_and_smooth(roi)
+    # Convertir en niveaux de gris
+    gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
 
-    # Appliquer une analyse morphologique pour combler les trous
-    processed_image = morphological_processing(edges)
+    # Calculer le vecteur unitaire dans la direction de l'angle
+    angle_deg = np.degrees(angle_rad)
+    direction = np.array([np.cos(angle_rad), np.sin(angle_rad)])
 
-    return processed_image, blurred_image
+    # Créer une grille pour l'intégration
+    rows, cols = gray_roi.shape
+    projection = np.zeros(rows)
+
+    for i in range(rows):
+        # Calculer la projection pour chaque ligne de pixels dans la direction de l'angle
+        for j in range(cols):
+            # Projeter chaque pixel dans la direction donnée
+            x_proj = int(i + direction[0] * j)
+            y_proj = int(j + direction[1] * i)
+
+            # Vérifier que les indices sont dans l'image
+            if 0 <= x_proj < rows and 0 <= y_proj < cols:
+                projection[i] += gray_roi[x_proj, y_proj]
+    
+    return projection
 
 def count_sheets_in_bbox(image, bbox):
     """
@@ -158,27 +161,30 @@ def count_sheets_in_bbox(image, bbox):
     x, y, w, h, angle_rad, score = bbox  # Décompositions du bbox
 
     # Calculer l'intégration dans la direction de l'angle
-    processed_image, blurred_image = integrate_in_orientation(image, bbox)
+    intensity_profile = integrate_in_orientation(image, bbox)
 
-    # Détection des contours (Canny)
-    contours, _ = cv2.findContours(processed_image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    num_sheets = len(contours)
+    # Détection des pics dans le profil d'intensité projetée
+    peaks, _ = find_peaks(intensity_profile, distance=max(5, int(h * 0.1)), 
+                          height=np.max(intensity_profile) * 0.3)
 
     # Affichage des résultats
     plt.figure(figsize=(12, 4))
 
-    # Affichage de l'image filtrée avec contours
+    # Affichage du profil d'intensité projetée avec pics détectés
     plt.subplot(1, 2, 1)
-    plt.imshow(processed_image, cmap='gray')
-    plt.title(f"Contours après analyse morphologique")
+    plt.plot(intensity_profile)
+    plt.scatter(peaks, intensity_profile[peaks], color='r')
+    plt.title(f"Profil d'intensité projetée - {len(peaks)} feuillets détectés")
 
-    # Affichage de l'image floutée
+    # Affichage de la ROI (image en niveaux de gris)
+    roi = rotate_and_crop(image, bbox)
     plt.subplot(1, 2, 2)
-    plt.imshow(blurred_image, cmap='gray')
-    plt.title("Image après flou et égalisation d'histogramme")
+    plt.imshow(cv2.cvtColor(roi, cv2.COLOR_BGR2RGB))
+    plt.title("ROI alignée")
     plt.show()
 
-    return num_sheets
+    # Retourner le nombre de pics détectés
+    return len(peaks)
 
 # Chargement de l'image et exécution de MMRotate
 image_path = "path_to_your_image.jpg"
