@@ -77,6 +77,7 @@ plot_bboxes_with_fourier(image, result)
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
+from scipy.signal import find_peaks, cwt, morlet
 
 def rotate_and_crop(image, bbox):
     """
@@ -85,18 +86,18 @@ def rotate_and_crop(image, bbox):
     x, y, w, h, angle_rad, _ = bbox
     x, y, w, h = map(int, [x, y, w, h])
     
-    # 🔹 Convertir l'angle de radians en degrés
+    # Convertir l'angle de radians en degrés
     angle_deg = np.degrees(angle_rad)
 
-    # 🔹 Définir la matrice de rotation
+    # Définir la matrice de rotation
     center = (x, y)
     M = cv2.getRotationMatrix2D(center, -angle_deg, 1.0)
 
-    # 🔹 Faire pivoter l'image entière
+    # Faire pivoter l'image entière
     rotated_img = cv2.warpAffine(image, M, (image.shape[1], image.shape[0]),
                                  flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)
 
-    # 🔹 Extraire la région rectangulaire après rotation
+    # Extraire la région rectangulaire après rotation
     x1, y1 = int(x - w / 2), int(y - h / 2)
     x2, y2 = int(x + w / 2), int(y + h / 2)
 
@@ -108,65 +109,71 @@ def count_sheets_in_bbox(image, bbox):
     """
     Compte les feuillets dans une bbox détectée par MMRotate.
     """
-    x, y, w, h, angle_rad, score = bbox
+    x, y, w, h, angle_rad, score = bbox  # Décompositions du bbox
     roi = rotate_and_crop(image, bbox)
 
-    # 🔹 Convertir en niveaux de gris
+    # Convertir en niveaux de gris
     gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
 
-    # 🔹 Appliquer un flou gaussien pour réduire le bruit
-    blurred = cv2.GaussianBlur(gray_roi, (5, 5), 0)
+    # Détection des contours (Sobel)
+    edges = cv2.Sobel(gray_roi, cv2.CV_64F, 1, 0, ksize=3)
+    edges = np.abs(edges)
 
-    # 🔹 Effectuer la projection des intensités dans la direction du feuillet
-    # Créer une matrice de rotation pour aligner l'image selon l'angle des feuillets
-    rotation_matrix = cv2.getRotationMatrix2D((w / 2, h / 2), np.degrees(angle_rad), 1)
-    
-    # Appliquer la rotation sur l'image (en la projetant selon l'angle du feuillet)
-    rotated = cv2.warpAffine(blurred, rotation_matrix, (w, h), flags=cv2.INTER_LINEAR)
+    # Projection selon l'axe des feuillets (sommation des intensités)
+    intensity_profile = np.sum(edges, axis=1)
 
-    # 🔹 Projection sur l'axe vertical de la région (c'est l'axe directionnel des feuillets)
-    intensity_profile = np.sum(rotated, axis=0)  # Projection sur les colonnes
+    # Détection des pics dans le profil d'intensité
+    peaks, _ = find_peaks(intensity_profile, distance=max(5, int(h * 0.1)), 
+                          height=np.max(intensity_profile) * 0.3)
 
-    # 🔹 Seuil dynamique basé sur l'intensité des projections
-    threshold = np.mean(intensity_profile) + np.std(intensity_profile)
-    binary_profile = intensity_profile > threshold
+    # Appliquer la Transformée de Wavelet Continue (CWT)
+    wavelet_scales = np.arange(1, 100)  # Plage de scales pour la CWT
+    cwt_result = cwt(intensity_profile, morlet, wavelet_scales)
 
-    # 🔹 Trouver les régions connectées dans le profil binaire
-    contours, _ = cv2.findContours(binary_profile.astype(np.uint8), 
-                                    cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    # Trouver les pics dans la CWT (dans la direction de l'orientation)
+    peak_indices = []
+    for i in range(cwt_result.shape[0]):
+        peaks_cwt, _ = find_peaks(np.abs(cwt_result[i]), distance=5)
+        peak_indices.append(peaks_cwt)
 
-    # 🔹 Filtrer les contours trop petits (bruit)
-    min_contour_area = 500  # Ajuster selon la taille attendue des feuillets
-    filtered_contours = [cnt for cnt in contours if cv2.contourArea(cnt) > min_contour_area]
+    # Affichage des résultats
+    plt.figure(figsize=(12, 6))
 
-    # 🔹 Affichage des résultats
-    plt.figure(figsize=(12, 4))
-
-    plt.subplot(1, 2, 1)
+    # Affichage de l'image ROI
+    plt.subplot(1, 3, 1)
     plt.imshow(gray_roi, cmap='gray')
-    plt.title(f"ROI alignée - {len(filtered_contours)} feuillets détectés")
+    plt.title(f"ROI alignée - {len(peaks)} feuillets détectés")
 
-    plt.subplot(1, 2, 2)
-    for contour in filtered_contours:
-        cv2.drawContours(roi, [contour], -1, (0, 255, 0), 2)
-    plt.imshow(roi)
-    plt.title("Contours détectés")
+    # Affichage du profil d'intensité avec pics détectés
+    plt.subplot(1, 3, 2)
+    plt.plot(intensity_profile)
+    plt.scatter(peaks, intensity_profile[peaks], color='r')
+    plt.title("Profil d'intensité avec pics")
 
+    # Affichage du spectre CWT
+    plt.subplot(1, 3, 3)
+    plt.imshow(np.abs(cwt_result), aspect='auto', extent=[0, len(intensity_profile), 1, 100])
+    plt.title("Spectre CWT")
+    plt.colorbar(label="Magnitude")
+    plt.xlabel("Position")
+    plt.ylabel("Scales")
     plt.show()
 
-    return len(filtered_contours)
+    # Retourner le nombre de pics détectés
+    return len(peaks)
 
-# 🔹 Chargement de l'image et exécution de MMRotate
+# Chargement de l'image et exécution de MMRotate
 image_path = "path_to_your_image.jpg"
 image = cv2.imread(image_path)
 
 # Résultats de l'inférence MMRotate
 result = inference_detector(model, image)
 
-# 🔹 Boucle sur chaque bbox détectée
+# Boucle sur chaque bbox détectée
 for bbox in result[0]:  
     num_sheets = count_sheets_in_bbox(image, bbox)
     print(f"Nombre estimé de feuillets dans la bbox {bbox[:4]} : {num_sheets}")
+
 
 
 
