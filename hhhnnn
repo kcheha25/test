@@ -1,7 +1,9 @@
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
+import pywt
 from scipy.signal import find_peaks
+from scipy.fftpack import fft
 
 def rotate_and_crop(image, bbox):
     """
@@ -18,7 +20,7 @@ def rotate_and_crop(image, bbox):
     M = cv2.getRotationMatrix2D(center, -angle_deg, 1.0)
 
     # Faire pivoter l'image entière
-    rotated_img = cv2.warpAffine(image, M, (image.shape[1], image.shape[0]), 
+    rotated_img = cv2.warpAffine(image, M, (image.shape[1], image.shape[0]),
                                  flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)
 
     # Extraire la région rectangulaire après rotation
@@ -29,78 +31,77 @@ def rotate_and_crop(image, bbox):
     
     return roi
 
-def enhance_contrast(image):
-    """
-    Améliore le contraste de l'image pour mieux distinguer les feuillets.
-    """
-    lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
-    l, a, b = cv2.split(lab)
-    
-    # Appliquer une égalisation d'histogramme adaptative
-    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
-    l = clahe.apply(l)
-    
-    enhanced = cv2.merge((l, a, b))
-    return cv2.cvtColor(enhanced, cv2.COLOR_LAB2BGR)
-
-def detect_sheets_hough(image):
-    """
-    Utilise la transformée de Hough pour détecter et relier les feuillets discontinus.
-    """
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-
-    # Appliquer un seuillage adaptatif
-    thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-                                   cv2.THRESH_BINARY_INV, 11, 2)
-
-    # Détecter les lignes avec Hough
-    edges = cv2.dilate(thresh, None, iterations=2)  # Augmente les lignes fines
-    lines = cv2.HoughLinesP(edges, 1, np.pi / 180, threshold=50, minLineLength=30, maxLineGap=10)
-
-    if lines is not None:
-        for line in lines:
-            x1, y1, x2, y2 = line[0]
-            cv2.line(image, (x1, y1), (x2, y2), (0, 255, 0), 1)
-
-    return image
-
 def integrate_in_orientation(image, bbox):
     """
     Projette les intensités dans la direction de l'angle de la bbox.
     """
+    x, y, w, h, angle_rad, _ = bbox
     roi = rotate_and_crop(image, bbox)
-    roi = enhance_contrast(roi)
-    roi = detect_sheets_hough(roi)
 
+    # Convertir en niveaux de gris
     gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
 
-    # Calculer l'intégration des intensités par projection verticale
-    projection = np.sum(gray_roi, axis=1)
+    # Calculer le vecteur unitaire dans la direction de l'angle
+    angle_deg = np.degrees(angle_rad)
+    direction = np.array([np.cos(angle_rad), np.sin(angle_rad)])
 
+    # Créer une grille pour l'intégration
+    rows, cols = gray_roi.shape
+    projection = np.zeros(rows)
+
+    for i in range(rows):
+        for j in range(cols):
+            x_proj = int(i + direction[0] * j)
+            y_proj = int(j + direction[1] * i)
+
+            if 0 <= x_proj < rows and 0 <= y_proj < cols:
+                projection[i] += gray_roi[x_proj, y_proj]
+    
     return projection
 
 def count_sheets_in_bbox(image, bbox):
     """
-    Compte les feuillets dans une bbox détectée par MMRotate.
+    Applique trois méthodes différentes pour analyser les variations d'intensité projetée :
+    1. Détection des pics avec find_peaks
+    2. Analyse spectrale FFT
+    3. Analyse par ondelettes de Haar
     """
     intensity_profile = integrate_in_orientation(image, bbox)
 
-    # Détection des pics dans le profil d'intensité projetée
-    peaks, _ = find_peaks(intensity_profile, distance=5, height=np.max(intensity_profile) * 0.3)
+    # 1. Détection des pics
+    peaks, _ = find_peaks(intensity_profile, distance=max(5, int(len(intensity_profile) * 0.1)), 
+                          height=np.max(intensity_profile) * 0.3)
+
+    # 2. Spectre FFT
+    fft_spectrum = np.abs(fft(intensity_profile))
+    fft_freqs = np.fft.fftfreq(len(intensity_profile))
+
+    # 3. Décomposition par ondelettes de Haar
+    coeffs = pywt.wavedec(intensity_profile, 'haar', level=3)
+    haar_spectrum = coeffs[0]  # Coefficients d'approximation
 
     # Affichage des résultats
-    plt.figure(figsize=(12, 4))
+    fig, axes = plt.subplots(1, 4, figsize=(18, 4))
 
-    plt.subplot(1, 2, 1)
-    plt.plot(intensity_profile)
-    plt.scatter(peaks, intensity_profile[peaks], color='r')
-    plt.title(f"Profil d'intensité - {len(peaks)} feuillets détectés")
+    # (a) Profil d'intensité projeté avec détection des pics
+    axes[0].plot(intensity_profile, label="Profil d'intensité")
+    axes[0].scatter(peaks, intensity_profile[peaks], color='r', label="Pics détectés")
+    axes[0].set_title(f"Find Peaks - {len(peaks)} feuillets détectés")
+    axes[0].legend()
 
+    # (b) Spectre FFT
+    axes[1].plot(fft_freqs[:len(fft_freqs)//2], fft_spectrum[:len(fft_spectrum)//2])
+    axes[1].set_title("Spectre FFT")
+    
+    # (c) Ondelettes de Haar
+    axes[2].plot(haar_spectrum)
+    axes[2].set_title("Spectre Haar")
+
+    # (d) ROI extraite
     roi = rotate_and_crop(image, bbox)
-    roi = detect_sheets_hough(roi)
-    plt.subplot(1, 2, 2)
-    plt.imshow(cv2.cvtColor(roi, cv2.COLOR_BGR2RGB))
-    plt.title("ROI améliorée")
+    axes[3].imshow(cv2.cvtColor(roi, cv2.COLOR_BGR2RGB))
+    axes[3].set_title("ROI alignée")
+
     plt.show()
 
     return len(peaks)
