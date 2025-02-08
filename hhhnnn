@@ -1,88 +1,11 @@
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
-from mmrotate.apis import inference_detector, init_detector
-
-def apply_fourier_transform(image):
-    """
-    Applique la transformée de Fourier sur une image et retourne le spectre de fréquence.
-    :param image: Image d'entrée (numpy array)
-    :return: Spectre de fréquence
-    """
-    # Convertir l'image en niveau de gris si nécessaire
-    gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-
-    # Appliquer la transformée de Fourier sur l'image
-    f = np.fft.fft2(gray_image)
-    fshift = np.fft.fftshift(f)  # Décaler les fréquences basses au centre
-
-    # Calculer la magnitude du spectre
-    magnitude_spectrum = np.abs(fshift)
-
-    return magnitude_spectrum, fshift
-
-def plot_bboxes_with_fourier(image, result):
-    """
-    Affiche l'image avec les boîtes englobantes détectées et à côté, la transformée de Fourier pour chaque ROI.
-    :param image: Image originale (numpy array)
-    :param result: Résultats des détections (liste de bboxes [x, y, w, h, angle, score])
-    """
-    # Copier l'image originale pour dessiner les boîtes englobantes
-    image_copy = image.copy()
-
-    for i, bbox in enumerate(result[0]):  # result[0] est un tableau de bboxes
-        x, y, w, h, angle, score = bbox
-
-        # Découper la région d'intérêt (ROI) de l'image
-        roi = image[int(y):int(y+h), int(x):int(x+w)]
-
-        # Appliquer la transformée de Fourier sur la ROI
-        magnitude_spectrum, _ = apply_fourier_transform(roi)
-
-        # Afficher l'image originale avec la boîte englobante
-        cv2.rectangle(image_copy, (int(x), int(y)), (int(x + w), int(y + h)), (0, 255, 0), 2)
-
-        # Tracer l'image avec la transformée de Fourier
-        plt.figure(figsize=(12, 6))
-
-        # Image originale avec bbox
-        plt.subplot(1, 2, 1)
-        plt.imshow(cv2.cvtColor(image_copy, cv2.COLOR_BGR2RGB))
-        plt.title(f"Image with bbox {i}")
-        plt.axis('off')
-
-        # Transformée de Fourier pour la ROI
-        plt.subplot(1, 2, 2)
-        plt.imshow(np.log(1 + magnitude_spectrum), cmap='gray')
-        plt.title(f"Fourier Transform for bbox {i}")
-        plt.axis('off')
-
-        plt.show()
-
-# Charger le modèle et les poids
-config_file = 'configs/s2anet/s2anet_r50_fpn_1x_dota.py'
-checkpoint_file = 'checkpoints/s2anet_r50.pth'
-model = init_detector(config_file, checkpoint_file, device='cuda:0')
-
-# Charger l'image à traiter
-image_path = 'path_to_your_image.jpg'
-image = cv2.imread(image_path)
-
-# Faire les prédictions avec le modèle
-result = inference_detector(model, image)
-
-# Afficher les boîtes englobantes avec la transformée de Fourier pour chaque ROI
-plot_bboxes_with_fourier(image, result)
-
-import cv2
-import numpy as np
-import matplotlib.pyplot as plt
 from scipy.signal import find_peaks
 
 def rotate_and_crop(image, bbox):
     """
     Effectue une rotation et extrait la région d'intérêt (ROI) en tenant compte de l'angle.
-    Applique des transformations pour améliorer la qualité de la région.
     """
     x, y, w, h, angle_rad, _ = bbox
     x, y, w, h = map(int, [x, y, w, h])
@@ -103,87 +26,83 @@ def rotate_and_crop(image, bbox):
     x2, y2 = int(x + w / 2), int(y + h / 2)
 
     roi = rotated_img[max(y1, 0):min(y2, image.shape[0]), max(x1, 0):min(x2, image.shape[1])]
+    
+    return roi
 
-    # Normalisation de l'image pour étendre sa plage de valeurs entre 0 et 255
-    normalized_image = cv2.normalize(roi, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX)
+def enhance_contrast(image):
+    """
+    Améliore le contraste de l'image pour mieux distinguer les feuillets.
+    """
+    lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
+    l, a, b = cv2.split(lab)
     
-    # Application d'un flou bilatéral pour réduire le bruit tout en préservant les contours
-    blurred_image = cv2.bilateralFilter(normalized_image, 5, 75, 75)
+    # Appliquer une égalisation d'histogramme adaptative
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
+    l = clahe.apply(l)
     
-    # Création et application d'un objet CLAHE (Contrast Limited Adaptive Histogram Equalization) pour améliorer le contraste de l'image
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    equalized_image = clahe.apply(blurred_image)
-    
-    # Définition d'un noyau de netteté
-    sharp_kernel = np.array([[-1, -1, -1],
-                             [-1,  9, -1],
-                             [-1, -1, -1]])
-    # Application du noyau de netteté à "equalized_image" en les convoluant
-    sharpened_image = cv2.filter2D(equalized_image, -1, sharp_kernel)
+    enhanced = cv2.merge((l, a, b))
+    return cv2.cvtColor(enhanced, cv2.COLOR_LAB2BGR)
 
-    return sharpened_image
+def detect_sheets_hough(image):
+    """
+    Utilise la transformée de Hough pour détecter et relier les feuillets discontinus.
+    """
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    # Appliquer un seuillage adaptatif
+    thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                                   cv2.THRESH_BINARY_INV, 11, 2)
+
+    # Détecter les lignes avec Hough
+    edges = cv2.dilate(thresh, None, iterations=2)  # Augmente les lignes fines
+    lines = cv2.HoughLinesP(edges, 1, np.pi / 180, threshold=50, minLineLength=30, maxLineGap=10)
+
+    if lines is not None:
+        for line in lines:
+            x1, y1, x2, y2 = line[0]
+            cv2.line(image, (x1, y1), (x2, y2), (0, 255, 0), 1)
+
+    return image
 
 def integrate_in_orientation(image, bbox):
     """
     Projette les intensités dans la direction de l'angle de la bbox.
     """
-    x, y, w, h, angle_rad, _ = bbox  # Décompositions du bbox
     roi = rotate_and_crop(image, bbox)
+    roi = enhance_contrast(roi)
+    roi = detect_sheets_hough(roi)
 
-    # Convertir en niveaux de gris
     gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
 
-    # Calculer le vecteur unitaire dans la direction de l'angle
-    angle_deg = np.degrees(angle_rad)
-    direction = np.array([np.cos(angle_rad), np.sin(angle_rad)])
+    # Calculer l'intégration des intensités par projection verticale
+    projection = np.sum(gray_roi, axis=1)
 
-    # Créer une grille pour l'intégration
-    rows, cols = gray_roi.shape
-    projection = np.zeros(rows)
-
-    for i in range(rows):
-        # Calculer la projection pour chaque ligne de pixels dans la direction de l'angle
-        for j in range(cols):
-            # Projeter chaque pixel dans la direction donnée
-            x_proj = int(i + direction[0] * j)
-            y_proj = int(j + direction[1] * i)
-
-            # Vérifier que les indices sont dans l'image
-            if 0 <= x_proj < rows and 0 <= y_proj < cols:
-                projection[i] += gray_roi[x_proj, y_proj]
-    
     return projection
 
 def count_sheets_in_bbox(image, bbox):
     """
     Compte les feuillets dans une bbox détectée par MMRotate.
     """
-    x, y, w, h, angle_rad, score = bbox  # Décompositions du bbox
-
-    # Calculer l'intégration dans la direction de l'angle
     intensity_profile = integrate_in_orientation(image, bbox)
 
     # Détection des pics dans le profil d'intensité projetée
-    peaks, _ = find_peaks(intensity_profile, distance=max(5, int(h * 0.1)), 
-                          height=np.max(intensity_profile) * 0.3)
+    peaks, _ = find_peaks(intensity_profile, distance=5, height=np.max(intensity_profile) * 0.3)
 
     # Affichage des résultats
     plt.figure(figsize=(12, 4))
 
-    # Affichage du profil d'intensité projetée avec pics détectés
     plt.subplot(1, 2, 1)
     plt.plot(intensity_profile)
     plt.scatter(peaks, intensity_profile[peaks], color='r')
-    plt.title(f"Profil d'intensité projetée - {len(peaks)} feuillets détectés")
+    plt.title(f"Profil d'intensité - {len(peaks)} feuillets détectés")
 
-    # Affichage de la ROI (image en niveaux de gris)
     roi = rotate_and_crop(image, bbox)
+    roi = detect_sheets_hough(roi)
     plt.subplot(1, 2, 2)
     plt.imshow(cv2.cvtColor(roi, cv2.COLOR_BGR2RGB))
-    plt.title("ROI alignée")
+    plt.title("ROI améliorée")
     plt.show()
 
-    # Retourner le nombre de pics détectés
     return len(peaks)
 
 # Chargement de l'image et exécution de MMRotate
@@ -197,8 +116,3 @@ result = inference_detector(model, image)
 for bbox in result[0]:  
     num_sheets = count_sheets_in_bbox(image, bbox)
     print(f"Nombre estimé de feuillets dans la bbox {bbox[:4]} : {num_sheets}")
-
-
-
-
-
