@@ -77,7 +77,7 @@ plot_bboxes_with_fourier(image, result)
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
-from scipy.signal import find_peaks, cwt, morlet
+from scipy.signal import find_peaks
 
 def rotate_and_crop(image, bbox):
     """
@@ -105,58 +105,64 @@ def rotate_and_crop(image, bbox):
     
     return roi
 
-def count_sheets_in_bbox(image, bbox):
+def integrate_in_orientation(image, bbox):
     """
-    Compte les feuillets dans une bbox détectée par MMRotate.
+    Projette les intensités dans la direction de l'angle de la bbox.
     """
-    x, y, w, h, angle_rad, score = bbox  # Décompositions du bbox
+    x, y, w, h, angle_rad, _ = bbox  # Décompositions du bbox
     roi = rotate_and_crop(image, bbox)
 
     # Convertir en niveaux de gris
     gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
 
-    # Détection des contours (Sobel)
-    edges = cv2.Sobel(gray_roi, cv2.CV_64F, 1, 0, ksize=3)
-    edges = np.abs(edges)
+    # Calculer le vecteur unitaire dans la direction de l'angle
+    angle_deg = np.degrees(angle_rad)
+    direction = np.array([np.cos(angle_rad), np.sin(angle_rad)])
 
-    # Projection selon l'axe des feuillets (sommation des intensités)
-    intensity_profile = np.sum(edges, axis=1)
+    # Créer une grille pour l'intégration
+    rows, cols = gray_roi.shape
+    projection = np.zeros(rows)
 
-    # Détection des pics dans le profil d'intensité
+    for i in range(rows):
+        # Calculer la projection pour chaque ligne de pixels dans la direction de l'angle
+        for j in range(cols):
+            # Projeter chaque pixel dans la direction donnée
+            x_proj = int(i + direction[0] * j)
+            y_proj = int(j + direction[1] * i)
+
+            # Vérifier que les indices sont dans l'image
+            if 0 <= x_proj < rows and 0 <= y_proj < cols:
+                projection[i] += gray_roi[x_proj, y_proj]
+    
+    return projection
+
+def count_sheets_in_bbox(image, bbox):
+    """
+    Compte les feuillets dans une bbox détectée par MMRotate.
+    """
+    x, y, w, h, angle_rad, score = bbox  # Décompositions du bbox
+
+    # Calculer l'intégration dans la direction de l'angle
+    intensity_profile = integrate_in_orientation(image, bbox)
+
+    # Détection des pics dans le profil d'intensité projetée
     peaks, _ = find_peaks(intensity_profile, distance=max(5, int(h * 0.1)), 
                           height=np.max(intensity_profile) * 0.3)
 
-    # Appliquer la Transformée de Wavelet Continue (CWT)
-    wavelet_scales = np.arange(1, 100)  # Plage de scales pour la CWT
-    cwt_result = cwt(intensity_profile, morlet, wavelet_scales)
-
-    # Trouver les pics dans la CWT (dans la direction de l'orientation)
-    peak_indices = []
-    for i in range(cwt_result.shape[0]):
-        peaks_cwt, _ = find_peaks(np.abs(cwt_result[i]), distance=5)
-        peak_indices.append(peaks_cwt)
-
     # Affichage des résultats
-    plt.figure(figsize=(12, 6))
+    plt.figure(figsize=(12, 4))
 
-    # Affichage de l'image ROI
-    plt.subplot(1, 3, 1)
-    plt.imshow(gray_roi, cmap='gray')
-    plt.title(f"ROI alignée - {len(peaks)} feuillets détectés")
-
-    # Affichage du profil d'intensité avec pics détectés
-    plt.subplot(1, 3, 2)
+    # Affichage du profil d'intensité projetée avec pics détectés
+    plt.subplot(1, 2, 1)
     plt.plot(intensity_profile)
     plt.scatter(peaks, intensity_profile[peaks], color='r')
-    plt.title("Profil d'intensité avec pics")
+    plt.title(f"Profil d'intensité projetée - {len(peaks)} feuillets détectés")
 
-    # Affichage du spectre CWT
-    plt.subplot(1, 3, 3)
-    plt.imshow(np.abs(cwt_result), aspect='auto', extent=[0, len(intensity_profile), 1, 100])
-    plt.title("Spectre CWT")
-    plt.colorbar(label="Magnitude")
-    plt.xlabel("Position")
-    plt.ylabel("Scales")
+    # Affichage de la ROI (image en niveaux de gris)
+    roi = rotate_and_crop(image, bbox)
+    plt.subplot(1, 2, 2)
+    plt.imshow(cv2.cvtColor(roi, cv2.COLOR_BGR2RGB))
+    plt.title("ROI alignée")
     plt.show()
 
     # Retourner le nombre de pics détectés
@@ -173,6 +179,7 @@ result = inference_detector(model, image)
 for bbox in result[0]:  
     num_sheets = count_sheets_in_bbox(image, bbox)
     print(f"Nombre estimé de feuillets dans la bbox {bbox[:4]} : {num_sheets}")
+
 
 
 
