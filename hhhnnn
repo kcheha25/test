@@ -117,3 +117,135 @@ result = inference_detector(model, image)
 for bbox in result[0]:  
     num_sheets = count_sheets_in_bbox(image, bbox)
     print(f"Nombre estimé de feuillets dans la bbox {bbox[:4]} : {num_sheets}")
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+import pywt
+from scipy.signal import find_peaks
+from scipy.fftpack import fft
+
+def rotate_and_crop(image, bbox):
+    """
+    Effectue une rotation et extrait la région d'intérêt (ROI) en tenant compte de l'angle.
+    """
+    x, y, w, h, angle_rad, _ = bbox
+    x, y, w, h = map(int, [x, y, w, h])
+    
+    angle_deg = np.degrees(angle_rad)
+    center = (x, y)
+    M = cv2.getRotationMatrix2D(center, -angle_deg, 1.0)
+
+    rotated_img = cv2.warpAffine(image, M, (image.shape[1], image.shape[0]),
+                                 flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)
+
+    x1, y1 = int(x - w / 2), int(y - h / 2)
+    x2, y2 = int(x + w / 2), int(y + h / 2)
+
+    roi = rotated_img[max(y1, 0):min(y2, image.shape[0]), max(x1, 0):min(x2, image.shape[1])]
+    
+    return roi
+
+def integrate_in_orientation(image, bbox):
+    """
+    Projette les intensités dans la direction de l'angle de la bbox.
+    """
+    x, y, w, h, angle_rad, _ = bbox
+    roi = rotate_and_crop(image, bbox)
+
+    gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+
+    angle_deg = np.degrees(angle_rad)
+    direction = np.array([np.cos(angle_rad), np.sin(angle_rad)])
+
+    rows, cols = gray_roi.shape
+    projection = np.zeros(rows)
+
+    for i in range(rows):
+        for j in range(cols):
+            x_proj = int(i + direction[0] * j)
+            y_proj = int(j + direction[1] * i)
+
+            if 0 <= x_proj < rows and 0 <= y_proj < cols:
+                projection[i] += gray_roi[x_proj, y_proj]
+    
+    return projection
+
+def count_sheets_in_bbox(image, bbox):
+    """
+    Applique plusieurs méthodes d'analyse sur le profil d'intensité :
+    1. Détection des pics
+    2. Analyse spectrale FFT
+    3. Décomposition multi-niveaux (wavedec)
+    4. Décomposition simple (dwt)
+    """
+    intensity_profile = integrate_in_orientation(image, bbox)
+
+    # 1. Détection des pics
+    peaks, _ = find_peaks(intensity_profile, distance=max(5, int(len(intensity_profile) * 0.1)), 
+                          height=np.max(intensity_profile) * 0.3)
+
+    # 2. Spectre FFT
+    fft_spectrum = np.abs(fft(intensity_profile))
+    fft_freqs = np.fft.fftfreq(len(intensity_profile))
+
+    # Détection de la fréquence dominante
+    peak_idx = np.argmax(fft_spectrum[1:]) + 1  # On ignore la fréquence DC (0)
+    dominant_freq = abs(fft_freqs[peak_idx])
+
+    # 3. Décomposition multi-niveaux par ondelettes de Haar
+    coeffs = pywt.wavedec(intensity_profile, 'haar', level=3)
+    haar_spectrum = coeffs[0]  # Approximation de bas niveau
+
+    # 4. Décomposition simple (DWT niveau 1)
+    cA, cD = pywt.dwt(intensity_profile, 'haar')
+
+    # Affichage des résultats
+    fig, axes = plt.subplots(2, 3, figsize=(18, 8))
+
+    # (a) Profil d'intensité avec pics
+    axes[0, 0].plot(intensity_profile, label="Profil d'intensité")
+    axes[0, 0].scatter(peaks, intensity_profile[peaks], color='r', label="Pics détectés")
+    axes[0, 0].set_title(f"Find Peaks - {len(peaks)} feuillets détectés")
+    axes[0, 0].legend()
+
+    # (b) Spectre FFT brut
+    axes[0, 1].plot(fft_freqs[:len(fft_freqs)//2], fft_spectrum[:len(fft_spectrum)//2])
+    axes[0, 1].set_title("Spectre FFT - Brute")
+
+    # (c) Spectre FFT avec fréquence dominante
+    axes[0, 2].plot(fft_freqs[:len(fft_freqs)//2], fft_spectrum[:len(fft_spectrum)//2], label="FFT Spectrum")
+    axes[0, 2].axvline(dominant_freq, color='r', linestyle='--', label=f"Fréquence dominante: {dominant_freq:.2f}")
+    axes[0, 2].set_title("Spectre FFT avec pic marqué")
+    axes[0, 2].legend()
+
+    # (d) Décomposition multi-niveaux (wavedec)
+    axes[1, 0].plot(haar_spectrum)
+    axes[1, 0].set_title("Spectre Haar (wavedec)")
+
+    # (e) Décomposition simple (DWT niveau 1)
+    axes[1, 1].plot(cA, label="Approximation (cA)")
+    axes[1, 1].plot(cD, label="Détails (cD)", linestyle="dashed")
+    axes[1, 1].set_title("DWT Niveau 1 - Approximation & Détails")
+    axes[1, 1].legend()
+
+    # (f) ROI extraite
+    roi = rotate_and_crop(image, bbox)
+    axes[1, 2].imshow(cv2.cvtColor(roi, cv2.COLOR_BGR2RGB))
+    axes[1, 2].set_title("ROI alignée")
+
+    plt.tight_layout()
+    plt.show()
+
+    return len(peaks)
+
+# Chargement de l'image et exécution de MMRotate
+image_path = "path_to_your_image.jpg"
+image = cv2.imread(image_path)
+
+# Résultats de l'inférence MMRotate
+result = inference_detector(model, image)
+
+# Boucle sur chaque bbox détectée
+for bbox in result[0]:  
+    num_sheets = count_sheets_in_bbox(image, bbox)
+    print(f"Nombre estimé de feuillets dans la bbox {bbox[:4]} : {num_sheets}")
