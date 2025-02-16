@@ -130,3 +130,81 @@ result = inference_detector(model, image)
 for bbox in result[0]:  
     num_sheets = count_sheets_in_bbox(image, bbox)
     print(f"Nombre estimé de feuillets dans la bbox {bbox[:4]} : {num_sheets}")
+
+
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.signal import find_peaks
+from sklearn.cluster import KMeans
+
+def rotate_and_crop(image, bbox):
+    x, y, w, h, angle_rad, _ = bbox
+    x, y, w, h = map(int, [x, y, w, h])
+    angle_deg = np.degrees(angle_rad)
+    center = (x, y)
+    M = cv2.getRotationMatrix2D(center, -angle_deg, 1.0)
+    rotated_img = cv2.warpAffine(image, M, (image.shape[1], image.shape[0]),
+                                 flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)
+    x1, y1 = int(x - w / 2), int(y - h / 2)
+    x2, y2 = int(x + w / 2), int(y + h / 2)
+    roi = rotated_img[max(y1, 0):min(y2, image.shape[0]), max(x1, 0):min(x2, image.shape[1])]
+    return roi
+
+def integrate_in_orientation(image, bbox):
+    roi = rotate_and_crop(image, bbox)
+    gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+    projection = np.sum(gray_roi, axis=1)
+    return projection
+
+def apply_kmeans_segmentation(roi):
+    gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
+    binary_roi = (gray_roi < 50).astype(np.uint8)  # Seuil pour considérer un pixel noir
+    
+    block_size = 10  # Taille de bloc pour analyse locale
+    h, w = binary_roi.shape
+    features = []
+    positions = []
+    
+    for i in range(0, h, block_size):
+        for j in range(0, w, block_size):
+            block = binary_roi[i:i+block_size, j:j+block_size]
+            black_ratio = np.sum(block) / (block_size * block_size)
+            features.append([black_ratio])
+            positions.append((i, j))
+    
+    kmeans = KMeans(n_clusters=2, random_state=42).fit(features)
+    labels = kmeans.labels_
+    segmented_image = np.zeros((h, w, 3), dtype=np.uint8)
+    
+    for idx, (i, j) in enumerate(positions):
+        color = (0, 255, 0) if labels[idx] == 0 else (255, 0, 0)
+        segmented_image[i:i+block_size, j:j+block_size] = color
+    
+    return segmented_image
+
+def count_sheets_with_kmeans(image, bbox):
+    intensity_profile = integrate_in_orientation(image, bbox)
+    peaks, _ = find_peaks(intensity_profile, distance=max(5, int(len(intensity_profile) * 0.1)), height=np.max(intensity_profile) * 0.3)
+    roi = rotate_and_crop(image, bbox)
+    segmented_image = apply_kmeans_segmentation(roi)
+    
+    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+    axes[0].plot(intensity_profile)
+    axes[0].scatter(peaks, intensity_profile[peaks], color='r')
+    axes[0].set_title(f"Profil d'intensité - {len(peaks)} feuillets")
+    axes[1].imshow(cv2.cvtColor(roi, cv2.COLOR_BGR2RGB))
+    axes[1].set_title("ROI alignée")
+    axes[2].imshow(segmented_image)
+    axes[2].set_title("Segmentation par taux de pixels noirs (K-Means)")
+    plt.show()
+    return len(peaks)
+
+# Chargement de l'image et exécution du modèle (exemple fictif)
+image_path = "path_to_your_image.jpg"
+image = cv2.imread(image_path)
+
+result = inference_detector(model, image)  # Simulé
+for bbox in result[0]:  
+    num_sheets = count_sheets_with_kmeans(image, bbox)
+    print(f"Nombre estimé de feuillets dans la bbox {bbox[:4]} : {num_sheets}")
