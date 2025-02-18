@@ -235,31 +235,76 @@ def apply_kmeans_segmentation(roi, n_clusters=2):
 import numpy as np
 import matplotlib.pyplot as plt
 
-def visualize_connected_components(mask, min_area=500):
-    """ Affiche les composants connectés détectés avec leurs bounding boxes. """
+import os
 
-    # Convertir en uint8 si nécessaire et binariser
-    if mask.dtype != np.uint8:
-        mask = np.uint8(mask)
-    mask[mask > 0] = 255  
+def yolo_to_dota(yolo_file, img_width, img_height, class_names, output_dir):
+    """
+    Convertit un fichier d'annotations YOLO en format DOTA.
+    yolo_file : Chemin vers le fichier d'annotations YOLO (.txt).
+    img_width, img_height : Largeur et hauteur de l'image en pixels.
+    class_names : Liste des noms de classes pour l'indexation.
+    output_dir : Répertoire où les fichiers DOTA seront enregistrés.
+    """
+    
+    with open(yolo_file, 'r') as f:
+        annotations = f.readlines()
 
-    # Appliquer Connected Components
-    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
+    dota_annotations = []
+    
+    for annotation in annotations:
+        parts = annotation.strip().split()
+        
+        # Convertir les coordonnées de YOLO en coordonnées réelles
+        class_id = int(parts[0])
+        x_center = float(parts[1]) * img_width
+        y_center = float(parts[2]) * img_height
+        width = float(parts[3]) * img_width
+        height = float(parts[4]) * img_height
+        
+        # Calculer les coins de la bounding box (rectangle orienté)
+        x1 = x_center - width / 2
+        y1 = y_center - height / 2
+        x2 = x_center + width / 2
+        y2 = y_center - height / 2
+        x3 = x_center + width / 2
+        y3 = y_center + height / 2
+        x4 = x_center - width / 2
+        y4 = y_center + height / 2
+        
+        # Formater la ligne pour DOTA
+        dota_annotation = f"{x1} {y1} {x2} {y2} {x3} {y3} {x4} {y4} {class_id} 0"
+        dota_annotations.append(dota_annotation)
+    
+    # Enregistrer les annotations DOTA dans un fichier
+    output_file = os.path.join(output_dir, os.path.basename(yolo_file).replace('.txt', '.txt'))
+    with open(output_file, 'w') as f:
+        f.write("\n".join(dota_annotations))
+    
+    print(f"Conversion terminée pour {yolo_file}. Les annotations DOTA ont été enregistrées dans {output_file}.")
 
-    # Convertir le masque en image couleur pour affichage
-    mask_color = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
+def convert_yolo_to_dota(yolo_dir, img_dir, class_names, output_dir):
+    """
+    Convertit toutes les annotations YOLO d'un répertoire en format DOTA.
+    yolo_dir : Répertoire contenant les fichiers d'annotations YOLO (.txt).
+    img_dir : Répertoire contenant les images (utilisé pour obtenir la taille des images).
+    class_names : Liste des noms de classes.
+    output_dir : Répertoire où les fichiers DOTA seront enregistrés.
+    """
+    
+    os.makedirs(output_dir, exist_ok=True)
 
-    for i in range(1, num_labels):  # On ignore le label 0 (fond)
-        x, y, w, h, area = stats[i]
+    for yolo_file in os.listdir(yolo_dir):
+        if yolo_file.endswith('.txt'):
+            img_path = os.path.join(img_dir, yolo_file.replace('.txt', '.jpg'))  # Assumer que les images sont en .jpg
+            img = cv2.imread(img_path)
+            img_height, img_width = img.shape[:2]
+            
+            yolo_to_dota(os.path.join(yolo_dir, yolo_file), img_width, img_height, class_names, output_dir)
 
-        if area > min_area:  # Filtrer les petits objets
-            cv2.rectangle(mask_color, (x, y), (x + w, y + h), (0, 255, 0), 2)  # Dessiner la bbox en vert
-            cv2.putText(mask_color, f"ID {i}", (x, y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+# Exemple d'utilisation
+class_names = ["plane", "car", "bus", "train"]  # Liste des classes
+yolo_dir = 'path/to/yolo/annotations'
+img_dir = 'path/to/images'
+output_dir = 'path/to/output/dota_annotations'
 
-    # Afficher l'image avec Matplotlib
-    plt.figure(figsize=(6, 6))
-    plt.imshow(mask_color)
-    plt.axis("off")
-    plt.title("Connected Components avec Bounding Boxes")
-    plt.show()
-
+convert_yolo_to_dota(yolo_dir, img_dir, class_names, output_dir)
