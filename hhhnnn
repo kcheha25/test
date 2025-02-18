@@ -308,3 +308,34 @@ img_dir = 'path/to/images'
 output_dir = 'path/to/output/dota_annotations'
 
 convert_yolo_to_dota(yolo_dir, img_dir, class_names, output_dir)
+
+
+    projections = integrate_in_orientation(image, bbox)
+
+    # Identifier la projection avec la plus grande valeur individuelle
+    projections_values = [
+        (max(projections[0]), 'Projection principale'),
+        (max(projections[1]), 'Projection perpendiculaire'),
+        (max(projections[2]), 'Projection diagonale 1'),
+        (max(projections[3]), 'Projection diagonale 2')
+    ]
+
+    # Trouver la projection avec la plus grande valeur
+    max_value_proj, max_proj_name = max(projections_values, key=lambda x: x[0])
+
+    # Choisir la projection ayant la plus grande valeur
+    if max_proj_name == 'Projection principale':
+        max_value_proj = projections[0]
+    elif max_proj_name == 'Projection perpendiculaire':
+        max_value_proj = projections[1]
+    elif max_proj_name == 'Projection diagonale 1':
+        max_value_proj = projections[2]
+    else:
+        max_value_proj = projections[3]
+
+    # Appliquer find_peaks sur la projection avec la plus grande valeur
+    peaks, _ = find_peaks(max_value_proj, distance=max(5, int(len(max_value_proj) * 0.1)),
+                          height=np.max(max_value_proj) * 0.3)
+
+    # Affichage du résultat
+    print(f"Projection choisie : {max_proj_name}")
