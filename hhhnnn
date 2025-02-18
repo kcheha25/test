@@ -339,3 +339,55 @@ convert_yolo_to_dota(yolo_dir, img_dir, class_names, output_dir)
 
     # Affichage du résultat
     print(f"Projection choisie : {max_proj_name}")
+
+
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+
+def read_dota_annotations(txt_file):
+    """Lire les annotations DOTA depuis un fichier texte."""
+    annotations = []
+    
+    with open(txt_file, 'r') as f:
+        for line in f.readlines():
+            data = line.strip().split()
+            # Les 8 premiers éléments correspondent aux coordonnées des coins du polygone
+            polygon = list(map(float, data[:8]))  # x1, y1, x2, y2, x3, y3, x4, y4
+            annotations.append(polygon)
+    
+    return annotations
+
+def draw_dota_annotations(image, annotations):
+    """Dessiner les annotations DOTA (polygones) sur l'image."""
+    for polygon in annotations:
+        # Convertir les coordonnées du polygone en format numpy array pour pouvoir dessiner
+        pts = np.array(polygon).reshape((-1, 1, 2)).astype(np.int32)
+        # Dessiner le polygone en rouge
+        cv2.polylines(image, [pts], isClosed=True, color=(0, 0, 255), thickness=2)
+
+def visualize_image_with_annotations(image_path, txt_file):
+    """Afficher l'image avec les annotations DOTA."""
+    # Charger l'image
+    image = cv2.imread(image_path)
+    
+    # Lire les annotations DOTA depuis le fichier texte
+    annotations = read_dota_annotations(txt_file)
+    
+    # Dessiner les annotations sur l'image
+    draw_dota_annotations(image, annotations)
+    
+    # Convertir l'image BGR en RGB pour l'affichage avec Matplotlib
+    image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    
+    # Afficher l'image avec les annotations
+    plt.figure(figsize=(10, 10))
+    plt.imshow(image_rgb)
+    plt.axis('off')
+    plt.show()
+
+# Exemple d'utilisation :
+image_path = 'path/to/your/image.jpg'  # Chemin vers l'image
+txt_file = 'path/to/your/image.txt'    # Chemin vers le fichier d'annotations .txt
+
+visualize_image_with_annotations(image_path, txt_file)
