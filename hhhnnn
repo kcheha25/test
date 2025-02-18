@@ -230,3 +230,36 @@ def apply_kmeans_segmentation(roi, n_clusters=2):
         segmented_img[labels == k] = colors[k]
     
     return segmented_img
+
+    import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+
+def visualize_connected_components(mask, min_area=500):
+    """ Affiche les composants connectés détectés avec leurs bounding boxes. """
+
+    # Convertir en uint8 si nécessaire et binariser
+    if mask.dtype != np.uint8:
+        mask = np.uint8(mask)
+    mask[mask > 0] = 255  
+
+    # Appliquer Connected Components
+    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
+
+    # Convertir le masque en image couleur pour affichage
+    mask_color = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
+
+    for i in range(1, num_labels):  # On ignore le label 0 (fond)
+        x, y, w, h, area = stats[i]
+
+        if area > min_area:  # Filtrer les petits objets
+            cv2.rectangle(mask_color, (x, y), (x + w, y + h), (0, 255, 0), 2)  # Dessiner la bbox en vert
+            cv2.putText(mask_color, f"ID {i}", (x, y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+
+    # Afficher l'image avec Matplotlib
+    plt.figure(figsize=(6, 6))
+    plt.imshow(mask_color)
+    plt.axis("off")
+    plt.title("Connected Components avec Bounding Boxes")
+    plt.show()
+
