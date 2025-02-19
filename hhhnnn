@@ -391,3 +391,55 @@ image_path = 'path/to/your/image.jpg'  # Chemin vers l'image
 txt_file = 'path/to/your/image.txt'    # Chemin vers le fichier d'annotations .txt
 
 visualize_image_with_annotations(image_path, txt_file)
+
+import os
+import json
+import glob
+import cv2
+import numpy as np
+
+def convert_labelme_to_dota(json_path, output_txt_path):
+    """ Convertit un fichier JSON LabelMe en annotation DOTA avec approximation en 4 points. """
+    
+    with open(json_path, 'r') as f:
+        data = json.load(f)
+
+    dota_annotations = []
+
+    for shape in data["shapes"]:
+        points = np.array(shape["points"], dtype=np.int32)  # Convertir en numpy array
+
+        # Calculer la boîte englobante (bounding box)
+        x, y, w, h = cv2.boundingRect(points)
+
+        # Générer les 4 coins du rectangle
+        bbox = [x, y, x + w, y, x + w, y + h, x, y + h]
+
+        label = shape["label"]
+        
+        # Ajouter au format DOTA (x1 y1 x2 y2 x3 y3 x4 y4 label difficulty)
+        dota_annotations.append(f"{' '.join(map(str, bbox))} {label} 0")
+
+    # Sauvegarder dans un fichier .txt
+    with open(output_txt_path, 'w') as f:
+        f.write("\n".join(dota_annotations))
+
+def process_dataset(json_folder, output_folder):
+    """ Convertit tous les fichiers JSON LabelMe d'un dossier en format DOTA. """
+    
+    os.makedirs(output_folder, exist_ok=True)  # Créer le dossier de sortie s'il n'existe pas
+
+    json_files = glob.glob(os.path.join(json_folder, "*.json"))  # Récupérer tous les fichiers JSON
+
+    for json_file in json_files:
+        output_txt = os.path.join(output_folder, os.path.basename(json_file).replace(".json", ".txt"))
+
+        convert_labelme_to_dota(json_file, output_txt)
+        print(f"✅ Converti : {json_file} → {output_txt}")
+
+# 🔹 Exemple d'utilisation
+json_folder = "path/to/labelme_annotations"  # Dossier contenant les JSON LabelMe
+output_folder = "path/to/dota_annotations"   # Dossier où enregistrer les fichiers DOTA
+
+process_dataset(json_folder, output_folder)
+
