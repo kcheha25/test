@@ -392,54 +392,160 @@ txt_file = 'path/to/your/image.txt'    # Chemin vers le fichier d'annotations .t
 
 visualize_image_with_annotations(image_path, txt_file)
 
-import os
-import json
-import glob
 import cv2
 import numpy as np
+import matplotlib.pyplot as plt
+from scipy.signal import find_peaks
+from skimage.feature import hog
+from skimage import exposure
 
-def convert_labelme_to_dota(json_path, output_txt_path):
-    """ Convertit un fichier JSON LabelMe en annotation DOTA avec approximation en 4 points. """
+def rotate_and_crop(image, bbox):
+    """
+    Effectue une rotation et extrait la région d'intérêt (ROI) en tenant compte de l'angle.
+    """
+    x, y, w, h, angle_rad, _ = bbox
+    x, y, w, h = map(int, [x, y, w, h])
     
-    with open(json_path, 'r') as f:
-        data = json.load(f)
+    angle_deg = np.degrees(angle_rad)
+    center = (x, y)
+    M = cv2.getRotationMatrix2D(center, -angle_deg, 1.0)
 
-    dota_annotations = []
+    rotated_img = cv2.warpAffine(image, M, (image.shape[1], image.shape[0]),
+                                 flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)
 
-    for shape in data["shapes"]:
-        points = np.array(shape["points"], dtype=np.int32)  # Convertir en numpy array
+    x1, y1 = int(x - w / 2), int(y - h / 2)
+    x2, y2 = int(x + w / 2), int(y + h / 2)
 
-        # Calculer la boîte englobante (bounding box)
-        x, y, w, h = cv2.boundingRect(points)
-
-        # Générer les 4 coins du rectangle
-        bbox = [x, y, x + w, y, x + w, y + h, x, y + h]
-
-        label = shape["label"]
-        
-        # Ajouter au format DOTA (x1 y1 x2 y2 x3 y3 x4 y4 label difficulty)
-        dota_annotations.append(f"{' '.join(map(str, bbox))} {label} 0")
-
-    # Sauvegarder dans un fichier .txt
-    with open(output_txt_path, 'w') as f:
-        f.write("\n".join(dota_annotations))
-
-def process_dataset(json_folder, output_folder):
-    """ Convertit tous les fichiers JSON LabelMe d'un dossier en format DOTA. """
+    roi = rotated_img[max(y1, 0):min(y2, image.shape[0]), max(x1, 0):min(x2, image.shape[1])]
     
-    os.makedirs(output_folder, exist_ok=True)  # Créer le dossier de sortie s'il n'existe pas
+    return roi
 
-    json_files = glob.glob(os.path.join(json_folder, "*.json"))  # Récupérer tous les fichiers JSON
+def integrate_in_orientation(image, bbox):
+    """
+    Effectue trois types de projection des intensités :
+    1. Projection principale (dans la direction de l'angle de la bbox)
+    2. Projection perpendiculaire
+    3. Projections diagonales (±45°)
+    """
+    x, y, w, h, angle_rad, _ = bbox
+    roi = rotate_and_crop(image, bbox)
 
-    for json_file in json_files:
-        output_txt = os.path.join(output_folder, os.path.basename(json_file).replace(".json", ".txt"))
+    # Convertir en niveaux de gris
+    gray_roi = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY)
 
-        convert_labelme_to_dota(json_file, output_txt)
-        print(f"✅ Converti : {json_file} → {output_txt}")
+    # Définition des angles pour différentes projections
+    angle_perp = angle_rad + np.pi / 2  # Perpendiculaire
+    angle_diag1 = angle_rad + np.pi / 4  # Diagonale montante
+    angle_diag2 = angle_rad - np.pi / 4  # Diagonale descendante
 
-# 🔹 Exemple d'utilisation
-json_folder = "path/to/labelme_annotations"  # Dossier contenant les JSON LabelMe
-output_folder = "path/to/dota_annotations"   # Dossier où enregistrer les fichiers DOTA
+    # Directions correspondantes
+    direction_main = np.array([np.cos(angle_rad), np.sin(angle_rad)])
+    direction_perp = np.array([np.cos(angle_perp), np.sin(angle_perp)])
+    direction_diag1 = np.array([np.cos(angle_diag1), np.sin(angle_diag1)])
+    direction_diag2 = np.array([np.cos(angle_diag2), np.sin(angle_diag2)])
 
-process_dataset(json_folder, output_folder)
+    # Création des projections
+    rows, cols = gray_roi.shape
+    projection_main = np.zeros(rows)
+    projection_perp = np.zeros(cols)
+    projection_diag1 = np.zeros(min(rows, cols))
+    projection_diag2 = np.zeros(min(rows, cols))
+
+    # Remplissage des projections
+    for i in range(rows):
+        for j in range(cols):
+            # Projection principale (dans l'orientation de la bbox)
+            x_proj = int(i + direction_main[0] * j)
+            y_proj = int(j + direction_main[1] * i)
+            if 0 <= x_proj < rows and 0 <= y_proj < cols:
+                projection_main[i] += gray_roi[x_proj, y_proj]
+
+            # Projection perpendiculaire
+            x_proj_perp = int(i + direction_perp[0] * j)
+            y_proj_perp = int(j + direction_perp[1] * i)
+            if 0 <= x_proj_perp < rows and 0 <= y_proj_perp < cols:
+                projection_perp[j] += gray_roi[x_proj_perp, y_proj_perp]
+
+            # Projection diagonale montante
+            x_proj_diag1 = int(i + direction_diag1[0] * j)
+            y_proj_diag1 = int(j + direction_diag1[1] * i)
+            if 0 <= x_proj_diag1 < rows and 0 <= y_proj_diag1 < cols:
+                projection_diag1[min(i, j)] += gray_roi[x_proj_diag1, y_proj_diag1]
+
+            # Projection diagonale descendante
+            x_proj_diag2 = int(i + direction_diag2[0] * j)
+            y_proj_diag2 = int(j + direction_diag2[1] * i)
+            if 0 <= x_proj_diag2 < rows and 0 <= y_proj_diag2 < cols:
+                projection_diag2[min(i, j)] += gray_roi[x_proj_diag2, y_proj_diag2]
+
+    return projection_main, projection_perp, projection_diag1, projection_diag2, gray_roi
+
+def compute_hog_features(gray_roi):
+    """
+    Calcule les caractéristiques HOG (Histogram of Oriented Gradients) pour une image en niveaux de gris.
+    """
+    # Calcule le HOG
+    fd, hog_image = hog(gray_roi, orientations=9, pixels_per_cell=(8, 8), cells_per_block=(2, 2), visualize=True)
+    
+    # Améliorer l'image HOG pour une meilleure visualisation
+    hog_image_rescaled = exposure.rescale_intensity(hog_image, in_range=(0, 10))
+
+    return fd, hog_image_rescaled
+
+def count_sheets_in_bbox(image, bbox):
+    """
+    Applique plusieurs méthodes d'analyse sur le profil d'intensité :
+    1. Détection des pics
+    """
+    projections, gray_roi = integrate_in_orientation(image, bbox)
+
+    # Calculer les caractéristiques HOG
+    fd, hog_image = compute_hog_features(gray_roi)
+
+    # Identifier la projection avec la plus grande valeur individuelle
+    projections_values = [
+        (max(projections[0]), 'Projection principale'),
+        (max(projections[1]), 'Projection perpendiculaire'),
+        (max(projections[2]), 'Projection diagonale 1'),
+        (max(projections[3]), 'Projection diagonale 2')
+    ]
+
+    # Trouver la projection avec la plus grande valeur
+    max_value_proj, max_proj_name = max(projections_values, key=lambda x: x[0])
+
+    # Choisir la projection ayant la plus grande valeur
+    if max_proj_name == 'Projection principale':
+        max_value_proj = projections[0]
+    elif max_proj_name == 'Projection perpendiculaire':
+        max_value_proj = projections[1]
+    elif max_proj_name == 'Projection diagonale 1':
+        max_value_proj = projections[2]
+    else:
+        max_value_proj = projections[3]
+
+    # Appliquer find_peaks sur la projection avec la plus grande valeur
+    peaks, _ = find_peaks(max_value_proj, distance=max(5, int(len(max_value_proj) * 0.1)),
+                          height=np.max(max_value_proj) * 0.3)
+
+    # Affichage du résultat
+    print(f"Projection choisie : {max_proj_name}")
+    print(f"Nombre de pics détectés : {len(peaks)}")
+    
+    # Affichage du graphique pour la projection choisie
+    plt.figure(figsize=(10, 6))
+    plt.plot(max_value_proj, label="Profil d'intensité")
+    plt.scatter(peaks, max_value_proj[peaks], color='r', label="Pics détectés")
+    plt.title(f"Find Peaks sur la {max_proj_name}")
+    plt.legend()
+    plt.show()
+
+    # Affichage de l'HOG
+    plt.figure(figsize=(10, 6))
+    plt.imshow(hog_image, cmap=plt.cm.gray)
+    plt.title('Histogramme des Gradients Orientés (HOG)')
+    plt.colorbar()
+    plt.show()
+
+    return len(peaks)
+
 
