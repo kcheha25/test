@@ -1,16 +1,142 @@
-    """Entraîner un modèle XGBoost avec les caractéristiques combinées et PCA."""
+import os
+import cv2
+import numpy as np
+import xgboost as xgb
+from sklearn.preprocessing import StandardScaler
+from skimage.feature import hog, graycomatrix, graycoprops, local_binary_pattern
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_absolute_error, r2_score
+from keras.preprocessing.image import ImageDataGenerator
+
+
+# Fonction pour extraire les caractéristiques HOG
+def extract_hog_features(image):
+    """Extraire les caractéristiques HOG d'une image en niveaux de gris."""
+    fd, _ = hog(image, orientations=9, pixels_per_cell=(8, 8), cells_per_block=(2, 2), visualize=True)
+    return fd
+
+
+# Fonction pour extraire les caractéristiques ORB
+def extract_orb_features(image, max_features=500):
+    """Extraire les caractéristiques ORB d'une image en niveaux de gris."""
+    orb = cv2.ORB_create(nfeatures=max_features)
+    keypoints, descriptors = orb.detectAndCompute(image, None)
+    
+    if descriptors is None:
+        descriptors = np.zeros((max_features, 32), dtype=np.uint8)  # Si aucun descripteur n'est trouvé
+    
+    # Normaliser la taille des descripteurs en les tronquant ou en les remplissant avec des zéros
+    if descriptors.shape[0] < max_features:
+        padding = np.zeros((max_features - descriptors.shape[0], 32), dtype=np.uint8)
+        descriptors = np.vstack((descriptors, padding))  # Remplissage avec des zéros
+    
+    return descriptors.flatten()  # Transformer en vecteur 1D
+
+
+# Fonction pour extraire les caractéristiques GLCM
+def extract_glcm_features(image):
+    """Extraire les caractéristiques GLCM d'une image."""
+    
+    if image.dtype != np.uint8:
+        image = (image * 255).astype(np.uint8)  # Convertir float → uint8
+    
+    glcm = graycomatrix(image, distances=[1], angles=[0], levels=256, symmetric=True, normed=True)
+    
+    contrast = graycoprops(glcm, 'contrast')[0, 0]
+    homogeneity = graycoprops(glcm, 'homogeneity')[0, 0]
+    energy = graycoprops(glcm, 'energy')[0, 0]
+    correlation = graycoprops(glcm, 'correlation')[0, 0]
+    
+    return np.array([contrast, homogeneity, energy, correlation])
+
+
+# Fonction pour extraire les caractéristiques Hu Moments
+def extract_hu_moments(image):
+    """Extraire les moments de Hu d'une image."""
+    moments = cv2.moments(image)
+    hu_moments = cv2.HuMoments(moments)
+    return hu_moments.flatten()
+
+
+# Fonction pour extraire l'histogramme des intensités
+def extract_histogram_features(image):
+    """Extraire les caractéristiques de l'histogramme des intensités."""
+    hist, _ = np.histogram(image.ravel(), bins=256, range=(0, 256))
+    return hist / np.sum(hist)  # Normaliser l'histogramme
+
+
+# Fonction pour extraire les caractéristiques LBP
+def extract_lbp_features(image):
+    """Extraire les caractéristiques LBP d'une image."""
+    radius = 1
+    n_points = 8 * radius
+    lbp = local_binary_pattern(image, n_points, radius, method='uniform')
+    return np.histogram(lbp.ravel(), bins=np.arange(0, 59), range=(0, 58))[0]
+
+
+# Appliquer Data Augmentation
+def augment_image(image):
+    """Effectuer des transformations pour augmenter les données."""
+    datagen = ImageDataGenerator(rotation_range=20, horizontal_flip=True, zoom_range=0.2)
+    image = np.expand_dims(image, axis=0)  # Ajouter une dimension pour le générateur
+    augmented_images = [image]
+    
+    for batch in datagen.flow(image, batch_size=1):
+        augmented_images.append(batch[0])
+        if len(augmented_images) >= 3:
+            break
+
+    return [img.squeeze() for img in augmented_images]
+
+
+# Fonction pour créer le dataset
+def create_dataset(image_dir, annotation_dir):
+    features = []
+    labels = []
+    
+    image_paths = [os.path.join(image_dir, f) for f in os.listdir(image_dir) if f.endswith('.jpg') or f.endswith('.png')]
+    
+    for image_path in image_paths:
+        txt_file = os.path.join(annotation_dir, os.path.basename(image_path).replace('.jpg', '.txt').replace('.png', '.txt'))
+        
+        if os.path.exists(txt_file):
+            img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+            augmented_images = augment_image(img)
+            
+            for aug_img in augmented_images:
+                # Extraire les caractéristiques
+                hog_features = extract_hog_features(aug_img)
+                orb_features = extract_orb_features(aug_img)
+                glcm_features = extract_glcm_features(aug_img)
+                hu_moments = extract_hu_moments(aug_img)
+                hist_features = extract_histogram_features(aug_img)
+                lbp_features = extract_lbp_features(aug_img)
+                
+                # Concaténer toutes les caractéristiques
+                feature_vector = np.hstack((
+                    hog_features, orb_features, glcm_features, hu_moments, hist_features, lbp_features
+                ))
+                features.append(feature_vector)
+                
+                # Ajouter le label (nombre d'objets)
+                num_objects = count_objects_in_dota_annotation(txt_file)
+                labels.append(num_objects)
+
+    return np.array(features, dtype=np.float32), np.array(labels, dtype=np.float32)
+
+
+# Fonction pour entraîner le modèle XGBoost
+def train_model(features, labels):
+    """Entraîner un modèle XGBoost avec les caractéristiques combinées."""
     scaler = StandardScaler()
     features_scaled = scaler.fit_transform(features)
     
-    # Application de PCA pour réduire la dimensionnalité
-    pca = PCA(n_components=0.95)  # Conserver 95% de la variance
-    features_pca = pca.fit_transform(features_scaled)  # Appliquer PCA sur les données normalisées
-    
     model = xgb.XGBRegressor(objective='reg:squarederror', colsample_bytree=0.3, learning_rate=0.1,
                              max_depth=5, alpha=10, n_estimators=100)
-    model.fit(features_pca, labels)
+    model.fit(features_scaled, labels)
     
-    return model, scaler, pca
+    return model, scaler
+
 
 def main():
     image_dir = 'path_to_images'
@@ -23,11 +149,20 @@ def main():
     features_train, features_test, labels_train, labels_test = train_test_split(features, labels, test_size=0.2, random_state=42)
 
     # Entraîner le modèle
-    model, scaler, pca = train_model(features_train, labels_train)
+    model, scaler = train_model(features_train, labels_train)
     
     # Évaluation du modèle
     features_test_scaled = scaler.transform(features_test)
-    features_test_pca = pca.transform(features_test_scaled)  # Appliquer PCA sur les données de test
-    predictions = model.predict(features_test_pca)
+    predictions = model.predict(features_test_scaled)
+    
+    print(f"MAE : {mean_absolute_error(labels_test, predictions):.2f}")
+    print(f"R² Score : {r2_score(labels_test, predictions):.2f}")
 
-    from sklearn.decomposition import PCA
+    # Sauvegarde du modèle
+    import joblib
+    joblib.dump(model, 'xgboost_model.pkl')
+    joblib.dump(scaler, 'scaler.pkl')
+
+
+if __name__ == '__main__':
+    main()
