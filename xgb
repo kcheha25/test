@@ -29,3 +29,5 @@ def main():
     features_test_scaled = scaler.transform(features_test)
     features_test_pca = pca.transform(features_test_scaled)  # Appliquer PCA sur les données de test
     predictions = model.predict(features_test_pca)
+
+    from sklearn.decomposition import PCA
