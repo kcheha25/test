@@ -123,3 +123,5 @@ def main():
 
 if __name__ == '__main__':
     main()
+    if len(image.shape) == 3:  # Convertir en niveaux de gris si nécessaire
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
