@@ -1,50 +1,37 @@
-import os
-import cv2
-import numpy as np
-import xgboost as xgb  # Importer XGBoost
-from sklearn.preprocessing import StandardScaler
-from skimage.feature import hog, graycomatrix, graycoprops
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_absolute_error, r2_score
-from keras.preprocessing.image import ImageDataGenerator
-
-# Fonction pour compter le nombre d'objets dans un fichier d'annotation DOTA
-def count_objects_in_dota_annotation(txt_file):
-    """Compter le nombre d'objets dans un fichier d'annotation DOTA."""
-    with open(txt_file, 'r') as f:
-        annotations = f.readlines()
-    return len(annotations)
-
-# Fonction pour extraire les caractéristiques HOG
-def extract_hog_features(image):
-    """Extraire les caractéristiques HOG d'une image."""
-    fd, _ = hog(image, orientations=9, pixels_per_cell=(8, 8), cells_per_block=(2, 2), visualize=True)
-    return fd
-
-# Fonction pour extraire les caractéristiques ORB
-def extract_orb_features(image):
-    """Extraire les descripteurs ORB d'une image."""
-    orb = cv2.ORB_create(nfeatures=500)
+def extract_orb_features(image, max_features=500):
+    """Extraire les caractéristiques ORB d'une image en niveaux de gris."""
+    orb = cv2.ORB_create(nfeatures=max_features)
     keypoints, descriptors = orb.detectAndCompute(image, None)
     
-    if descriptors is not None:
-        return descriptors.flatten()[:500]  # Limite la taille
-    else:
-        return np.zeros(500)  # Remplace par des zéros si aucun descripteur trouvé
+    if descriptors is None:
+        descriptors = np.zeros((max_features, 32), dtype=np.uint8)  # Si aucun descripteur n'est trouvé
+    
+    # Normaliser la taille des descripteurs en les tronquant ou en les remplissant avec des zéros
+    if descriptors.shape[0] < max_features:
+        padding = np.zeros((max_features - descriptors.shape[0], 32), dtype=np.uint8)
+        descriptors = np.vstack((descriptors, padding))  # Remplissage avec des zéros
+    
+    return descriptors.flatten()  # Transformer en vecteur 1D
 
 # Fonction pour extraire les caractéristiques GLCM
 def extract_glcm_features(image):
     """Extraire les caractéristiques GLCM d'une image."""
+    
+    if image.dtype != np.uint8:
+        image = (image * 255).astype(np.uint8)  # Convertir float → uint8
+    
     glcm = graycomatrix(image, distances=[1], angles=[0], levels=256, symmetric=True, normed=True)
+    
     contrast = graycoprops(glcm, 'contrast')[0, 0]
     homogeneity = graycoprops(glcm, 'homogeneity')[0, 0]
     energy = graycoprops(glcm, 'energy')[0, 0]
     correlation = graycoprops(glcm, 'correlation')[0, 0]
+    
     return np.array([contrast, homogeneity, energy, correlation])
 
-# Appliquer des transformations sur l'image pour Data Augmentation
+# Appliquer Data Augmentation
 def augment_image(image):
-    """Effectue des transformations pour augmenter les données."""
+    """Effectuer des transformations pour augmenter les données."""
     datagen = ImageDataGenerator(rotation_range=20, horizontal_flip=True, zoom_range=0.2)
     image = np.expand_dims(image, axis=0)  # Ajouter une dimension pour le générateur
     augmented_images = [image]
@@ -56,7 +43,7 @@ def augment_image(image):
 
     return [img.squeeze() for img in augmented_images]
 
-# Fonction pour créer les jeux de données avec augmentation et plusieurs caractéristiques
+# Fonction pour créer le dataset
 def create_dataset(image_dir, annotation_dir):
     features = []
     labels = []
@@ -71,55 +58,17 @@ def create_dataset(image_dir, annotation_dir):
             augmented_images = augment_image(img)
             
             for aug_img in augmented_images:
+                # Extraire les caractéristiques
                 hog_features = extract_hog_features(aug_img)
                 orb_features = extract_orb_features(aug_img)
                 glcm_features = extract_glcm_features(aug_img)
-
+                
                 # Concaténer toutes les caractéristiques
-                feature_vector = np.concatenate((hog_features, orb_features, glcm_features))
+                feature_vector = np.hstack((hog_features, orb_features, glcm_features))
                 features.append(feature_vector)
-
-                # Nombre d'objets comme label
+                
+                # Ajouter le label (nombre d'objets)
                 num_objects = count_objects_in_dota_annotation(txt_file)
                 labels.append(num_objects)
 
-    return np.array(features), np.array(labels)
-
-# Fonction pour entraîner le modèle XGBoost
-def train_model(features, labels):
-    """Entraîner un modèle XGBoost avec HOG + ORB + GLCM."""
-    scaler = StandardScaler()
-    features_scaled = scaler.fit_transform(features)
-    
-    model = xgb.XGBRegressor(objective='reg:squarederror', colsample_bytree=0.3, learning_rate=0.1,
-                             max_depth=5, alpha=10, n_estimators=100)
-    model.fit(features_scaled, labels)
-    
-    return model, scaler
-
-def main():
-    image_dir = 'path_to_images'
-    annotation_dir = 'path_to_annotations'
-    
-    # Création du dataset
-    features, labels = create_dataset(image_dir, annotation_dir)
-    
-    # Séparer en données d'entraînement et de test
-    features_train, features_test, labels_train, labels_test = train_test_split(features, labels, test_size=0.2, random_state=42)
-
-    # Entraîner le modèle
-    model, scaler = train_model(features_train, labels_train)
-    
-    # Évaluer le modèle
-    features_test_scaled = scaler.transform(features_test)
-    predictions = model.predict(features_test_scaled)
-    
-    print(f"MAE : {mean_absolute_error(labels_test, predictions):.2f}")
-    print(f"R² Score : {r2_score(labels_test, predictions):.2f}")
-
-    # Sauvegarde du modèle
-    model.save_model('xgboost_model.json')
-    np.save('scaler.npy', scaler.mean_)  # Sauvegarder le scaler
-
-    if image.dtype != np.uint8:
-        image = (image * 255).astype(np.uint8)  # Convertir float → uint8
+    return np.array(features, dtype=np.float32), np.array(labels, dtype=np.float32)
