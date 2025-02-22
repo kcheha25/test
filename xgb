@@ -174,48 +174,30 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-def augment_image(image):
-    """Effectue des transformations pour augmenter les données."""
-    datagen = ImageDataGenerator(rotation_range=20, horizontal_flip=True, zoom_range=0.2)
-    image = np.expand_dims(image, axis=(0, -1))  # Ajouter batch et canal
-    augmented_images = [image]
+def main():
+    image_dir = 'path_to_images'
+    annotation_dir = 'path_to_annotations'
     
-    for batch in datagen.flow(image, batch_size=1):
-        augmented_images.append(batch[0])
-        if len(augmented_images) >= 3:
-            break
-
-    return [img.squeeze() for img in augmented_images]
-
-# Création du dataset
-def create_dataset(image_dir, annotation_dir):
-    features_cnn = []
-    labels = []
+    # Chargement et prétraitement des données
+    X_cnn, y = create_dataset(image_dir, annotation_dir)
     
-    image_paths = [os.path.join(image_dir, f) for f in os.listdir(image_dir) if f.endswith('.jpg') or f.endswith('.png')]
-    
-    for image_path in image_paths:
-        txt_file = os.path.join(annotation_dir, os.path.basename(image_path).replace('.jpg', '.txt').replace('.png', '.txt'))
-        
-        if os.path.exists(txt_file):
-            img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
-            augmented_images = augment_image(img)
-            
-            for aug_img in augmented_images:
-                # Normalisation
-                aug_img = aug_img.astype(np.float32) / 255.0
-                
-                # Adapter pour DenseNet (RGB, 128x128)
-                resized_img = cv2.resize(aug_img, (128, 128))
-                resized_img = np.expand_dims(resized_img, axis=-1)  # (128, 128, 1)
-                resized_img = np.repeat(resized_img, 3, axis=-1)    # (128, 128, 3)
-                
-                features_cnn.append(resized_img)
-                
-                # Ajouter le label (nombre d'objets dans l'image)
-                with open(txt_file, 'r') as f:
-                    num_objects = len(f.readlines())
-                labels.append(num_objects)
+    # Vérification des dimensions
+    print(f"Shape des images: {X_cnn.shape}")  # Doit être (N, 128, 128, 3)
 
-    return np.array(features_cnn), np.array(labels)
+    # Séparation en train/test
+    X_train, X_test, y_train, y_test = train_test_split(X_cnn, y, test_size=0.2, random_state=42)
+
+    # Création et entraînement du modèle CNN
+    model = create_densenet_model((128, 128, 3))
+    model.fit(X_train, y_train, epochs=10, batch_size=16, validation_split=0.1)
+
+    # Prédictions
+    predictions = model.predict(X_test)
+    
+    print(f"MAE : {mean_absolute_error(y_test, predictions):.2f}")
+    print(f"R² Score : {r2_score(y_test, predictions):.2f}")
+
+    model.save('densenet_model.h5')
+
+if __name__ == '__main__':
+    main()
