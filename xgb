@@ -175,9 +175,22 @@ def main():
 if __name__ == '__main__':
     main()
 
+def augment_image(image):
+    """Effectue des transformations pour augmenter les données."""
+    datagen = ImageDataGenerator(rotation_range=20, horizontal_flip=True, zoom_range=0.2)
+    image = np.expand_dims(image, axis=(0, -1))  # Ajouter batch et canal
+    augmented_images = [image]
+    
+    for batch in datagen.flow(image, batch_size=1):
+        augmented_images.append(batch[0])
+        if len(augmented_images) >= 3:
+            break
+
+    return [img.squeeze() for img in augmented_images]
+
+# Création du dataset
 def create_dataset(image_dir, annotation_dir):
     features_cnn = []
-    features_handcrafted = []
     labels = []
     
     image_paths = [os.path.join(image_dir, f) for f in os.listdir(image_dir) if f.endswith('.jpg') or f.endswith('.png')]
@@ -186,28 +199,23 @@ def create_dataset(image_dir, annotation_dir):
         txt_file = os.path.join(annotation_dir, os.path.basename(image_path).replace('.jpg', '.txt').replace('.png', '.txt'))
         
         if os.path.exists(txt_file):
-            img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)  # Lire en niveaux de gris
-            augmented_images = augment_image(img)  # Appliquer Data Augmentation
+            img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+            augmented_images = augment_image(img)
             
             for aug_img in augmented_images:
-                # Extraire les caractéristiques
-                hog_features = extract_hog_features(aug_img)
-                orb_features = extract_orb_features(aug_img)
-                glcm_features = extract_glcm_features(aug_img)
-                hu_moments = extract_hu_moments(aug_img)
-
-                # Concaténer toutes les caractéristiques manuelles
-                feature_vector = np.hstack((hog_features, orb_features, glcm_features, hu_moments))
-                features_handcrafted.append(feature_vector)
+                # Normalisation
+                aug_img = aug_img.astype(np.float32) / 255.0
                 
-                # Préparer l'image pour DenseNet
-                resized_img = cv2.resize(aug_img, (128, 128))  # Resize à 128x128
-                resized_img = np.expand_dims(resized_img, axis=-1)  # Ajouter canal unique
-                resized_img = np.repeat(resized_img, 3, axis=-1)  # Convertir en RGB
+                # Adapter pour DenseNet (RGB, 128x128)
+                resized_img = cv2.resize(aug_img, (128, 128))
+                resized_img = np.expand_dims(resized_img, axis=-1)  # (128, 128, 1)
+                resized_img = np.repeat(resized_img, 3, axis=-1)    # (128, 128, 3)
+                
                 features_cnn.append(resized_img)
                 
-                # Ajouter le label
-                num_objects = count_objects_in_dota_annotation(txt_file)
+                # Ajouter le label (nombre d'objets dans l'image)
+                with open(txt_file, 'r') as f:
+                    num_objects = len(f.readlines())
                 labels.append(num_objects)
 
-    return np.array(features_cnn) / 255.0, np.array(features_handcrafted), np.array(labels)
+    return np.array(features_cnn), np.array(labels)
