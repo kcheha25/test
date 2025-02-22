@@ -1,29 +1,50 @@
-def load_data(image_dir, annotation_dir, target_size=(256, 256)):
-    images = []
-    density_maps = []
+import matplotlib.pyplot as plt
+
+# ================================
+# 📌 TEST DU MODÈLE SUR LES DONNÉES DE TEST
+# ================================
+def test_and_display_results(image_dir, annotation_dir, model_path='csrnet_model.h5', target_size=(256, 256)):
+    # Charger les données de test
+    X, Y = load_data(image_dir, annotation_dir, target_size)
     
-    image_paths = [f for f in os.listdir(image_dir) if f.endswith('.jpg') or f.endswith('.png')]
+    # Séparer en train et test
+    _, X_test, _, Y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
     
-    for img_name in image_paths:
-        img_path = os.path.join(image_dir, img_name)
-        ann_path = os.path.join(annotation_dir, img_name.replace('.jpg', '.txt').replace('.png', '.txt'))
+    # Charger le modèle sauvegardé
+    model = tf.keras.models.load_model(model_path)
+    
+    # Faire des prédictions sur les données de test
+    predictions = model.predict(X_test)
+
+    # Afficher quelques exemples de comparaison entre les ground truth et les prédictions
+    for i in range(5):  # Afficher 5 exemples (vous pouvez ajuster le nombre)
+        plt.figure(figsize=(12, 8))
         
-        if os.path.exists(ann_path):
-            # Charger et redimensionner l'image
-            image = cv2.imread(img_path, cv2.IMREAD_COLOR)
-            image = cv2.resize(image, target_size)
-            image = image.astype(np.float32) / 255.0  # Normalisation
-            images.append(image)
+        # Afficher l'image
+        plt.subplot(1, 3, 1)
+        plt.imshow(X_test[i])
+        plt.title('Image')
+        plt.axis('off')
+        
+        # Afficher la carte de densité (Ground Truth)
+        plt.subplot(1, 3, 2)
+        plt.imshow(Y_test[i].reshape(target_size), cmap='jet')
+        plt.title('Ground Truth')
+        plt.axis('off')
 
-            # Lire les annotations et générer la carte de densité
-            objects = read_dota_annotations(ann_path)
-            density_map = generate_density_map(image, objects, sigma=10)
-            
-            # Redimensionner la carte de densité à 32x32 (si vous voulez sortir à cette taille)
-            density_map = cv2.resize(density_map, (32, 32))  # Redimensionner les étiquettes
-            density_maps.append(density_map)
+        # Afficher la prédiction
+        plt.subplot(1, 3, 3)
+        plt.imshow(predictions[i].reshape(target_size), cmap='jet')
+        plt.title('Prediction')
+        plt.axis('off')
+        
+        plt.show()
 
-    images = np.array(images)
-    density_maps = np.array(density_maps).reshape(-1, 32, 32, 1)  # Ajouter un canal
-
-    return images, density_maps
+# ================================
+# 📌 LANCEMENT DU TEST
+# ================================
+if __name__ == "__main__":
+    image_dir = "path_to_images"
+    annotation_dir = "path_to_annotations"
+    
+    test_and_display_results(image_dir, annotation_dir)
