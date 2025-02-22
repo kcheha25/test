@@ -1,3 +1,31 @@
-# Vérification des indices
-if 0 <= previous_pixel < levels and 0 <= run_length - 1 < max_run_length:
-    glrlm[int(previous_pixel), int(run_length - 1)] += 1
+    """Entraîner un modèle XGBoost avec les caractéristiques combinées et PCA."""
+    scaler = StandardScaler()
+    features_scaled = scaler.fit_transform(features)
+    
+    # Application de PCA pour réduire la dimensionnalité
+    pca = PCA(n_components=0.95)  # Conserver 95% de la variance
+    features_pca = pca.fit_transform(features_scaled)  # Appliquer PCA sur les données normalisées
+    
+    model = xgb.XGBRegressor(objective='reg:squarederror', colsample_bytree=0.3, learning_rate=0.1,
+                             max_depth=5, alpha=10, n_estimators=100)
+    model.fit(features_pca, labels)
+    
+    return model, scaler, pca
+
+def main():
+    image_dir = 'path_to_images'
+    annotation_dir = 'path_to_annotations'
+    
+    # Création du dataset
+    features, labels = create_dataset(image_dir, annotation_dir)
+    
+    # Séparer en train/test
+    features_train, features_test, labels_train, labels_test = train_test_split(features, labels, test_size=0.2, random_state=42)
+
+    # Entraîner le modèle
+    model, scaler, pca = train_model(features_train, labels_train)
+    
+    # Évaluation du modèle
+    features_test_scaled = scaler.transform(features_test)
+    features_test_pca = pca.transform(features_test_scaled)  # Appliquer PCA sur les données de test
+    predictions = model.predict(features_test_pca)
