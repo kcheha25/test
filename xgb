@@ -121,21 +121,5 @@ def main():
     model.save_model('xgboost_model.json')
     np.save('scaler.npy', scaler.mean_)  # Sauvegarder le scaler
 
-def extract_orb_features(image):
-    """Extraire les descripteurs ORB d'une image."""
-    if not isinstance(image, np.ndarray):
-        raise ValueError("L'image doit être un tableau NumPy.")
-    
-    if image.ndim == 3 and image.shape[2] == 1:
-        image = image.squeeze(axis=2)  # Supprime la 3e dimension si (H, W, 1)
-    
     if image.dtype != np.uint8:
-        image = cv2.normalize(image, None, 0, 255, cv2.NORM_MINMAX).astype(np.uint8)
-
-    orb = cv2.ORB_create(nfeatures=500)
-    keypoints, descriptors = orb.detectAndCompute(image, None)
-
-    if descriptors is not None:
-        return descriptors.flatten()[:500]  # Limiter à 500 valeurs
-    else:
-        return np.zeros(500)  # Retourne un vecteur de zéros si pas de descripteurs
+        image = (image * 255).astype(np.uint8)  # Convertir float → uint8
