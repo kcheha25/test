@@ -1,10 +1,68 @@
-import os
-import cv2
-import json
-import numpy as np
-import tensorflow as tf
-from tensorflow.keras.layers import Conv2D, MaxPooling2D, Input
-from tensorflow.keras.models import Model, model_from_json
-from tensorflow.keras.optimizers import SGD
-from tensorflow.keras.initializers import RandomNormal
-import tensorflow.keras.backend as K
+def generate_density_map(image_shape, polygons, sigma=15, output_size=(32, 32)):
+    """Génère une carte de densité à partir des polygones annotés et la redimensionne à 32x32."""
+    h, w = image_shape[:2]
+    density_map = np.zeros((h, w), dtype=np.float32)
+
+    for obj in polygons:
+        if len(obj) >= 3:  # Vérifier que c'est un polygone valide
+            polygon = np.array(obj, np.int32).reshape((-1, 1, 2))
+            cv2.fillPoly(density_map, [polygon], 1)  # Remplir l'objet entier
+
+    # Appliquer un flou gaussien
+    ksize = int(2 * np.ceil(sigma) + 1)
+    density_map = cv2.GaussianBlur(density_map, (ksize, ksize), sigma)
+    
+    # Normalisation
+    density_map /= density_map.sum() if density_map.sum() > 0 else 1
+
+    # Redimensionner en 32x32 pour correspondre à la sortie du modèle
+    density_map = cv2.resize(density_map, output_size, interpolation=cv2.INTER_CUBIC)
+    return density_map
+
+# ===========================
+# 2️⃣ Chargement des données à partir des annotations LabelMe
+# ===========================
+def load_data_from_labelme(image_dir, annotation_dir, image_target_size=(256, 256), anno_original_size=(128, 128)):
+    """Charge les images et génère les cartes de densité depuis les annotations LabelMe."""
+    images = []
+    density_maps = []
+
+    image_files = [f for f in os.listdir(image_dir) if f.endswith('.jpg') or f.endswith('.png')]
+
+    for img_name in image_files:
+        img_path = os.path.join(image_dir, img_name)
+        ann_name = img_name.replace('.jpg', '.json').replace('.png', '.json')
+        ann_path = os.path.join(annotation_dir, ann_name)
+
+        image = cv2.imread(img_path, cv2.IMREAD_COLOR)
+        if image is None:
+            print(f"🔴 Erreur : Impossible de charger {img_name}")
+            continue
+        
+        image = cv2.resize(image, image_target_size)  
+        image = image.astype(np.float32) / 255.0  # Normalisation
+        images.append(image)
+
+        if os.path.exists(ann_path):
+            with open(ann_path, 'r') as f:
+                annotation = json.load(f)
+
+            # Mise à l'échelle des annotations de 128x128 vers 256x256
+            scale_x = image_target_size[0] / anno_original_size[0]  # 256 / 128 = 2.0
+            scale_y = image_target_size[1] / anno_original_size[1]  # 256 / 128 = 2.0
+
+            polygons = []
+            for shape in annotation['shapes']:
+                scaled_points = [(p[0] * scale_x, p[1] * scale_y) for p in shape['points']]
+                polygons.append(scaled_points)
+
+            # Générer et redimensionner la carte de densité à 32x32
+            density_map = generate_density_map(image_target_size, polygons, sigma=10, output_size=(32, 32))
+            density_maps.append(density_map)
+        else:
+            print(f"🔴 Annotation manquante pour {img_name}")
+
+    images = np.array(images)
+    density_maps = np.array(density_maps).reshape(-1, 32, 32, 1)  # Ajustement des dimensions
+
+    return images, density_maps
