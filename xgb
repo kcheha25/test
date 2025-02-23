@@ -1,78 +1,10 @@
-def euclidean_distance_loss(y_true, y_pred):
-    return K.sqrt(K.sum(K.square(y_pred - y_true), axis=-1))
-
-# 🔹 4. Chargement des poids VGG16
-def init_weights_vgg(model, vgg_json_path="models/VGG_16.json", vgg_weights_path="weights/VGG_16.h5"):
-    with open(vgg_json_path, 'r') as json_file:
-        loaded_model_json = json_file.read()
-    loaded_model = model_from_json(loaded_model_json)
-    loaded_model.load_weights(vgg_weights_path)
-
-    vgg_weights = [layer.get_weights() for layer in loaded_model.layers if 'conv' in layer.name]
-
-    offset = 0
-    i = 0
-    while i < len(vgg_weights):
-        if 'conv' in model.layers[i + offset].name:
-            model.layers[i + offset].set_weights(vgg_weights[i])
-            i += 1
-        else:
-            offset += 1
-    return model
-
-# 🔹 5. Construction du modèle CSRNet
-def build_csrnet(input_shape=(256, 256, 3)):
-    init = RandomNormal(stddev=0.01)
-    inputs = Input(shape=input_shape)
-
-    # Bloc VGG (pré-entraîné)
-    x = Conv2D(64, (3, 3), padding='same', activation='relu', kernel_initializer=init)(inputs)
-    x = Conv2D(64, (3, 3), padding='same', activation='relu', kernel_initializer=init)(x)
-    x = MaxPooling2D(pool_size=(2, 2))(x)
-
-    x = Conv2D(128, (3, 3), padding='same', activation='relu', kernel_initializer=init)(x)
-    x = Conv2D(128, (3, 3), padding='same', activation='relu', kernel_initializer=init)(x)
-    x = MaxPooling2D(pool_size=(2, 2))(x)
-
-    x = Conv2D(256, (3, 3), padding='same', activation='relu', kernel_initializer=init)(x)
-    x = Conv2D(256, (3, 3), padding='same', activation='relu', kernel_initializer=init)(x)
-    x = Conv2D(256, (3, 3), padding='same', activation='relu', kernel_initializer=init)(x)
-    x = MaxPooling2D(pool_size=(2, 2))(x)
-
-    x = Conv2D(512, (3, 3), padding='same', activation='relu', kernel_initializer=init)(x)
-    x = Conv2D(512, (3, 3), padding='same', activation='relu', kernel_initializer=init)(x)
-    x = Conv2D(512, (3, 3), padding='same', activation='relu', kernel_initializer=init)(x)
-
-    # Bloc de dilatation
-    x = Conv2D(512, (3, 3), padding='same', activation='relu', dilation_rate=2, kernel_initializer=init)(x)
-    x = Conv2D(512, (3, 3), padding='same', activation='relu', dilation_rate=2, kernel_initializer=init)(x)
-    x = Conv2D(512, (3, 3), padding='same', activation='relu', dilation_rate=2, kernel_initializer=init)(x)
-    x = Conv2D(256, (3, 3), padding='same', activation='relu', dilation_rate=2, kernel_initializer=init)(x)
-    x = Conv2D(128, (3, 3), padding='same', activation='relu', dilation_rate=2, kernel_initializer=init)(x)
-    x = Conv2D(64, (3, 3), padding='same', activation='relu', dilation_rate=2, kernel_initializer=init)(x)
-
-    output = Conv2D(1, (1, 1), padding='same', activation='relu', kernel_initializer=init)(x)
-
-    return Model(inputs, output)
-
-# 🔹 6. Entraînement du modèle
-def train_model(image_dir, annotation_dir):
-    images, density_maps = load_data_from_labelme(image_dir, annotation_dir)
-
-    model = build_csrnet()
-    model = init_weights_vgg(model)
-
-    sgd = SGD(lr=1e-7, decay=5e-4, momentum=0.95)
-    model.compile(optimizer=sgd, loss=euclidean_distance_loss, metrics=['mse'])
-
-    model.fit(images, density_maps, epochs=10, batch_size=1, verbose=1)
-
-    # Sauvegarde du modèle
-    model.save_weights("weights/csrnet_weights.h5")
-    with open("models/csrnet.json", "w") as json_file:
-        json_file.write(model.to_json())
-
-# 🔹 7. Lancement de l'entraînement
-image_dir = "dataset/images"
-annotation_dir = "dataset/annotations"
-train_model(image_dir, annotation_dir)
+import os
+import cv2
+import json
+import numpy as np
+import tensorflow as tf
+from tensorflow.keras.layers import Conv2D, MaxPooling2D, Input
+from tensorflow.keras.models import Model, model_from_json
+from tensorflow.keras.optimizers import SGD
+from tensorflow.keras.initializers import RandomNormal
+import tensorflow.keras.backend as K
