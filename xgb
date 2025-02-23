@@ -1,12 +1,29 @@
-import os
-import cv2
-import numpy as np
-import tensorflow as tf
-from keras.models import Model
-from keras.layers import Dense, GlobalAveragePooling2D, Input, Concatenate, BatchNormalization, Dropout
-from keras.applications import DenseNet121
-from keras.optimizers import Adam
-from keras.preprocessing.image import ImageDataGenerator
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_absolute_error, r2_score
-from skimage.feature import hog, graycomatrix, graycoprops
+def create_combined_model(input_shape_cnn, input_shape_manual):
+    # Feature extractor CNN (DenseNet)
+    base_model = DenseNet121(weights='imagenet', include_top=False, input_shape=input_shape_cnn)
+    x = base_model.output
+    x = GlobalAveragePooling2D()(x)
+    x = Dense(1024, activation='relu')(x)  # Augmenter le nombre de neurones dans cette couche
+    x = BatchNormalization()(x)
+    x = Dropout(0.4)(x)  # Augmenter le taux de dropout
+    x = Dense(512, activation='relu')(x)  # Ajouter une autre couche dense avec plus de neurones
+    cnn_output = Dense(256, activation='relu')(x)
+
+    # Feature extractor manuel (MLP)
+    input_manual = Input(shape=(input_shape_manual,))
+    y = Dense(512, activation='relu')(input_manual)  # Augmenter la taille de la première couche dense
+    y = BatchNormalization()(y)
+    y = Dropout(0.4)(y)  # Augmenter le dropout
+    y = Dense(256, activation='relu')(y)  # Ajouter une autre couche
+    manual_output = Dense(128, activation='relu')(y)
+    
+    # Fusion des deux
+    merged = Concatenate()([cnn_output, manual_output])
+    z = Dense(256, activation='relu')(merged)  # Augmenter la taille de la couche fusionnée
+    z = BatchNormalization()(z)
+    z = Dropout(0.4)(z)  # Augmenter le dropout pour mieux régulariser
+    z = Dense(128, activation='relu')(z)  # Ajouter une autre couche dense
+    final_output = Dense(1, activation='linear')(z)
+    
+    # Modèle final
+    model = Model(inputs=[base_model.input, input_manual], outputs=final_output)
