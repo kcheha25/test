@@ -1,45 +1,71 @@
-from tensorflow.keras.layers import Conv2D, MaxPooling2D, Input, BatchNormalization, ReLU, UpSampling2D
-from tensorflow.keras.models import Model
+import os
+import cv2
+import json
+import numpy as np
 
-def build_csrnet(input_shape=(256, 256, 3)):
-    inputs = Input(shape=input_shape)
+def generate_density_map(image_shape, polygons, sigma=15):
+    """Génère une carte de densité à partir des polygones annotés."""
+    h, w = image_shape[:2]
+    density_map = np.zeros((h, w), dtype=np.float32)
 
-    # Feature Extraction (Partie CNN)
-    x = Conv2D(64, (3, 3), padding='same', activation='relu')(inputs)
-    x = BatchNormalization()(x)
-    x = MaxPooling2D(pool_size=(2, 2))(x)
+    for obj in polygons:
+        if len(obj) >= 3:  # Vérifier que c'est un polygone valide
+            polygon = np.array(obj, np.int32).reshape((-1, 1, 2))
+            cv2.fillPoly(density_map, [polygon], 1)  # Remplir l'objet entier
 
-    x = Conv2D(128, (3, 3), padding='same', activation='relu')(x)
-    x = BatchNormalization()(x)
-    x = MaxPooling2D(pool_size=(2, 2))(x)
+    # Appliquer un flou gaussien
+    ksize = int(2 * np.ceil(sigma) + 1)  # Assurer que ksize est impair
+    density_map = cv2.GaussianBlur(density_map, (ksize, ksize), sigma)
+    
+    # Normalisation
+    density_map /= density_map.sum() if density_map.sum() > 0 else 1
+    return density_map
 
-    x = Conv2D(256, (3, 3), padding='same', activation='relu')(x)
-    x = BatchNormalization()(x)
-    x = Conv2D(256, (3, 3), padding='same', activation='relu')(x)
-    x = BatchNormalization()(x)
-    x = MaxPooling2D(pool_size=(2, 2))(x)
+def load_data_from_labelme(image_dir, annotation_dir, image_target_size=(256, 256), anno_original_size=(128, 128)):
+    """Charge les images et génère les cartes de densité depuis les annotations LabelMe."""
+    images = []
+    density_maps = []
 
-    x = Conv2D(512, (3, 3), padding='same', activation='relu')(x)
-    x = BatchNormalization()(x)
-    x = Conv2D(512, (3, 3), padding='same', activation='relu')(x)
-    x = BatchNormalization()(x)
+    # Lire toutes les images
+    image_files = [f for f in os.listdir(image_dir) if f.endswith('.jpg') or f.endswith('.png')]
 
-    # Upsampling pour redimensionner l'image à 256x256
-    x = UpSampling2D(size=(2, 2))(x)
-    x = Conv2D(256, (3, 3), padding='same', activation='relu')(x)
-    x = BatchNormalization()(x)
+    for img_name in image_files:
+        img_path = os.path.join(image_dir, img_name)
+        ann_name = img_name.replace('.jpg', '.json').replace('.png', '.json')
+        ann_path = os.path.join(annotation_dir, ann_name)
 
-    x = UpSampling2D(size=(2, 2))(x)
-    x = Conv2D(128, (3, 3), padding='same', activation='relu')(x)
-    x = BatchNormalization()(x)
+        # Charger l'image et la redimensionner à 256x256
+        image = cv2.imread(img_path, cv2.IMREAD_COLOR)
+        if image is None:
+            print(f"🔴 Erreur : Impossible de charger {img_name}")
+            continue
+        
+        image = cv2.resize(image, image_target_size)  
+        image = image.astype(np.float32) / 255.0  # Normalisation
+        images.append(image)
 
-    x = UpSampling2D(size=(2, 2))(x)
-    x = Conv2D(64, (3, 3), padding='same', activation='relu')(x)
-    x = BatchNormalization()(x)
+        # Lire les annotations
+        if os.path.exists(ann_path):
+            with open(ann_path, 'r') as f:
+                annotation = json.load(f)
 
-    # Sortie : Couche de sortie avec 1 canal (carte de densité)
-    output = Conv2D(1, (1, 1), padding='same', activation='sigmoid')(x)
+            # Ajuster les annotations de 128x128 vers 256x256
+            scale_x = image_target_size[0] / anno_original_size[0]  # 256 / 128 = 2.0
+            scale_y = image_target_size[1] / anno_original_size[1]  # 256 / 128 = 2.0
 
-    model = Model(inputs, output)
-    model.compile(optimizer='adam', loss='mse')
-    return model
+            polygons = []
+            for shape in annotation['shapes']:
+                scaled_points = [(p[0] * scale_x, p[1] * scale_y) for p in shape['points']]
+                polygons.append(scaled_points)
+
+            # Générer la carte de densité
+            density_map = generate_density_map(image_target_size, polygons, sigma=10)
+            density_maps.append(density_map)
+        else:
+            print(f"🔴 Annotation manquante pour {img_name}")
+
+    # Convertir en tableaux NumPy
+    images = np.array(images)
+    density_maps = np.array(density_maps).reshape(-1, image_target_size[0], image_target_size[1], 1)
+
+    return images, density_maps
