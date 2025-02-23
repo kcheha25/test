@@ -1,35 +1,12 @@
-def create_combined_model(input_shape_cnn, input_shape_manual):
-    # Feature extractor CNN (DenseNet)
-    base_model = DenseNet121(weights='imagenet', include_top=False, input_shape=input_shape_cnn)
-    x = base_model.output
-    x = GlobalAveragePooling2D()(x)
-    x = Dense(512, activation='relu')(x)
-    x = BatchNormalization()(x)
-    x = Dropout(0.3)(x)
-    cnn_output = Dense(256, activation='relu')(x)
-    
-    # Feature extractor manuel (MLP)
-    input_manual = Input(shape=(input_shape_manual,))
-    y = Dense(256, activation='relu')(input_manual)
-    y = BatchNormalization()(y)
-    y = Dropout(0.3)(y)
-    manual_output = Dense(128, activation='relu')(y)
-    
-    # Fusion des deux
-    merged = Concatenate()([cnn_output, manual_output])
-    z = Dense(128, activation='relu')(merged)
-    z = BatchNormalization()(z)
-    z = Dropout(0.3)(z)
-    final_output = Dense(1, activation='linear')(z)
-    
-    # Modèle final
-    model = Model(inputs=[base_model.input, input_manual], outputs=final_output)
-    
-    # Fine-tuning du CNN
-    for layer in base_model.layers[-20:]:  
-        layer.trainable = True  
-    
-    optimizer = Adam(learning_rate=1e-4)
-    model.compile(optimizer=optimizer, loss=['mse', 'mae'], metrics=['mae', 'mse'])
-    
-    return model
+import os
+import cv2
+import numpy as np
+import tensorflow as tf
+from keras.models import Model
+from keras.layers import Dense, GlobalAveragePooling2D, Input, Concatenate, BatchNormalization, Dropout
+from keras.applications import DenseNet121
+from keras.optimizers import Adam
+from keras.preprocessing.image import ImageDataGenerator
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_absolute_error, r2_score
+from skimage.feature import hog, graycomatrix, graycoprops
