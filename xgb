@@ -1,6 +1,2 @@
-def extract_laplacian_features(image):
-    laplacian = cv2.Laplacian(image, cv2.CV_64F)
-    return np.mean(laplacian), np.std(laplacian), np.var(laplacian)
-
-
-                laplacian_features = extract_laplacian_features(aug_img)  # Ajouter les caractéristiques Laplaciennes
+    if image.dtype != np.uint8:
+        image = (image * 255).astype(np.uint8)
