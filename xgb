@@ -1,61 +1,30 @@
-import joblib
-import cv2
-import numpy as np
-from keras.applications import DenseNet121
-from keras.models import Model
-from keras.layers import GlobalAveragePooling2D
+def count_sheets_in_bbox(image, bbox):
+    roi = rotate_and_crop(image, bbox)
+    feature_vector = extract_all_features(roi)
+    feature_vector = feature_vector.reshape(1, -1)
 
-# Fonction pour extraire les caractéristiques avec DenseNet (identique à celle que vous avez déjà)
-def extract_features_with_densenet(image):
-    base_model = DenseNet121(weights='imagenet', include_top=False, input_shape=(128, 128, 3))
-    x = base_model.output
-    x = GlobalAveragePooling2D()(x)
-    model = Model(inputs=base_model.input, outputs=x)
+    prediction = xgboost_model.predict(feature_vector)
+    return round(prediction[0]), roi
 
-    img = cv2.resize(image, (128, 128))  # Redimensionner l'image
-    img = np.expand_dims(img, axis=0)  # Ajouter une dimension pour le batch
-    img = img / 255.0  # Normalisation
-    feature = model.predict(img)
-    return feature.flatten()  # Aplatir le vecteur de caractéristiques
+# 🔹 Détection et histogramme des feuillets détectés
+def detect_and_plot_sheets(image, bboxes):
+    feuille_counts = []
 
-# Fonction pour extraire toutes les autres caractéristiques
-def extract_all_features(image):
-    # Extraire les caractéristiques HOG, ORB, GLCM, Hu Moments, Histogramme, LBP (comme dans votre code)
-    hog_features = extract_hog_features(image)
-    orb_features = extract_orb_features(image)
-    glcm_features = extract_glcm_features(image)
-    hu_moments = extract_hu_moments(image)
-    hist_features = extract_histogram_features(image)
-    lbp_features = extract_lbp_features(image)
-    dense_features = extract_features_with_densenet(image)  # Extraire les caractéristiques avec DenseNet
-    
-    # Concaténer toutes les caractéristiques
-    feature_vector = np.hstack((
-        dense_features, hog_features, orb_features, glcm_features, hu_moments, hist_features, lbp_features
-    ))
-    return feature_vector
+    fig, axes = plt.subplots(1, 3, figsize=(15, 5))
 
-def test_image(image_path):
-    # Charger l'image à tester
-    image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)  # Charger en niveaux de gris
-    if image is None:
-        print("Erreur lors de la lecture de l'image.")
-        return
-    
-    # Extraire les caractéristiques de l'image
-    feature_vector = extract_all_features(image)
+    for i, bbox in enumerate(bboxes):
+        count, roi = count_sheets_in_bbox(image, bbox)
+        feuille_counts.append(count)
+        
+        # Affichage de l'extraction d'une ROI pour vérification
+        if i < 3:
+            axes[i].imshow(cv2.cvtColor(roi, cv2.COLOR_BGR2RGB))
+            axes[i].set_title(f"ROI {i+1}: {count} feuillets")
 
-    # Charger le modèle et le scaler
-    model = joblib.load('xgboost_model.pkl')
-    scaler = joblib.load('scaler.pkl')
-    
-    # Prétraiter les caractéristiques
-    feature_vector_scaled = scaler.transform([feature_vector])
-    
-    # Prédire le nombre d'objets
-    prediction = model.predict(feature_vector_scaled)
-    
-    print(f"Prédiction pour l'image {image_path} : {prediction[0]:.2f} objets")
-    
-# Exemple d'appel de la fonction test_image
-test_image('path_to_your_image.jpg')
+    # 🔹 Création de l'histogramme
+    plt.figure(figsize=(8, 6))
+    plt.hist(feuille_counts, bins=np.arange(min(feuille_counts), max(feuille_counts) + 1), alpha=0.7, color='blue', edgecolor='black')
+    plt.xlabel("Nombre de feuillets détectés par ROI")
+    plt.ylabel("Fréquence")
+    plt.title("Histogramme du nombre de feuillets détectés par ROI")
+    plt.show()
