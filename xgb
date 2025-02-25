@@ -1,45 +1,66 @@
+import cv2
 import numpy as np
-import matplotlib.pyplot as plt
+import os
 
-# 🔹 Fonction pour calculer la diagonale d'une bbox (conversion en nm)
-def compute_bbox_diagonal(bbox, resolution=0.0657):
-    x, y, w, h, score = bbox  # Extraction des valeurs
-    diagonal_pixels = np.sqrt(w**2 + h**2)  # Calcul de la diagonale en pixels
-    diagonal_nm = diagonal_pixels * resolution  # Conversion en nm
-    return diagonal_nm
-
-# 🔹 Fonction pour générer l'histogramme
-def plot_avg_sheet_length_by_count(feuille_counts, bboxes):
+def rotate_and_crop(image, bbox):
     """
-    Affiche un histogramme de la longueur moyenne des feuillets en fonction du nombre de feuillets détectés.
-    
-    - X : Nombre de feuillets détectés par ROI
-    - Y : Longueur moyenne des feuillets pour ce groupe
+    Effectue une rotation et extrait la région d'intérêt (ROI) en tenant compte de l'angle.
     """
-    # 🔹 Création d'un dictionnaire pour stocker les longueurs par nombre de feuillets détectés
-    length_groups = {}
-
-    for i, count in enumerate(feuille_counts):
-        length_nm = compute_bbox_diagonal(bboxes[i])  # Calcul de la longueur en nm
-        
-        if count in length_groups:
-            length_groups[count].append(length_nm)
-        else:
-            length_groups[count] = [length_nm]
-
-    # 🔹 Calcul des moyennes pour chaque groupe
-    avg_lengths = {count: np.mean(lengths) for count, lengths in length_groups.items()}
-
-    # 🔹 Affichage de l'histogramme
-    plt.figure(figsize=(10, 6))
+    x, y, w, h, angle_rad, _ = bbox
+    x, y, w, h = map(int, [x, y, w, h])
     
-    plt.bar(avg_lengths.keys(), avg_lengths.values(), color='green', edgecolor='black', alpha=0.7)
+    angle_deg = np.degrees(angle_rad)
+    center = (x, y)
+    M = cv2.getRotationMatrix2D(center, -angle_deg, 1.0)
 
-    plt.xlabel("Nombre de feuillets détectés par ROI")
-    plt.ylabel("Longueur moyenne des feuillets (nm)")
-    plt.title("Longueur moyenne des feuillets en fonction du nombre de feuillets détectés")
+    rotated_img = cv2.warpAffine(image, M, (image.shape[1], image.shape[0]),
+                                 flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)
+
+    x1, y1 = int(x - w / 2), int(y - h / 2)
+    x2, y2 = int(x + w / 2), int(y + h / 2)
+
+    roi = rotated_img[max(y1, 0):min(y2, image.shape[0]), max(x1, 0):min(x2, image.shape[1])]
     
-    plt.xticks(sorted(avg_lengths.keys()))  # Tri des indices
-    plt.grid(axis='y', linestyle='--', alpha=0.7)
-    
-    plt.show()
+    return roi
+
+def resize_with_padding(roi, target_size=(128, 128)):
+    """
+    Redimensionne la ROI sans déformer les proportions et ajoute du padding blanc pour atteindre target_size.
+    """
+    h, w = roi.shape[:2]
+    scale = min(target_size[0] / h, target_size[1] / w)  # Calcul du facteur d'échelle
+
+    # Nouvelle taille tout en gardant le ratio
+    new_w, new_h = int(w * scale), int(h * scale)
+    resized_roi = cv2.resize(roi, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+
+    # Création d'une image blanche (255 pour une image en niveaux de gris)
+    if len(roi.shape) == 2:  # Image en niveaux de gris
+        padded_roi = np.full((target_size[1], target_size[0]), 255, dtype=np.uint8)
+    else:  # Image en couleur
+        padded_roi = np.full((target_size[1], target_size[0], 3), 255, dtype=np.uint8)
+
+    # Calcul des marges pour centrer la ROI
+    x_offset = (target_size[0] - new_w) // 2
+    y_offset = (target_size[1] - new_h) // 2
+
+    # Insertion de l'image redimensionnée dans le fond blanc
+    padded_roi[y_offset:y_offset + new_h, x_offset:x_offset + new_w] = resized_roi
+
+    return padded_roi
+
+def save_roi_with_padding(image, bbox, save_path, roi_id):
+    """
+    Extrait, redimensionne et sauvegarde une ROI avec padding.
+    """
+    roi = rotate_and_crop(image, bbox)
+    padded_roi = resize_with_padding(roi)
+
+    # Création du dossier si besoin
+    os.makedirs(save_path, exist_ok=True)
+
+    # Sauvegarde de l'image
+    save_filename = os.path.join(save_path, f"roi_{roi_id}.png")
+    cv2.imwrite(save_filename, padded_roi)
+
+    print(f"ROI sauvegardée : {save_filename}")
