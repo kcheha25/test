@@ -1,4 +1,45 @@
-score_threshold = 0.5  # Seuil minimum pour accepter une bbox
+import numpy as np
+import matplotlib.pyplot as plt
 
-# 🔹 Filtrer les bbox avec un score suffisant
-filtered_bboxes = [bbox for bbox in result[0] if bbox[4] >= score_threshold]
+# 🔹 Fonction pour calculer la diagonale d'une bbox (conversion en nm)
+def compute_bbox_diagonal(bbox, resolution=0.0657):
+    x, y, w, h, score = bbox  # Extraction des valeurs
+    diagonal_pixels = np.sqrt(w**2 + h**2)  # Calcul de la diagonale en pixels
+    diagonal_nm = diagonal_pixels * resolution  # Conversion en nm
+    return diagonal_nm
+
+# 🔹 Fonction pour générer l'histogramme
+def plot_avg_sheet_length_by_count(feuille_counts, bboxes):
+    """
+    Affiche un histogramme de la longueur moyenne des feuillets en fonction du nombre de feuillets détectés.
+    
+    - X : Nombre de feuillets détectés par ROI
+    - Y : Longueur moyenne des feuillets pour ce groupe
+    """
+    # 🔹 Création d'un dictionnaire pour stocker les longueurs par nombre de feuillets détectés
+    length_groups = {}
+
+    for i, count in enumerate(feuille_counts):
+        length_nm = compute_bbox_diagonal(bboxes[i])  # Calcul de la longueur en nm
+        
+        if count in length_groups:
+            length_groups[count].append(length_nm)
+        else:
+            length_groups[count] = [length_nm]
+
+    # 🔹 Calcul des moyennes pour chaque groupe
+    avg_lengths = {count: np.mean(lengths) for count, lengths in length_groups.items()}
+
+    # 🔹 Affichage de l'histogramme
+    plt.figure(figsize=(10, 6))
+    
+    plt.bar(avg_lengths.keys(), avg_lengths.values(), color='green', edgecolor='black', alpha=0.7)
+
+    plt.xlabel("Nombre de feuillets détectés par ROI")
+    plt.ylabel("Longueur moyenne des feuillets (nm)")
+    plt.title("Longueur moyenne des feuillets en fonction du nombre de feuillets détectés")
+    
+    plt.xticks(sorted(avg_lengths.keys()))  # Tri des indices
+    plt.grid(axis='y', linestyle='--', alpha=0.7)
+    
+    plt.show()
