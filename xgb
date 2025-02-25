@@ -1,8 +1,13 @@
-# 🔹 Génération de l'histogramme du nombre de feuillets détectés
-def plot_sheets_histogram(feuille_counts):
-    plt.figure(figsize=(8, 6))
-    plt.hist(feuille_counts, bins=np.arange(min(feuille_counts), max(feuille_counts) + 1), alpha=0.7, color='blue', edgecolor='black')
-    plt.xlabel("Nombre de feuillets détectés par ROI")
-    plt.ylabel("Fréquence")
-    plt.title("Histogramme du nombre de feuillets détectés par ROI")
+    plt.figure(figsize=(10, 6))
+    indices = np.arange(len(feuille_counts))  # Indices des groupes (BBox/ROI)
+    
+    plt.bar(indices, feuille_counts, color='blue', edgecolor='black', alpha=0.7)
+    
+    plt.xlabel("Index du groupe (BBox)")
+    plt.ylabel("Nombre de feuillets détectés")
+    plt.title("Nombre de feuillets détectés par ROI")
+    
+    plt.xticks(indices)  # Afficher chaque index sur l'axe X
+    plt.grid(axis='y', linestyle='--', alpha=0.7)
+    
     plt.show()
