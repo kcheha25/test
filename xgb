@@ -1,205 +1,30 @@
-import os
-import joblib
-import cv2
-import numpy as np
-import xgboost as xgb
-from sklearn.preprocessing import StandardScaler
-from skimage.feature import hog, graycomatrix, graycoprops, local_binary_pattern, gabor
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_absolute_error, r2_score
-from keras.applications import DenseNet121
-from keras.models import Model
-from keras.layers import GlobalAveragePooling2D
-from keras.preprocessing.image import ImageDataGenerator
-
-# Fonction pour extraire les caractéristiques HOG
-def extract_hog_features(image):
-    fd, _ = hog(image, orientations=9, pixels_per_cell=(8, 8), cells_per_block=(2, 2), visualize=True)
-    return fd
-
-# Fonction pour extraire les caractéristiques ORB
-def extract_orb_features(image, max_features=500):
-    orb = cv2.ORB_create(nfeatures=max_features)
-    keypoints, descriptors = orb.detectAndCompute(image, None)
-    if descriptors is None:
-        descriptors = np.zeros((max_features, 32), dtype=np.uint8)
-    if descriptors.shape[0] < max_features:
-        padding = np.zeros((max_features - descriptors.shape[0], 32), dtype=np.uint8)
-        descriptors = np.vstack((descriptors, padding))
-    return descriptors.flatten()
-
-# Fonction pour extraire les caractéristiques GLCM
-def extract_glcm_features(image):
-    if image.dtype != np.uint8:
-        image = (image * 255).astype(np.uint8)
-    glcm = graycomatrix(image, distances=[1], angles=[0], levels=256, symmetric=True, normed=True)
-    return np.array([
-        graycoprops(glcm, 'contrast')[0, 0],
-        graycoprops(glcm, 'homogeneity')[0, 0],
-        graycoprops(glcm, 'energy')[0, 0],
-        graycoprops(glcm, 'correlation')[0, 0]
-    ])
-
-# Fonction pour extraire les caractéristiques Hu Moments
-def extract_hu_moments(image):
-    moments = cv2.moments(image)
-    hu_moments = cv2.HuMoments(moments)
-    return hu_moments.flatten()
-
-# Fonction pour extraire les caractéristiques de l'histogramme
-def extract_histogram_features(image):
-    hist, _ = np.histogram(image.ravel(), bins=256, range=(0, 256))
-    return hist / np.sum(hist)
-
-# Fonction pour extraire les caractéristiques LBP
-def extract_lbp_features(image):
-    radius = 1
-    n_points = 8 * radius
-    lbp = local_binary_pattern(image, n_points, radius, method='uniform')
-    return np.histogram(lbp.ravel(), bins=np.arange(0, 59), range=(0, 58))[0]
-
-# Fonction pour extraire les caractéristiques de Gabor
-def extract_gabor_features(image):
-    # Appliquer un filtre de Gabor pour extraire les textures
-    kernels = [gabor(image, frequency=0.1)[0] for _ in range(4)]  # Exemple avec 4 orientations
-    return np.array([np.mean(kernel) for kernel in kernels])
-
-# Fonction pour calculer les dimensions de la BBox et autres caractéristiques
-def extract_bbox_features(txt_file):
-    with open(txt_file, 'r') as f:
-        lines = f.readlines()
+def extract_gabor_features(image, frequency=0.1, theta_values=[0, np.pi/4, np.pi/2, 3*np.pi/4]):
+    """
+    Extraire les caractéristiques des filtres de Gabor pour différentes orientations.
     
-    bbox_features = []
+    Parameters:
+    - image : 2D array (image en niveaux de gris)
+    - frequency : fréquence spatiale pour le filtre de Gabor
+    - theta_values : liste des orientations (angles en radians)
     
-    for line in lines:
-        coords = list(map(int, line.strip().split()))
-        x, y, w, h = coords[0], coords[1], coords[2], coords[3]
+    Returns:
+    - gabor_features : caractéristiques extraites des réponses réelles et imaginaires
+    """
+    gabor_features = []
+    
+    for theta in theta_values:
+        # Appliquer le filtre de Gabor à l'image pour chaque orientation
+        real, imag = gabor(image, frequency=frequency, theta=theta)
         
-        # Largeur et hauteur
-        width = w
-        height = h
+        # Extraire des caractéristiques statistiques des réponses réelles et imaginaires
+        real_mean = np.mean(real)
+        imag_mean = np.mean(imag)
+        real_std = np.std(real)
+        imag_std = np.std(imag)
+        real_variance = np.var(real)
+        imag_variance = np.var(imag)
         
-        # Diagonale
-        diagonal = np.sqrt(width**2 + height**2)
-        
-        # Rapport d'aspect
-        aspect_ratio = width / height if height != 0 else 0
-        
-        # Zone
-        area = width * height
-        
-        bbox_features.extend([width, height, diagonal, aspect_ratio, area])
+        # Ajouter ces caractéristiques à la liste
+        gabor_features.extend([real_mean, imag_mean, real_std, imag_std, real_variance, imag_variance])
     
-    return bbox_features
-
-# Appliquer Data Augmentation
-def augment_image(image):
-    datagen = ImageDataGenerator(rotation_range=20, horizontal_flip=True, zoom_range=0.2)
-    image = np.expand_dims(image, axis=0)
-    augmented_images = [image]
-    
-    for batch in datagen.flow(image, batch_size=1):
-        augmented_images.append(batch[0])
-        if len(augmented_images) >= 3:
-            break
-
-    return [img.squeeze() for img in augmented_images]
-
-# Fonction pour extraire les caractéristiques avec DenseNet
-def extract_features_with_densenet(image_dir):
-    base_model = DenseNet121(weights='imagenet', include_top=False, input_shape=(128, 128, 3))
-    x = base_model.output
-    x = GlobalAveragePooling2D()(x)
-    model = Model(inputs=base_model.input, outputs=x)
-    
-    features = []
-    image_paths = [os.path.join(image_dir, f) for f in os.listdir(image_dir) if f.endswith(('.jpg', '.png'))]
-    
-    for image_path in image_paths:
-        img = cv2.imread(image_path)
-        img = cv2.resize(img, (128, 128))
-        img = np.expand_dims(img, axis=0)
-        img = img / 255.0
-        feature = model.predict(img)
-        features.append(feature.flatten())
-    
-    return np.array(features)
-
-# Fonction pour créer le dataset avec toutes les caractéristiques
-def create_dataset(image_dir, annotation_dir):
-    dense_features = extract_features_with_densenet(image_dir)
-    features = []
-    labels = []
-    
-    image_paths = [os.path.join(image_dir, f) for f in os.listdir(image_dir) if f.endswith('.jpg') or f.endswith('.png')]
-    
-    for image_path in image_paths:
-        txt_file = os.path.join(annotation_dir, os.path.basename(image_path).replace('.jpg', '.txt').replace('.png', '.txt'))
-        
-        if os.path.exists(txt_file):
-            img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
-            augmented_images = augment_image(img)
-            
-            for aug_img in augmented_images:
-                # Extraire les caractéristiques HOG, ORB, GLCM, Hu Moments, Histogramme, LBP
-                hog_features = extract_hog_features(aug_img)
-                orb_features = extract_orb_features(aug_img)
-                glcm_features = extract_glcm_features(aug_img)
-                hu_moments = extract_hu_moments(aug_img)
-                hist_features = extract_histogram_features(aug_img)
-                lbp_features = extract_lbp_features(aug_img)
-                gabor_features = extract_gabor_features(aug_img)
-                
-                # Extraire les caractéristiques de la BBox
-                bbox_features = extract_bbox_features(txt_file)
-                
-                # Concaténer toutes les caractéristiques avec celles de DenseNet
-                feature_vector = np.hstack((
-                    dense_features[image_paths.index(image_path)],  
-                    hog_features, orb_features, glcm_features, hu_moments, hist_features, lbp_features, gabor_features, bbox_features
-                ))
-                features.append(feature_vector)
-                
-                # Ajouter le label (nombre d'objets)
-                num_objects = len(open(txt_file).readlines())
-                labels.append(num_objects)
-
-    return np.array(features, dtype=np.float32), np.array(labels, dtype=np.float32)
-
-# Fonction pour entraîner le modèle XGBoost
-def train_model(features, labels):
-    scaler = StandardScaler()
-    features_scaled = scaler.fit_transform(features)
-    
-    model = xgb.XGBRegressor(objective='reg:squarederror', colsample_bytree=0.3, learning_rate=0.1,
-                             max_depth=5, alpha=10, n_estimators=100)
-    model.fit(features_scaled, labels)
-    
-    return model, scaler
-
-def main():
-    image_dir = 'path_to_images'
-    annotation_dir = 'path_to_annotations'
-    
-    # Création du dataset
-    features, labels = create_dataset(image_dir, annotation_dir)
-    
-    # Séparer en train/test
-    features_train, features_test, labels_train, labels_test = train_test_split(features, labels, test_size=0.2, random_state=42)
-
-    # Entraîner le modèle
-    model, scaler = train_model(features_train, labels_train)
-    
-    # Évaluation du modèle
-    features_test_scaled = scaler.transform(features_test)
-    predictions = model.predict(features_test_scaled)
-    
-    print(f"MAE : {mean_absolute_error(labels_test, predictions):.2f}")
-    print(f"R² Score : {r2_score(labels_test, predictions):.2f}")
-
-    # Sauvegarde du modèle
-    joblib.dump(model, 'xgboost_model.pkl')
-    joblib.dump(scaler, 'scaler.pkl')
-
-if __name__ == '__main__':
-    main()
+    return np.array(gabor_features)
