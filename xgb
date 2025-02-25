@@ -1,30 +1,6 @@
-def extract_gabor_features(image, frequency=0.1, theta_values=[0, np.pi/4, np.pi/2, 3*np.pi/4]):
-    """
-    Extraire les caractéristiques des filtres de Gabor pour différentes orientations.
-    
-    Parameters:
-    - image : 2D array (image en niveaux de gris)
-    - frequency : fréquence spatiale pour le filtre de Gabor
-    - theta_values : liste des orientations (angles en radians)
-    
-    Returns:
-    - gabor_features : caractéristiques extraites des réponses réelles et imaginaires
-    """
-    gabor_features = []
-    
-    for theta in theta_values:
-        # Appliquer le filtre de Gabor à l'image pour chaque orientation
-        real, imag = gabor(image, frequency=frequency, theta=theta)
-        
-        # Extraire des caractéristiques statistiques des réponses réelles et imaginaires
-        real_mean = np.mean(real)
-        imag_mean = np.mean(imag)
-        real_std = np.std(real)
-        imag_std = np.std(imag)
-        real_variance = np.var(real)
-        imag_variance = np.var(imag)
-        
-        # Ajouter ces caractéristiques à la liste
-        gabor_features.extend([real_mean, imag_mean, real_std, imag_std, real_variance, imag_variance])
-    
-    return np.array(gabor_features)
+def extract_laplacian_features(image):
+    laplacian = cv2.Laplacian(image, cv2.CV_64F)
+    return np.mean(laplacian), np.std(laplacian), np.var(laplacian)
+
+
+                laplacian_features = extract_laplacian_features(aug_img)  # Ajouter les caractéristiques Laplaciennes
