@@ -1,12 +1,28 @@
-    plt.figure(figsize=(10, 6))
-    indices = np.arange(len(feuille_counts))  # Indices des groupes (BBox/ROI)
+import matplotlib.pyplot as plt
+import numpy as np
+
+# 🔹 Fonction pour calculer la diagonale d'une bbox et la convertir en nm
+def compute_bbox_diagonal(bbox, resolution=0.0657):
+    x, y, w, h, *_ = bbox  # Extraire la largeur et la hauteur
+    diagonal_pixels = np.sqrt(w**2 + h**2)  # Calcul de la diagonale en pixels
+    diagonal_nm = diagonal_pixels * resolution  # Conversion en nm
+    return diagonal_nm
+
+# 🔹 Génération de l'histogramme des longueurs des feuillets
+def plot_sheets_length_histogram(bboxes):
+    lengths_nm = [compute_bbox_diagonal(bbox) for bbox in bboxes]  # Calcul des longueurs
     
-    plt.bar(indices, feuille_counts, color='blue', edgecolor='black', alpha=0.7)
+    total_length = sum(lengths_nm)  # Longueur totale en nm
+    indices = np.arange(len(lengths_nm))  # Indices des groupes (BBox)
+
+    plt.figure(figsize=(10, 6))
+    
+    plt.bar(indices, lengths_nm, color='red', edgecolor='black', alpha=0.7)
     
     plt.xlabel("Index du groupe (BBox)")
-    plt.ylabel("Nombre de feuillets détectés")
-    plt.title("Nombre de feuillets détectés par ROI")
-    
+    plt.ylabel("Longueur des feuillets (nm)")
+    plt.title(f"Longueur des feuillets par ROI (Total : {total_length:.2f} nm)")
+
     plt.xticks(indices)  # Afficher chaque index sur l'axe X
     plt.grid(axis='y', linestyle='--', alpha=0.7)
     
