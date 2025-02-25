@@ -1,66 +1,21 @@
-import cv2
-import numpy as np
-import os
-
-def rotate_and_crop(image, bbox):
+def add_padding_to_roi(roi, target_size=(128, 128)):
     """
-    Effectue une rotation et extrait la région d'intérêt (ROI) en tenant compte de l'angle.
-    """
-    x, y, w, h, angle_rad, _ = bbox
-    x, y, w, h = map(int, [x, y, w, h])
-    
-    angle_deg = np.degrees(angle_rad)
-    center = (x, y)
-    M = cv2.getRotationMatrix2D(center, -angle_deg, 1.0)
-
-    rotated_img = cv2.warpAffine(image, M, (image.shape[1], image.shape[0]),
-                                 flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REFLECT)
-
-    x1, y1 = int(x - w / 2), int(y - h / 2)
-    x2, y2 = int(x + w / 2), int(y + h / 2)
-
-    roi = rotated_img[max(y1, 0):min(y2, image.shape[0]), max(x1, 0):min(x2, image.shape[1])]
-    
-    return roi
-
-def resize_with_padding(roi, target_size=(128, 128)):
-    """
-    Redimensionne la ROI sans déformer les proportions et ajoute du padding blanc pour atteindre target_size.
+    Ajoute du padding blanc autour de la ROI pour atteindre la taille target_size (128x128).
     """
     h, w = roi.shape[:2]
-    scale = min(target_size[0] / h, target_size[1] / w)  # Calcul du facteur d'échelle
 
-    # Nouvelle taille tout en gardant le ratio
-    new_w, new_h = int(w * scale), int(h * scale)
-    resized_roi = cv2.resize(roi, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+    # Calcul du padding à ajouter de chaque côté
+    top_pad = (target_size[1] - h) // 2
+    bottom_pad = target_size[1] - h - top_pad
+    left_pad = (target_size[0] - w) // 2
+    right_pad = target_size[0] - w - left_pad
 
-    # Création d'une image blanche (255 pour une image en niveaux de gris)
-    if len(roi.shape) == 2:  # Image en niveaux de gris
-        padded_roi = np.full((target_size[1], target_size[0]), 255, dtype=np.uint8)
+    # Si l'image est en niveaux de gris
+    if len(roi.shape) == 2:
+        padded_roi = cv2.copyMakeBorder(roi, top_pad, bottom_pad, left_pad, right_pad,
+                                        cv2.BORDER_CONSTANT, value=255)
     else:  # Image en couleur
-        padded_roi = np.full((target_size[1], target_size[0], 3), 255, dtype=np.uint8)
-
-    # Calcul des marges pour centrer la ROI
-    x_offset = (target_size[0] - new_w) // 2
-    y_offset = (target_size[1] - new_h) // 2
-
-    # Insertion de l'image redimensionnée dans le fond blanc
-    padded_roi[y_offset:y_offset + new_h, x_offset:x_offset + new_w] = resized_roi
+        padded_roi = cv2.copyMakeBorder(roi, top_pad, bottom_pad, left_pad, right_pad,
+                                        cv2.BORDER_CONSTANT, value=[255, 255, 255])
 
     return padded_roi
-
-def save_roi_with_padding(image, bbox, save_path, roi_id):
-    """
-    Extrait, redimensionne et sauvegarde une ROI avec padding.
-    """
-    roi = rotate_and_crop(image, bbox)
-    padded_roi = resize_with_padding(roi)
-
-    # Création du dossier si besoin
-    os.makedirs(save_path, exist_ok=True)
-
-    # Sauvegarde de l'image
-    save_filename = os.path.join(save_path, f"roi_{roi_id}.png")
-    cv2.imwrite(save_filename, padded_roi)
-
-    print(f"ROI sauvegardée : {save_filename}")
