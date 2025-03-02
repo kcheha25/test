@@ -1,2 +1,0 @@
-    if image.dtype != np.uint8:
-        image = (image * 255).astype(np.uint8)
