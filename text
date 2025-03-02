@@ -35,3 +35,5 @@ Concernant la longueur des feuillets, nous avons décidé de prendre la diagonal
     \label{fig:label} % Optionnel : Utilisez pour faire référence à l'image dans le texte
 \end{figure}
 \ref{fig:label}
+
+Journal of Science and Informatics for Society (JSIS)
