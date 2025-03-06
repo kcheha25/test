@@ -1,7 +1,6 @@
-import pandas as pd
 import numpy as np
+import pandas as pd
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder
 
 # 🔹 Charger les données JSON en DataFrame
 file_path = "chromatogrammes.json"  # Remplace par ton fichier réel
@@ -9,367 +8,42 @@ df = pd.read_json(file_path)
 
 # 🔹 Suppression des chromatogrammes sans pics
 df = df.dropna(subset=['pics'])
-
-# 🔹 Suppression des chromatogrammes qui ne font pas exactement 71 840 points
-df = df[df["x"].apply(len) == 71840]
-
-# 🔹 Création de X avec 2 colonnes (temps de rétention et intensité) sous forme 2D
-X = np.array([np.column_stack((row["x"], row["y"])) for _, row in df.iterrows()])  # (n, 71840, 2)
-
-# 🔹 Préparer Y (valeur du pic, bornes, nom du composant)
-y_list = []
-component_names = []  # Stocker les noms des composés pour conversion en classes
-
-for _, row in df.iterrows():
-    for pic in row["pics"]:
-        valeur_pic = pic["valeur"]
-        borne_avant = pic["borne_avant"]
-        borne_apres = pic["borne_apres"]
-        nom_composant = pic["nom"]
-        
-        y_list.append([valeur_pic, borne_avant, borne_apres, nom_composant])
-        component_names.append(nom_composant)
-
-# 🔹 Convertir les noms des composants en classes entières
-label_encoder = LabelEncoder()
-component_classes = label_encoder.fit_transform(component_names)
-
-# 🔹 Remplacer les noms dans Y par les classes correspondantes
-for i in range(len(y_list)):
-    y_list[i][3] = component_classes[i]  # Remplace le nom par l'entier correspondant
-
-# 🔹 Transformer en array
-Y = np.array(y_list)
-
-# 🔹 Séparer en train/test
-X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
-
-# 🔹 Affichage des tailles
-print(f"Taille X_train : {X_train.shape}, Y_train : {Y_train.shape}")
-print(f"Taille X_test : {X_test.shape}, Y_test : {Y_test.shape}")
-print(f"Classes des composants : {label_encoder.classes_}")
-
-import pandas as pd
-import numpy as np
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder
-
-# 🔹 Charger les données JSON en DataFrame
-file_path = "chromatogrammes.json"  # Remplace par ton fichier réel
-df = pd.read_json(file_path)
-
-# 🔹 Suppression des chromatogrammes sans pics
-df = df.dropna(subset=['pics'])
-
-# 🔹 Suppression des chromatogrammes qui ne font pas exactement 71 840 points
-df = df[df["x"].apply(len) == 71840]
-
-# 🔹 Création de X avec 2 colonnes (temps de rétention et intensité) sous forme 2D
-X = np.array([np.column_stack((row["x"], row["y"])) for _, row in df.iterrows()])  # (n, 71840, 2)
-
-# 🔹 Préparer Y (valeur du pic, bornes, nom du composant) avec indices
-y_list = []
-component_names = []  # Stocker les noms des composés pour conversion en classes
-
-for _, row in df.iterrows():
-    for pic in row["pics"]:
-        if len(pic) >= 4:  # Vérifie que le pic a bien 4 éléments
-            valeur_pic = pic[0]  # Indice 0 : Valeur du pic
-            borne_avant = pic[1]  # Indice 1 : Borne avant
-            borne_apres = pic[2]  # Indice 2 : Borne après
-            nom_composant = pic[3]  # Indice 3 : Nom du composant
-
-            y_list.append([valeur_pic, borne_avant, borne_apres, nom_composant])
-            component_names.append(nom_composant)
-
-# 🔹 Convertir les noms des composants en classes entières
-label_encoder = LabelEncoder()
-component_classes = label_encoder.fit_transform(component_names)
-
-# 🔹 Remplacer les noms dans Y par les classes correspondantes
-for i in range(len(y_list)):
-    y_list[i][3] = component_classes[i]  # Remplace le nom par l'entier correspondant
-
-# 🔹 Transformer en array
-Y = np.array(y_list, dtype=np.float32)
-
-# 🔹 Séparer en train/test
-X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
-
-# 🔹 Affichage des tailles
-print(f"Taille X_train : {X_train.shape}, Y_train : {Y_train.shape}")
-print(f"Taille X_test : {X_test.shape}, Y_test : {Y_test.shape}")
-print(f"Classes des composants : {label_encoder.classes_}")
-
-import pandas as pd
-import numpy as np
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder
-
-# 🔹 Charger les données JSON en DataFrame
-file_path = "chromatogrammes.json"  # Remplace par ton fichier réel
-df = pd.read_json(file_path)
-
-# 🔹 Suppression des chromatogrammes sans pics
-df = df.dropna(subset=['pics'])
-
-# 🔹 Suppression des chromatogrammes qui ne font pas exactement 71 840 points
-df = df[df["x"].apply(len) == 71840]
-
-# 🔹 Transformation de X en 2D : Concaténer (temps de rétention + intensité)
-X = np.array([np.hstack((row["x"], row["y"])) for _, row in df.iterrows()])  # (n, 2 * 71840)
-
-# 🔹 Préparer Y (valeur du pic, bornes, nom du composant)
-y_list = []
-component_names = []  # Stocker les noms des composés pour conversion en classes
-
-for _, row in df.iterrows():
-    for pic in row["pics"]:
-        valeur_pic = pic["valeur"]
-        borne_avant = pic["borne_avant"]
-        borne_apres = pic["borne_apres"]
-        nom_composant = pic["nom"]
-        
-        y_list.append([valeur_pic, borne_avant, borne_apres, nom_composant])
-        component_names.append(nom_composant)
-
-# 🔹 Convertir les noms des composants en classes entières
-label_encoder = LabelEncoder()
-component_classes = label_encoder.fit_transform(component_names)
-
-# 🔹 Remplacer les noms dans Y par les classes correspondantes
-for i in range(len(y_list)):
-    y_list[i][3] = component_classes[i]  # Remplace le nom par l'entier correspondant
-
-# 🔹 Transformer en array
-Y = np.array(y_list)
-
-# 🔹 Séparer en train/test
-X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
-
-# 🔹 Affichage des tailles
-print(f"Taille X_train : {X_train.shape}, Y_train : {Y_train.shape}")
-print(f"Taille X_test : {X_test.shape}, Y_test : {Y_test.shape}")
-print(f"Classes des composants : {label_encoder.classes_}")
-
-import os
-import numpy as np
-import pandas as pd
-import tensorflow as tf
-from tensorflow.keras import optimizers
-from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split
-
-from tqdm.keras import TqdmCallback
-from python.IPA_architecture import IPA
-from python.regression_utils import cnn_prediction
-from python.plot_utils import plot_history
-
-# 🔹 Définition des constantes
-SEED_VALUE = 1
-np.random.seed(SEED_VALUE)
-tf.random.set_seed(SEED_VALUE)
-
-# 🔹 Charger les données JSON en DataFrame
-file_path = "chromatogrammes.json"
-df = pd.read_json(file_path)
-
-# 🔹 Suppression des chromatogrammes invalides
-df = df.dropna(subset=['pics'])
-df = df[df["x"].apply(len) == 71840]
 
 # 🔹 Création de X avec 2 colonnes (temps de rétention et intensité)
-X = np.array([np.column_stack((row["x"], row["y"])) for _, row in df.iterrows()])  # (n, 71840, 2)
+X = np.array([np.column_stack((row["x"], row["y"])) for _, row in df.iterrows()])  # (319, 71840, 2)
 
-# 🔹 Création de Y (valeur du pic, bornes d'intégration, classe)
-y_list = []
+# 🔹 Construction de Y en séquences de chaînes de caractères
+Y = []
 for _, row in df.iterrows():
+    sequence = []
     for pic in row["pics"]:
-        if len(pic) >= 4:  # Vérifier la structure
-            y_list.append(pic[:4])  # [valeur du pic, borne inf, borne sup, classe]
-
-Y = np.array(y_list, dtype=np.float32)  # (n, 4)
-
-# 🔹 Séparation en train/test
-X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=SEED_VALUE)
-
-# 🔹 Normalisation des données d'entrée X (chaque colonne séparément)
-scalerX = StandardScaler()
-X_train_scaled = scalerX.fit_transform(X_train.reshape(-1, 2)).reshape(X_train.shape)
-X_test_scaled = scalerX.transform(X_test.reshape(-1, 2)).reshape(X_test.shape)
-
-# 🔹 Normalisation de Y (uniquement les valeurs continues : 0, 1, 2)
-scalerY = StandardScaler()
-Y_train[:, :3] = scalerY.fit_transform(Y_train[:, :3])
-Y_test[:, :3] = scalerY.transform(Y_test[:, :3])
-
-# 🔹 Transformation de la classe en one-hot encoding
-num_classes = len(np.unique(Y[:, 3]))  # Nombre de classes
-Y_train_classes = tf.keras.utils.to_categorical(Y_train[:, 3], num_classes)
-Y_test_classes = tf.keras.utils.to_categorical(Y_test[:, 3], num_classes)
-
-# 🔹 Regroupement des sorties
-Y_train = np.hstack((Y_train[:, :3], Y_train_classes))  # (n, 3 + num_classes)
-Y_test = np.hstack((Y_test[:, :3], Y_test_classes))  # (n, 3 + num_classes)
-
-# 🔹 Reshape pour le modèle
-X_train_reshaped = X_train_scaled  # (n, 71840, 2)
-X_test_reshaped = X_test_scaled
-
-""" 🎯 Entraînement du modèle IPA avec 4 sorties """
-MODEL_NAME = 'IPA_multi_output'
-path_model = 'model/'
-
-LEARNING_RATE = .001
-BATCH_SIZE = 16
-EPOCHS = 500
-REGULARIZATION_COEF = .0095
-DROPOUT_RATE = .2
-
-if not os.path.exists(path_model + MODEL_NAME):
-    print('🚀 Modèle non trouvé, entraînement en cours...')
-
-    model = IPA(seed_value=SEED_VALUE,
-                regularization_factor=REGULARIZATION_COEF,
-                num_outputs=3 + num_classes)  # 🎯 Ajout de la nouvelle sortie
-
-    # 🔹 Configuration de l'optimiseur et du modèle
-    lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
-        initial_learning_rate=LEARNING_RATE,
-        decay_steps=10000, decay_rate=.001)
-    optimizer = optimizers.Adam(learning_rate=lr_schedule)
-    model.compile(optimizer=optimizer, loss='mse', metrics=['mae'])
-
-    stop_early = tf.keras.callbacks.EarlyStopping(monitor='loss', patience=50)
-
-    # 🔹 Entraînement
-    history = model.fit(
-        X_train_reshaped, Y_train,
-        epochs=EPOCHS,
-        batch_size=BATCH_SIZE,
-        validation_data=(X_test_reshaped, Y_test),
-        callbacks=[stop_early, TqdmCallback(verbose=0)],
-        verbose=0
-    )
-
-    # 🔹 Évaluation et enregistrement du modèle
-    plot_history(history)
-    print('💾 Sauvegarde du modèle')
-    model.save(path_model + MODEL_NAME, overwrite=True, save_format='tf')
-
-else:
-    print('✅ Modèle trouvé, chargement...')
-    model = tf.keras.models.load_model(path_model + MODEL_NAME)
-
-# 🔹 Affichage du résumé du modèle
-model.summary()
-class IPA(tf.keras.Model):
-    def __init__(self,
-                 seed_value,
-                 regularization_factor,
-                 dropout_rate=0.2,
-                 num_outputs=4):  # 🆕 Ajout du nombre de sorties
-        super(IPA, self).__init__()
-        self.stem = tf.keras.Sequential([
-            BasicConv1D(filters=16,
-                        kernel_size=3,
-                        strides=2,
-                        kernel_regularizer=L2(regularization_factor),
-                        kernel_initializer=initializers.HeNormal(seed_value)),
-            BasicConv1D(filters=16,
-                        kernel_size=3,
-                        kernel_regularizer=L2(regularization_factor),
-                        kernel_initializer=initializers.HeNormal(seed_value)),
-            BasicConv1D(filters=16,
-                        kernel_size=3,
-                        kernel_regularizer=L2(regularization_factor),
-                        kernel_initializer=initializers.HeNormal(seed_value)),
-        ])
-        self.module_35x35 = Module_35x35(in_channels=32,
-                                         regularization_factor=regularization_factor,
-                                         seed_value=seed_value)
-        self.flatten = Flatten()
-        self.dropout = Dropout(rate=dropout_rate)
-        self.regressor = Dense(num_outputs)  # 🎯 Sortie avec 3 + num_classes dimensions
-
-    def call(self, x):
-        out = self.stem(x)
-        out = self.module_35x35(out)
-        out = self.flatten(out)
-        out = self.dropout(out)
-        out = self.regressor(out)  # 🎯 Sortie multi-dimensionnelle
-        return out
-
-
-import numpy as np
-import pandas as pd
-from sklearn.model_selection import train_test_split
-import tensorflow as tf
-from sklearn.preprocessing import LabelEncoder
-from tensorflow.keras import Model, initializers
-from tensorflow.keras.regularizers import L2
-from tensorflow.keras.layers import Conv1D, MaxPooling1D, Flatten
-from tensorflow.keras.layers import Dropout, Dense, LeakyReLU, Input
-
-# 🔹 Charger les données JSON en DataFrame
-file_path = "chromatogrammes.json"  # Remplace par ton fichier réel
-df = pd.read_json(file_path)
-
-# 🔹 Suppression des chromatogrammes sans pics
-df = df.dropna(subset=['pics'])
-
-# 🔹 Suppression des chromatogrammes qui ne font pas exactement 71 840 points
-df = df[df["x"].apply(len) == 71840]
-
-# 🔹 Création de X avec 2 colonnes (temps de rétention et intensité) sous forme 2D
-X = np.array([np.column_stack((row["x"], row["y"])) for _, row in df.iterrows()])  # (n, 71840, 2)
-
-# 🔹 Préparer Y (valeur du pic, bornes, nom du composant)
-y_list = []
-component_names = []  # Stocker les noms des composés pour conversion en classes
-
-for _, row in df.iterrows():
-    for pic in row["pics"]:
-        valeur_pic = pic["valeur"]
-        borne_avant = pic["borne_avant"]
-        borne_apres = pic["borne_apres"]
-        nom_composant = pic["nom"]
-        
-        y_list.append([valeur_pic, borne_avant, borne_apres, nom_composant])
-        component_names.append(nom_composant)
-
-# 🔹 Convertir les noms des composants en classes entières
-label_encoder = LabelEncoder()
-component_classes = label_encoder.fit_transform(component_names)
-
-# 🔹 Remplacer les noms dans Y par les classes correspondantes
-for i in range(len(y_list)):
-    y_list[i][3] = component_classes[i]  # Remplace le nom par l'entier correspondant
-
-# 🔹 Transformer en array
-Y = np.array(y_list)
+        sequence.append(f"{pic['valeur']}/{pic['borne_avant']}/{pic['borne_apres']}/{pic['nom']}")
+    Y.append(" ".join(sequence))  # Séparer chaque pic par un espace
 
 # 🔹 Séparer en train/test
 X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
 
-# 🔹 Séparer Y_train en Y_train_scaled (valeur du pic et bornes) et Y_train_classes (classes entières)
-Y_train_scaled = Y_train[:, :3]  # Valeur du pic et bornes
-Y_test_scaled = Y_test[:, :3]
-Y_train_classes = Y_train[:, 3]  # Classes entières
-Y_test_classes = Y_test[:, 3]
+# 🔹 Affichage des formes
+print(f"X_train shape: {X_train.shape}, X_test shape: {X_test.shape}")
+print(f"Exemple Y_train: {Y_train[0]}")  # Vérifier le format
+import tensorflow as tf
+from tensorflow.keras import Model, initializers, optimizers
+from tensorflow.keras.regularizers import L2
+from tensorflow.keras.layers import Conv1D, MaxPooling1D, Flatten, Dropout, Dense, Input, Embedding, LSTM, Bidirectional
 
+# 🔹 Définition de la couche de convolution
 class BasicConv1D(tf.keras.layers.Layer):
     def __init__(self, filters, kernel_size, strides=1, **kwargs):
         super(BasicConv1D, self).__init__()
         self.conv = Conv1D(filters, kernel_size=kernel_size, strides=strides, **kwargs)
-        self.activation = LeakyReLU()
+        self.activation = tf.keras.layers.LeakyReLU()
 
     def call(self, x):
         x = self.conv(x)
         x = self.activation(x)
         return x
 
-
+# 🔹 Module 35x35 du modèle IPA
 class Module_35x35(tf.keras.layers.Layer):
     def __init__(self, in_channels: int, regularization_factor: float, seed_value: int):
         super(Module_35x35, self).__init__()
@@ -382,38 +56,26 @@ class Module_35x35(tf.keras.layers.Layer):
                         kernel_initializer=initializers.HeNormal(seed_value))
         ])
         self.branch2 = tf.keras.Sequential([
-            BasicConv1D(filters=in_channels,
-                        kernel_size=1,
-                        strides=2,
+            BasicConv1D(filters=in_channels, kernel_size=1, strides=2,
                         kernel_regularizer=L2(regularization_factor),
                         kernel_initializer=initializers.HeNormal(seed_value)),
-            BasicConv1D(filters=in_channels * 2,
-                        kernel_size=3,
-                        strides=1,
+            BasicConv1D(filters=in_channels * 2, kernel_size=3, strides=1,
                         kernel_regularizer=L2(regularization_factor),
                         kernel_initializer=initializers.HeNormal(seed_value)),
         ])
         self.branch3 = tf.keras.Sequential([
-            BasicConv1D(filters=in_channels,
-                        kernel_size=1,
-                        strides=2,
+            BasicConv1D(filters=in_channels, kernel_size=1, strides=2,
                         kernel_regularizer=L2(regularization_factor),
                         kernel_initializer=initializers.HeNormal(seed_value)),
-            BasicConv1D(filters=in_channels * 2,
-                        kernel_size=3,
-                        strides=2,
+            BasicConv1D(filters=in_channels * 2, kernel_size=3, strides=2,
                         kernel_regularizer=L2(regularization_factor),
                         kernel_initializer=initializers.HeNormal(seed_value)),
-            BasicConv1D(filters=in_channels * 2,
-                        kernel_size=3,
-                        strides=2,
+            BasicConv1D(filters=in_channels * 2, kernel_size=3, strides=2,
                         kernel_regularizer=L2(regularization_factor),
                         kernel_initializer=initializers.HeNormal(seed_value)),
         ])
         self.branch4 = tf.keras.Sequential([
-            BasicConv1D(filters=in_channels * 2,
-                        kernel_size=1,
-                        strides=2,
+            BasicConv1D(filters=in_channels * 2, kernel_size=1, strides=2,
                         kernel_regularizer=L2(regularization_factor),
                         kernel_initializer=initializers.HeNormal(seed_value)),
         ])
@@ -426,305 +88,180 @@ class Module_35x35(tf.keras.layers.Layer):
         out = tf.concat([branch1, branch2, branch3, branch4], axis=1)
         return out
 
-
-class IPA(tf.keras.Model):
-    def __init__(self,
-                 seed_value,
-                 regularization_factor,
-                 dropout_rate=0.2):
-        super(IPA, self).__init__()
-        self.stem = tf.keras.Sequential([
-            BasicConv1D(filters=16,
-                        kernel_size=3,
-                        strides=2,
-                        kernel_regularizer=L2(regularization_factor),
-                        kernel_initializer=initializers.HeNormal(seed_value)),
-            BasicConv1D(filters=16,
-                        kernel_size=3,
-                        kernel_regularizer=L2(regularization_factor),
-                        kernel_initializer=initializers.HeNormal(seed_value)),
-            BasicConv1D(filters=16,
-                        kernel_size=3,
-                        kernel_regularizer=L2(regularization_factor),
-                        kernel_initializer=initializers.HeNormal(seed_value)),
-        ])
-        self.module_35x35 = Module_35x35(in_channels=32,
-                                         regularization_factor=regularization_factor,
-                                         seed_value=seed_value)
-        self.flatten = Flatten()
-        self.dropout = Dropout(rate=dropout_rate)
-        
-        # Sortie pour 4 valeurs : 3 pour les valeurs continues et 1 pour la classe
-        self.regressor = Dense(3, name="value_bounds_output")  # Valeur du pic et bornes avant/après
-        self.classifier = Dense(1, activation='softmax', name="class_output")  # Classe du composant
-
-    def call(self, x):
-        out = self.stem(x)
-        out = self.module_35x35(out)
-        out = self.flatten(out)
-        out = self.dropout(out)
-        
-        # Prédictions séparées
-        value_bounds = self.regressor(out)  # Sortie pour les valeurs continues (3 valeurs)
-        class_pred = self.classifier(out)  # Sortie pour la classe (1 valeur)
-        
-        return [value_bounds, class_pred]
-
-# 🔹 Créer le modèle IPA
-ipa_model = IPA(seed_value=1, regularization_factor=.0095)
-
-# 🔹 Compiler le modèle avec deux sorties
-ipa_model.compile(optimizer='adam',
-                  loss=['mse', 'sparse_categorical_crossentropy'],  # mse pour les valeurs continues, sparse_categorical_crossentropy pour les classes
-                  metrics=['accuracy'])
-
-# 🔹 Entraîner le modèle
-ipa_model.fit(X_train, 
-              [Y_train_scaled, Y_train_classes],  # Les sorties: valeurs continues et classes
-              epochs=10,
-              batch_size=32,
-              validation_data=(X_test, [Y_test_scaled, Y_test_classes]))
-
-class IPA(tf.keras.Model):
-    def __init__(self,
-                 seed_value,
-                 regularization_factor,
-                 num_classes,  # Ajouter le nombre de classes en argument
-                 dropout_rate=0.2):
-        super(IPA, self).__init__()
-        self.stem = tf.keras.Sequential([
-            BasicConv1D(filters=16,
-                        kernel_size=3,
-                        strides=2,
-                        kernel_regularizer=L2(regularization_factor),
-                        kernel_initializer=initializers.HeNormal(seed_value)),
-            BasicConv1D(filters=16,
-                        kernel_size=3,
-                        kernel_regularizer=L2(regularization_factor),
-                        kernel_initializer=initializers.HeNormal(seed_value)),
-            BasicConv1D(filters=16,
-                        kernel_size=3,
-                        kernel_regularizer=L2(regularization_factor),
-                        kernel_initializer=initializers.HeNormal(seed_value)),
-        ])
-        self.module_35x35 = Module_35x35(in_channels=32,
-                                         regularization_factor=regularization_factor,
-                                         seed_value=seed_value)
-        self.flatten = Flatten()
-        self.dropout = Dropout(rate=dropout_rate)
-        
-        # Sortie pour 4 valeurs : 3 pour les valeurs continues et 1 pour la classe
-        self.regressor = Dense(3, name="value_bounds_output")  # Valeur du pic et bornes avant/après
-        
-        # Modifier la couche de classification pour avoir "num_classes" unités
-        self.classifier = Dense(num_classes, activation='softmax', name="class_output")  # Nombre de classes
-
-    def call(self, x):
-        out = self.stem(x)
-        out = self.module_35x35(out)
-        out = self.flatten(out)
-        out = self.dropout(out)
-        
-        # Prédictions séparées
-        value_bounds = self.regressor(out)  # Sortie pour les valeurs continues (3 valeurs)
-        class_pred = self.classifier(out)  # Sortie pour la classe (prédiction de classe parmi "num_classes")
-        
-        return [value_bounds, class_pred]
-
-
-import numpy as np
-import pandas as pd
-from sklearn.model_selection import train_test_split
-import tensorflow as tf
-from sklearn.preprocessing import LabelEncoder
-from python.IPA_architecture import IPA  # Assurez-vous d'importer correctement IPA
-
-# 🔹 Charger les données JSON en DataFrame
-file_path = "chromatogrammes.json"  # Remplace par ton fichier réel
-df = pd.read_json(file_path)
-
-# 🔹 Suppression des chromatogrammes sans pics
-df = df.dropna(subset=['pics'])
-
-# 🔹 Suppression des chromatogrammes qui ne font pas exactement 71 840 points
-df = df[df["x"].apply(len) == 71840]
-
-# 🔹 Création de X avec 2 colonnes (temps de rétention et intensité) sous forme 2D
-X = np.array([np.column_stack((row["x"], row["y"])) for _, row in df.iterrows()])  # (n, 71840, 2)
-
-# 🔹 Préparer Y (valeur du pic, bornes, nom du composant)
-y_list = []
-component_names = []  # Stocker les noms des composés pour conversion en classes
-
-for _, row in df.iterrows():
-    for pic in row["pics"]:
-        valeur_pic = pic["valeur"]
-        borne_avant = pic["borne_avant"]
-        borne_apres = pic["borne_apres"]
-        nom_composant = pic["nom"]
-        
-        y_list.append([valeur_pic, borne_avant, borne_apres, nom_composant])
-        component_names.append(nom_composant)
-
-# 🔹 Convertir les noms des composants en classes entières
-label_encoder = LabelEncoder()
-component_classes = label_encoder.fit_transform(component_names)
-
-# 🔹 Remplacer les noms dans Y par les classes correspondantes
-for i in range(len(y_list)):
-    y_list[i][3] = component_classes[i]  # Remplace le nom par l'entier correspondant
-
-# 🔹 Transformer en array
-Y = np.array(y_list)
-
-# 🔹 Séparer en train/test
-X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
-
-# 🔹 Séparer Y_train en Y_train_scaled (valeur du pic et bornes) et Y_train_classes (classes entières)
-Y_train_scaled = Y_train[:, :3]  # Valeur du pic et bornes
-Y_test_scaled = Y_test[:, :3]
-Y_train_classes = Y_train[:, 3]  # Classes entières
-Y_test_classes = Y_test[:, 3]
-
-# 🔹 Créer le modèle IPA
-ipa_model = IPA(seed_value=1, regularization_factor=.0095)
-
-# 🔹 Compiler le modèle avec deux sorties
-ipa_model.compile(optimizer='adam',
-                  loss={'value_bounds_output': 'mse', 'class_output': 'sparse_categorical_crossentropy'},
-                  metrics={'value_bounds_output': 'mse', 'class_output': 'accuracy'})
-
-# 🔹 Entraîner le modèle
-ipa_model.fit(X_train, 
-              {'value_bounds_output': Y_train_scaled, 'class_output': Y_train_classes},  # Les sorties: valeurs continues et classes
-              epochs=10,
-              batch_size=32,
-              validation_data=(X_test, {'value_bounds_output': Y_test_scaled, 'class_output': Y_test_classes}))
-
-import tensorflow as tf
-from tensorflow.keras import layers, initializers
-from tensorflow.keras.regularizers import L2
-from tensorflow.keras.layers import Conv1D, MaxPooling1D, Flatten, Dropout, BatchNormalization, Dense, LeakyReLU, Input
-
-
-# Définition de la couche de convolution de base
-class BasicConv1D(tf.keras.layers.Layer):
-    def __init__(self, filters, kernel_size, strides=1, **kwargs):
-        super(BasicConv1D, self).__init__()
-        self.conv = Conv1D(filters, kernel_size=kernel_size, strides=strides, **kwargs)
-        self.activation = LeakyReLU()
-
-    def call(self, x):
-        x = self.conv(x)
-        x = self.activation(x)
-        return x
-
-
-# Module 35x35 qui contient des branches multiples
-class Module_35x35(tf.keras.layers.Layer):
-    def __init__(self, in_channels: int, regularization_factor: float, seed_value: int):
-        super(Module_35x35, self).__init__()
-        self.branch1 = tf.keras.Sequential([
-            MaxPooling1D(pool_size=2),
-            BasicConv1D(filters=in_channels * 2,
-                        kernel_size=1,
-                        strides=2,
-                        kernel_regularizer=L2(regularization_factor),
-                        kernel_initializer=initializers.HeNormal(seed_value))
-        ])
-        self.branch2 = tf.keras.Sequential([
-            BasicConv1D(filters=in_channels,
-                        kernel_size=1,
-                        strides=2,
-                        kernel_regularizer=L2(regularization_factor),
-                        kernel_initializer=initializers.HeNormal(seed_value)),
-            BasicConv1D(filters=in_channels * 2,
-                        kernel_size=3,
-                        strides=1,
-                        kernel_regularizer=L2(regularization_factor),
-                        kernel_initializer=initializers.HeNormal(seed_value)),
-        ])
-        self.branch3 = tf.keras.Sequential([
-            BasicConv1D(filters=in_channels,
-                        kernel_size=1,
-                        strides=2,
-                        kernel_regularizer=L2(regularization_factor),
-                        kernel_initializer=initializers.HeNormal(seed_value)),
-            BasicConv1D(filters=in_channels * 2,
-                        kernel_size=3,
-                        strides=2,
-                        kernel_regularizer=L2(regularization_factor),
-                        kernel_initializer=initializers.HeNormal(seed_value)),
-            BasicConv1D(filters=in_channels * 2,
-                        kernel_size=3,
-                        strides=2,
-                        kernel_regularizer=L2(regularization_factor),
-                        kernel_initializer=initializers.HeNormal(seed_value)),
-        ])
-        self.branch4 = tf.keras.Sequential([
-            BasicConv1D(filters=in_channels * 2,
-                        kernel_size=1,
-                        strides=2,
-                        kernel_regularizer=L2(regularization_factor),
-                        kernel_initializer=initializers.HeNormal(seed_value)),
-        ])
-
-    def call(self, x):
-        branch1 = self.branch1(x)
-        branch2 = self.branch2(x)
-        branch3 = self.branch3(x)
-        branch4 = self.branch4(x)
-        out = tf.concat([branch1, branch2, branch3, branch4], axis=1)
-        return out
-
-
-# Classe IPA qui contient le modèle complet
-class IPA(tf.keras.Model):
+# 🔹 Définition du modèle IPA avec BiLSTM
+class IPA_BiLSTM(tf.keras.Model):
     def __init__(self, seed_value, regularization_factor, dropout_rate=0.2):
-        super(IPA, self).__init__()
-        # Définition des couches de base
+        super(IPA_BiLSTM, self).__init__()
+
+        # Bloc IPA (Feature Extractor)
         self.stem = tf.keras.Sequential([
-            BasicConv1D(filters=16,
-                        kernel_size=3,
-                        strides=2,
+            BasicConv1D(filters=16, kernel_size=3, strides=2,
                         kernel_regularizer=L2(regularization_factor),
                         kernel_initializer=initializers.HeNormal(seed_value)),
-            BasicConv1D(filters=16,
-                        kernel_size=3,
+            BasicConv1D(filters=16, kernel_size=3,
                         kernel_regularizer=L2(regularization_factor),
                         kernel_initializer=initializers.HeNormal(seed_value)),
-            BasicConv1D(filters=16,
-                        kernel_size=3,
+            BasicConv1D(filters=16, kernel_size=3,
                         kernel_regularizer=L2(regularization_factor),
                         kernel_initializer=initializers.HeNormal(seed_value)),
         ])
         self.module_35x35 = Module_35x35(in_channels=32,
                                          regularization_factor=regularization_factor,
                                          seed_value=seed_value)
+        
         self.flatten = Flatten()
         self.dropout = Dropout(rate=dropout_rate)
-        
-        # Sortie pour 4 valeurs : 3 pour les valeurs continues et 1 pour la classe
-        self.regressor = Dense(3, name="value_bounds_output")  # Valeur du pic et bornes avant/après
-        self.classifier = Dense(1, activation='softmax', name="class_output")  # Classe du composant
+
+        # BiLSTM pour gérer la séquence de sortie variable
+        self.bilstm = Bidirectional(LSTM(128, return_sequences=True))
+        self.output_layer = Dense(256, activation="relu")  # Encoder caché
+
+        # Décodage en sortie séquentielle (caractères/jetons)
+        self.decoder_lstm = LSTM(128, return_sequences=True)
+        self.output_dense = Dense(1)  # Sortie finale en séquence
 
     def call(self, x):
         out = self.stem(x)
         out = self.module_35x35(out)
         out = self.flatten(out)
         out = self.dropout(out)
-        
-        # Prédictions séparées
-        value_bounds = self.regressor(out)  # Sortie pour les valeurs continues (3 valeurs)
-        class_pred = self.classifier(out)  # Sortie pour la classe (1 valeur)
-        
-        return [value_bounds, class_pred]
+
+        # Passer par BiLSTM pour capturer les relations temporelles
+        out = tf.expand_dims(out, axis=1)  # Reshape pour BiLSTM
+        out = self.bilstm(out)
+        out = self.output_layer(out)
+
+        # Décodage séquentiel
+        out = self.decoder_lstm(out)
+        out = self.output_dense(out)
+
+        return out
 
 
-if __name__ == '__main__':
-    # Créer une instance du modèle
-    ipa_model = IPA(seed_value=1, regularization_factor=.0095)
+# 🔹 Paramètres du modèle
+SEED_VALUE = 1
+REGULARIZATION_COEF = 0.0095
+DROPOUT_RATE = 0.2
 
-    # Résumer le modèle pour afficher la structure
-    ipa_model.build((None, 71840, 2))  # Ajuster à l'entrée (n, 71840, 2)
-    ipa_model.summary()
+# 🔹 Instanciation et compilation du modèle
+model = IPA_BiLSTM(seed_value=SEED_VALUE, regularization_factor=REGULARIZATION_COEF)
+
+# 🔹 Définition de l'optimiseur et de la fonction de perte
+optimizer = optimizers.Adam(learning_rate=0.001)
+model.compile(optimizer=optimizer, loss='mae', metrics=['mse'])
+
+# 🔹 Résumé du modèle
+model.build((None, X_train.shape[1], X_train.shape[2]))
+model.summary()
+
+import numpy as np
+import pandas as pd
+from sklearn.model_selection import train_test_split
+from tensorflow.keras.preprocessing.text import Tokenizer
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+
+# Charger les données JSON en DataFrame
+file_path = "chromatogrammes.json"  # Remplace par ton fichier réel
+df = pd.read_json(file_path)
+
+# Supprimer les chromatogrammes sans pics
+df = df.dropna(subset=['pics'])
+
+# Création de X avec 2 colonnes (temps de rétention et intensité)
+X = np.array([np.column_stack((row["x"], row["y"])) for _, row in df.iterrows()])  # (319, 71840, 2)
+
+# Création de Y en séquences de chaînes de caractères
+Y = []
+for _, row in df.iterrows():
+    sequence = []
+    for pic in row["pics"]:
+        sequence.append(f"{pic['valeur']}/{pic['borne_avant']}/{pic['borne_apres']}/{pic['nom']}")
+    Y.append(" ".join(sequence))  # Séparer chaque pic par un espace
+
+# Tokenization de Y (convertir en indices)
+tokenizer = Tokenizer(char_level=False)
+tokenizer.fit_on_texts(Y)  # Créer un vocabulaire basé sur Y
+Y_sequences = tokenizer.texts_to_sequences(Y)  # Convertir Y en séquences d'indices
+
+# Séparer en train/test
+X_train, X_test, Y_train, Y_test = train_test_split(X, Y_sequences, test_size=0.2, random_state=42)
+
+# Affichage des formes
+print(f"X_train shape: {X_train.shape}, X_test shape: {X_test.shape}")
+print(f"Exemple Y_train: {Y_train[0]}")  # Vérifier le format après conversion
+import tensorflow as tf
+from tensorflow.keras import Model, initializers, optimizers
+from tensorflow.keras.layers import Conv1D, MaxPooling1D, Flatten, Dropout, Dense, Input, LSTM, Bidirectional, TimeDistributed
+
+class IPA_BiLSTM(tf.keras.Model):
+    def __init__(self, seed_value, regularization_factor, num_classes, dropout_rate=0.2):
+        super(IPA_BiLSTM, self).__init__()
+
+        # Bloc IPA (Feature Extractor)
+        self.stem = tf.keras.Sequential([
+            Conv1D(filters=16, kernel_size=3, strides=2, kernel_regularizer=tf.keras.regularizers.L2(regularization_factor),
+                   kernel_initializer=initializers.HeNormal(seed_value)),
+            Conv1D(filters=16, kernel_size=3, kernel_regularizer=tf.keras.regularizers.L2(regularization_factor),
+                   kernel_initializer=initializers.HeNormal(seed_value)),
+            Conv1D(filters=16, kernel_size=3, kernel_regularizer=tf.keras.regularizers.L2(regularization_factor),
+                   kernel_initializer=initializers.HeNormal(seed_value)),
+        ])
+
+        # Module pour extraire les caractéristiques
+        self.flatten = Flatten()
+        self.dropout = Dropout(rate=dropout_rate)
+
+        # BiLSTM pour gérer la séquence de sortie variable
+        self.bilstm = Bidirectional(LSTM(128, return_sequences=True))
+        self.output_layer = Dense(256, activation="relu")
+
+        # Décodage de la sortie avec LSTM pour générer des séquences de texte
+        self.decoder_lstm = LSTM(128, return_sequences=True)
+        self.output_dense = Dense(num_classes, activation="softmax")  # Softmax pour prédire des indices de mots/valeurs
+
+    def call(self, x):
+        # Passer par les couches IPA
+        out = self.stem(x)
+        out = self.flatten(out)
+        out = self.dropout(out)
+
+        # Passer par BiLSTM pour capturer la séquence
+        out = tf.expand_dims(out, axis=1)  # Reshape pour BiLSTM
+        out = self.bilstm(out)
+        out = self.output_layer(out)
+
+        # Décodage séquentiel pour prédire des séquences de texte
+        out = self.decoder_lstm(out)
+        out = self.output_dense(out)
+
+        return out
+
+
+# 🔹 Paramètres du modèle
+SEED_VALUE = 1
+REGULARIZATION_COEF = 0.0095
+DROPOUT_RATE = 0.2
+NUM_CLASSES = len(tokenizer.word_index) + 1  # Nombre de classes pour la tokenisation
+
+# Instanciation et compilation du modèle
+model = IPA_BiLSTM(seed_value=SEED_VALUE, regularization_factor=REGULARIZATION_COEF, num_classes=NUM_CLASSES)
+
+# Optimiseur et perte
+optimizer = optimizers.Adam(learning_rate=0.001)
+model.compile(optimizer=optimizer, loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+
+# Résumé du modèle
+model.build((None, X_train.shape[1], X_train.shape[2]))  # Adapter la forme de l'entrée
+model.summary()
+# Entraînement du modèle
+history = model.fit(X_train, Y_train, epochs=10, batch_size=32, validation_data=(X_test, Y_test))
+# Faire une prédiction
+predictions = model.predict(X_test)
+
+# Décoder les indices prédits en texte
+predicted_sequences = tokenizer.sequences_to_texts(predictions.argmax(axis=-1))
+
+# Affichage des prédictions
+for i in range(3):
+    print(f"True: {Y_test[i]}")
+    print(f"Predicted: {predicted_sequences[i]}")
