@@ -1,3 +1,3 @@
-y_height = np.array([np.array(chromatogram) for chromatogram in y_height], dtype=np.float32)  # Assurez-vous que c'est un tableau NumPy
-y_bounds = np.array([np.array(bounds) for bounds in y_bounds], dtype=np.float32)
-y_component = np.array([np.array(component) for component in y_component], dtype=np.int32)
+y_height_padded = pad_sequences(y_height, dtype='float32', padding='post', value=0)
+y_bounds_padded = pad_sequences(y_bounds, dtype='float32', padding='post', value=0)
+y_component_padded = pad_sequences(y_component, dtype='int32', padding='post', value=-1)
