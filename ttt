@@ -1,28 +1,37 @@
-class IPA_LSTM_Variable(tf.keras.Model):
-    def __init__(self, seed_value, regularization_factor, dropout_rate=0.2, lstm_units=64):
+import tensorflow as tf
+from tensorflow.keras import layers, Model
+from tensorflow.keras.layers import Dense, LSTM, Flatten, Dropout, Masking, GlobalAveragePooling1D
+from tensorflow.keras.regularizers import L2
+from tensorflow.keras.initializers import HeNormal
+
+class IPA_LSTM_Variable(Model):
+    def __init__(self, seed_value, regularization_factor, dropout_rate=0.2, lstm_units=64, num_components=10):
         super(IPA_LSTM_Variable, self).__init__()
 
         # Partie IPA pour extraire les caractéristiques
         self.stem = tf.keras.Sequential([
-            BasicConv1D(filters=16, kernel_size=3, strides=2, kernel_regularizer=L2(regularization_factor), kernel_initializer=initializers.HeNormal(seed_value)),
-            BasicConv1D(filters=16, kernel_size=3, kernel_regularizer=L2(regularization_factor), kernel_initializer=initializers.HeNormal(seed_value)),
-            BasicConv1D(filters=16, kernel_size=3, kernel_regularizer=L2(regularization_factor), kernel_initializer=initializers.HeNormal(seed_value)),
+            BasicConv1D(filters=16, kernel_size=3, strides=2, kernel_regularizer=L2(regularization_factor), kernel_initializer=HeNormal(seed_value)),
+            BasicConv1D(filters=16, kernel_size=3, kernel_regularizer=L2(regularization_factor), kernel_initializer=HeNormal(seed_value)),
+            BasicConv1D(filters=16, kernel_size=3, kernel_regularizer=L2(regularization_factor), kernel_initializer=HeNormal(seed_value)),
         ])
-
+        
         self.module_35x35 = Module_35x35(in_channels=32, regularization_factor=regularization_factor, seed_value=seed_value)
         self.flatten = Flatten()
         self.dropout = Dropout(rate=dropout_rate)
 
-        # LSTM pour gérer les séquences de longueur variable
-        self.lstm = tf.keras.layers.LSTM(lstm_units, return_sequences=True)
+        # Masquage des valeurs de padding
+        self.masking = Masking(mask_value=0)  
 
-        # Nouvelle couche pour réduire la dimension de la sortie LSTM
-        self.reduce_dim = tf.keras.layers.Dense(462, activation=None)  # Réduit à 462, comme la taille de y_bounds
+        # LSTM pour gérer les séquences de longueur variable
+        self.lstm = LSTM(lstm_units, return_sequences=True)
+
+        # Réduction de la séquence pour correspondre aux labels
+        self.pooling = GlobalAveragePooling1D()
 
         # Sortie pour les différentes informations sur les pics
-        self.height_regressor = Dense(1)  # Prédiction de la hauteur du pic
-        self.bounds_regressor = Dense(2)  # Prédiction des bornes (avant, après)
-        self.component_classifier = Dense(1)  # Prédiction du composant (régression ou classification)
+        self.height_regressor = Dense(1, activation="linear")  # Hauteur du pic (régression)
+        self.bounds_regressor = Dense(2, activation="linear")  # Bornes d'intégration (avant, après)
+        self.component_classifier = Dense(num_components, activation="softmax")  # Classification du composant
 
     def call(self, x):
         out = self.stem(x)
@@ -30,14 +39,16 @@ class IPA_LSTM_Variable(tf.keras.Model):
         out = self.flatten(out)
         out = self.dropout(out)
 
-        # Sortie LSTM pour générer les infos des pics
+        # Appliquer le masquage
+        out = self.masking(out)
+
+        # LSTM
         out = self.lstm(out)
+        out = self.pooling(out)  # Réduction de la taille de la séquence
 
-        # Réduire la sortie LSTM pour correspondre à la longueur de y_bounds (462)
-        out = self.reduce_dim(out)
+        # Sorties
+        height_output = self.height_regressor(out)  
+        bounds_output = self.bounds_regressor(out)  
+        component_output = self.component_classifier(out)  
 
-        height_output = self.height_regressor(out)  # Hauteur du pic
-        bounds_output = self.bounds_regressor(out)  # Bornes d'intégration (avant, après)
-        component_output = self.component_classifier(out)  # Nom du composant
-
-        return height_output, bounds_output, component_output
+        return {"height_output": height_output, "bounds_output": bounds_output, "component_output": component_output}
