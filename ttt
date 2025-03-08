@@ -1,6 +1,11 @@
-import numpy as np
 import pandas as pd
+import numpy as np
 from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder
+import tensorflow as tf
+from tensorflow.keras import Model, initializers
+from tensorflow.keras.regularizers import L2
+from tensorflow.keras.layers import Conv1D, MaxPooling1D, Flatten, Dropout, BatchNormalization, Dense, LeakyReLU, Input
 
 # 🔹 Charger les données JSON en DataFrame
 file_path = "chromatogrammes.json"  # Remplace par ton fichier réel
@@ -9,259 +14,112 @@ df = pd.read_json(file_path)
 # 🔹 Suppression des chromatogrammes sans pics
 df = df.dropna(subset=['pics'])
 
-# 🔹 Création de X avec 2 colonnes (temps de rétention et intensité)
-X = np.array([np.column_stack((row["x"], row["y"])) for _, row in df.iterrows()])  # (319, 71840, 2)
+# 🔹 Suppression des chromatogrammes qui ne font pas exactement 71 840 points
+df = df[df["x"].apply(len) == 71840]
 
-# 🔹 Construction de Y en séquences de chaînes de caractères
-Y = []
+# 🔹 Création de X avec 2 colonnes (temps de rétention et intensité) sous forme 2D
+X = np.array([np.column_stack((row["x"], row["y"])) for _, row in df.iterrows()])
+
+# 🔹 Préparation des labels y pour tous les pics (hauteur, bornes d'intégration, nom du composant)
+y_height = []
+y_bounds = []
+y_component = []
+
 for _, row in df.iterrows():
-    sequence = []
-    for pic in row["pics"]:
-        sequence.append(f"{pic['valeur']}/{pic['borne_avant']}/{pic['borne_apres']}/{pic['nom']}")
-    Y.append(" ".join(sequence))  # Séparer chaque pic par un espace
-
-# 🔹 Séparer en train/test
-X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
-
-# 🔹 Affichage des formes
-print(f"X_train shape: {X_train.shape}, X_test shape: {X_test.shape}")
-print(f"Exemple Y_train: {Y_train[0]}")  # Vérifier le format
-import tensorflow as tf
-from tensorflow.keras import Model, initializers, optimizers
-from tensorflow.keras.regularizers import L2
-from tensorflow.keras.layers import Conv1D, MaxPooling1D, Flatten, Dropout, Dense, Input, Embedding, LSTM, Bidirectional
-
-# 🔹 Définition de la couche de convolution
-class BasicConv1D(tf.keras.layers.Layer):
-    def __init__(self, filters, kernel_size, strides=1, **kwargs):
-        super(BasicConv1D, self).__init__()
-        self.conv = Conv1D(filters, kernel_size=kernel_size, strides=strides, **kwargs)
-        self.activation = tf.keras.layers.LeakyReLU()
-
-    def call(self, x):
-        x = self.conv(x)
-        x = self.activation(x)
-        return x
-
-# 🔹 Module 35x35 du modèle IPA
-class Module_35x35(tf.keras.layers.Layer):
-    def __init__(self, in_channels: int, regularization_factor: float, seed_value: int):
-        super(Module_35x35, self).__init__()
-        self.branch1 = tf.keras.Sequential([
-            MaxPooling1D(pool_size=2),
-            BasicConv1D(filters=in_channels * 2,
-                        kernel_size=1,
-                        strides=2,
-                        kernel_regularizer=L2(regularization_factor),
-                        kernel_initializer=initializers.HeNormal(seed_value))
-        ])
-        self.branch2 = tf.keras.Sequential([
-            BasicConv1D(filters=in_channels, kernel_size=1, strides=2,
-                        kernel_regularizer=L2(regularization_factor),
-                        kernel_initializer=initializers.HeNormal(seed_value)),
-            BasicConv1D(filters=in_channels * 2, kernel_size=3, strides=1,
-                        kernel_regularizer=L2(regularization_factor),
-                        kernel_initializer=initializers.HeNormal(seed_value)),
-        ])
-        self.branch3 = tf.keras.Sequential([
-            BasicConv1D(filters=in_channels, kernel_size=1, strides=2,
-                        kernel_regularizer=L2(regularization_factor),
-                        kernel_initializer=initializers.HeNormal(seed_value)),
-            BasicConv1D(filters=in_channels * 2, kernel_size=3, strides=2,
-                        kernel_regularizer=L2(regularization_factor),
-                        kernel_initializer=initializers.HeNormal(seed_value)),
-            BasicConv1D(filters=in_channels * 2, kernel_size=3, strides=2,
-                        kernel_regularizer=L2(regularization_factor),
-                        kernel_initializer=initializers.HeNormal(seed_value)),
-        ])
-        self.branch4 = tf.keras.Sequential([
-            BasicConv1D(filters=in_channels * 2, kernel_size=1, strides=2,
-                        kernel_regularizer=L2(regularization_factor),
-                        kernel_initializer=initializers.HeNormal(seed_value)),
-        ])
-
-    def call(self, x):
-        branch1 = self.branch1(x)
-        branch2 = self.branch2(x)
-        branch3 = self.branch3(x)
-        branch4 = self.branch4(x)
-        out = tf.concat([branch1, branch2, branch3, branch4], axis=1)
-        return out
-
-# 🔹 Définition du modèle IPA avec BiLSTM
-class IPA_BiLSTM(tf.keras.Model):
-    def __init__(self, seed_value, regularization_factor, dropout_rate=0.2):
-        super(IPA_BiLSTM, self).__init__()
-
-        # Bloc IPA (Feature Extractor)
-        self.stem = tf.keras.Sequential([
-            BasicConv1D(filters=16, kernel_size=3, strides=2,
-                        kernel_regularizer=L2(regularization_factor),
-                        kernel_initializer=initializers.HeNormal(seed_value)),
-            BasicConv1D(filters=16, kernel_size=3,
-                        kernel_regularizer=L2(regularization_factor),
-                        kernel_initializer=initializers.HeNormal(seed_value)),
-            BasicConv1D(filters=16, kernel_size=3,
-                        kernel_regularizer=L2(regularization_factor),
-                        kernel_initializer=initializers.HeNormal(seed_value)),
-        ])
-        self.module_35x35 = Module_35x35(in_channels=32,
-                                         regularization_factor=regularization_factor,
-                                         seed_value=seed_value)
+    for pic_key, pic_data in row["pics"].items():
+        # Données des pics : [nom_composant, borne_avant, borne_apres]
+        nom_composant, borne_avant, borne_apres = pic_data
         
+        # Hauteur du pic : Prenons ici la valeur de l'intensité maximale pour simplifier
+        pic_data_x = np.array(row["x"])
+        pic_data_y = np.array(row["y"])
+        
+        # Trouver l'indice de la borne du pic
+        indices_borne_avant = np.where(pic_data_x >= borne_avant)[0]
+        indices_borne_apres = np.where(pic_data_x <= borne_apres)[0]
+        
+        # Si les bornes existent dans le chromatogramme
+        if len(indices_borne_avant) > 0 and len(indices_borne_apres) > 0:
+            pic_segment_x = pic_data_x[indices_borne_avant[0]:indices_borne_apres[-1]+1]
+            pic_segment_y = pic_data_y[indices_borne_avant[0]:indices_borne_apres[-1]+1]
+            
+            # Hauteur du pic : maximum d'intensité dans cette région
+            pic_height = np.max(pic_segment_y)
+        else:
+            pic_height = 0
+        
+        # Stockage des labels pour ce pic
+        y_height.append(pic_height)
+        y_bounds.append([borne_avant, borne_apres])
+        
+        # Pour le nom du composant, on utilise un encodeur de labels
+        label_encoder = LabelEncoder()
+        y_component.append(label_encoder.fit_transform([nom_composant])[0])
+
+# 🔹 Conversion des listes en arrays numpy
+y_height = np.array(y_height)
+y_bounds = np.array(y_bounds)
+y_component = np.array(y_component)
+
+# 🔹 Split des données en train et test
+X_train, X_test, y_height_train, y_height_test, y_bounds_train, y_bounds_test, y_component_train, y_component_test = train_test_split(
+    X, y_height, y_bounds, y_component, test_size=0.2, random_state=42)
+
+# 🔹 Définir le modèle avec les LSTM
+class IPA_LSTM_Variable(tf.keras.Model):
+    def __init__(self, seed_value, regularization_factor, dropout_rate=0.2, lstm_units=64):
+        super(IPA_LSTM_Variable, self).__init__()
+        
+        # Partie IPA pour extraire les caractéristiques
+        self.stem = tf.keras.Sequential([
+            BasicConv1D(filters=16, kernel_size=3, strides=2, kernel_regularizer=L2(regularization_factor), kernel_initializer=initializers.HeNormal(seed_value)),
+            BasicConv1D(filters=16, kernel_size=3, kernel_regularizer=L2(regularization_factor), kernel_initializer=initializers.HeNormal(seed_value)),
+            BasicConv1D(filters=16, kernel_size=3, kernel_regularizer=L2(regularization_factor), kernel_initializer=initializers.HeNormal(seed_value)),
+        ])
+        
+        self.module_35x35 = Module_35x35(in_channels=32, regularization_factor=regularization_factor, seed_value=seed_value)
         self.flatten = Flatten()
         self.dropout = Dropout(rate=dropout_rate)
-
-        # BiLSTM pour gérer la séquence de sortie variable
-        self.bilstm = Bidirectional(LSTM(128, return_sequences=True))
-        self.output_layer = Dense(256, activation="relu")  # Encoder caché
-
-        # Décodage en sortie séquentielle (caractères/jetons)
-        self.decoder_lstm = LSTM(128, return_sequences=True)
-        self.output_dense = Dense(1)  # Sortie finale en séquence
+        
+        # LSTM pour gérer les séquences de longueur variable
+        self.lstm = layers.LSTM(lstm_units, return_sequences=True)
+        
+        # Sortie pour les différentes informations sur les pics
+        self.height_regressor = Dense(1)  # Prédiction de la hauteur du pic
+        self.bounds_regressor = Dense(2)  # Prédiction des bornes (avant, après)
+        self.component_classifier = Dense(1)  # Prédiction du composant (régression ou classification)
 
     def call(self, x):
         out = self.stem(x)
         out = self.module_35x35(out)
         out = self.flatten(out)
         out = self.dropout(out)
+        
+        # Sortie LSTM pour générer les infos des pics
+        out = self.lstm(out)
+        
+        height_output = self.height_regressor(out)  # Hauteur du pic
+        bounds_output = self.bounds_regressor(out)  # Bornes d'intégration (avant, après)
+        component_output = self.component_classifier(out)  # Nom du composant
 
-        # Passer par BiLSTM pour capturer les relations temporelles
-        out = tf.expand_dims(out, axis=1)  # Reshape pour BiLSTM
-        out = self.bilstm(out)
-        out = self.output_layer(out)
+        return height_output, bounds_output, component_output
 
-        # Décodage séquentiel
-        out = self.decoder_lstm(out)
-        out = self.output_dense(out)
+# Création de l'instance du modèle
+model = IPA_LSTM_Variable(seed_value=1, regularization_factor=0.0095)
 
-        return out
+# Compilation du modèle
+model.compile(optimizer='adam',
+              loss={'height_output': 'mse', 
+                    'bounds_output': 'mse', 
+                    'component_output': 'categorical_crossentropy'},
+              metrics={'height_output': 'mae', 
+                       'bounds_output': 'mae', 
+                       'component_output': 'accuracy'})
 
-
-# 🔹 Paramètres du modèle
-SEED_VALUE = 1
-REGULARIZATION_COEF = 0.0095
-DROPOUT_RATE = 0.2
-
-# 🔹 Instanciation et compilation du modèle
-model = IPA_BiLSTM(seed_value=SEED_VALUE, regularization_factor=REGULARIZATION_COEF)
-
-# 🔹 Définition de l'optimiseur et de la fonction de perte
-optimizer = optimizers.Adam(learning_rate=0.001)
-model.compile(optimizer=optimizer, loss='mae', metrics=['mse'])
-
-# 🔹 Résumé du modèle
-model.build((None, X_train.shape[1], X_train.shape[2]))
-model.summary()
-
-import numpy as np
-import pandas as pd
-from sklearn.model_selection import train_test_split
-from tensorflow.keras.preprocessing.text import Tokenizer
-from tensorflow.keras.preprocessing.sequence import pad_sequences
-
-# Charger les données JSON en DataFrame
-file_path = "chromatogrammes.json"  # Remplace par ton fichier réel
-df = pd.read_json(file_path)
-
-# Supprimer les chromatogrammes sans pics
-df = df.dropna(subset=['pics'])
-
-# Création de X avec 2 colonnes (temps de rétention et intensité)
-X = np.array([np.column_stack((row["x"], row["y"])) for _, row in df.iterrows()])  # (319, 71840, 2)
-
-# Création de Y en séquences de chaînes de caractères
-Y = []
-for _, row in df.iterrows():
-    sequence = []
-    for pic in row["pics"]:
-        sequence.append(f"{pic['valeur']}/{pic['borne_avant']}/{pic['borne_apres']}/{pic['nom']}")
-    Y.append(" ".join(sequence))  # Séparer chaque pic par un espace
-
-# Tokenization de Y (convertir en indices)
-tokenizer = Tokenizer(char_level=False)
-tokenizer.fit_on_texts(Y)  # Créer un vocabulaire basé sur Y
-Y_sequences = tokenizer.texts_to_sequences(Y)  # Convertir Y en séquences d'indices
-
-# Séparer en train/test
-X_train, X_test, Y_train, Y_test = train_test_split(X, Y_sequences, test_size=0.2, random_state=42)
-
-# Affichage des formes
-print(f"X_train shape: {X_train.shape}, X_test shape: {X_test.shape}")
-print(f"Exemple Y_train: {Y_train[0]}")  # Vérifier le format après conversion
-import tensorflow as tf
-from tensorflow.keras import Model, initializers, optimizers
-from tensorflow.keras.layers import Conv1D, MaxPooling1D, Flatten, Dropout, Dense, Input, LSTM, Bidirectional, TimeDistributed
-
-class IPA_BiLSTM(tf.keras.Model):
-    def __init__(self, seed_value, regularization_factor, num_classes, dropout_rate=0.2):
-        super(IPA_BiLSTM, self).__init__()
-
-        # Bloc IPA (Feature Extractor)
-        self.stem = tf.keras.Sequential([
-            Conv1D(filters=16, kernel_size=3, strides=2, kernel_regularizer=tf.keras.regularizers.L2(regularization_factor),
-                   kernel_initializer=initializers.HeNormal(seed_value)),
-            Conv1D(filters=16, kernel_size=3, kernel_regularizer=tf.keras.regularizers.L2(regularization_factor),
-                   kernel_initializer=initializers.HeNormal(seed_value)),
-            Conv1D(filters=16, kernel_size=3, kernel_regularizer=tf.keras.regularizers.L2(regularization_factor),
-                   kernel_initializer=initializers.HeNormal(seed_value)),
-        ])
-
-        # Module pour extraire les caractéristiques
-        self.flatten = Flatten()
-        self.dropout = Dropout(rate=dropout_rate)
-
-        # BiLSTM pour gérer la séquence de sortie variable
-        self.bilstm = Bidirectional(LSTM(128, return_sequences=True))
-        self.output_layer = Dense(256, activation="relu")
-
-        # Décodage de la sortie avec LSTM pour générer des séquences de texte
-        self.decoder_lstm = LSTM(128, return_sequences=True)
-        self.output_dense = Dense(num_classes, activation="softmax")  # Softmax pour prédire des indices de mots/valeurs
-
-    def call(self, x):
-        # Passer par les couches IPA
-        out = self.stem(x)
-        out = self.flatten(out)
-        out = self.dropout(out)
-
-        # Passer par BiLSTM pour capturer la séquence
-        out = tf.expand_dims(out, axis=1)  # Reshape pour BiLSTM
-        out = self.bilstm(out)
-        out = self.output_layer(out)
-
-        # Décodage séquentiel pour prédire des séquences de texte
-        out = self.decoder_lstm(out)
-        out = self.output_dense(out)
-
-        return out
-
-
-# 🔹 Paramètres du modèle
-SEED_VALUE = 1
-REGULARIZATION_COEF = 0.0095
-DROPOUT_RATE = 0.2
-NUM_CLASSES = len(tokenizer.word_index) + 1  # Nombre de classes pour la tokenisation
-
-# Instanciation et compilation du modèle
-model = IPA_BiLSTM(seed_value=SEED_VALUE, regularization_factor=REGULARIZATION_COEF, num_classes=NUM_CLASSES)
-
-# Optimiseur et perte
-optimizer = optimizers.Adam(learning_rate=0.001)
-model.compile(optimizer=optimizer, loss='sparse_categorical_crossentropy', metrics=['accuracy'])
-
-# Résumé du modèle
-model.build((None, X_train.shape[1], X_train.shape[2]))  # Adapter la forme de l'entrée
-model.summary()
-# Entraînement du modèle
-history = model.fit(X_train, Y_train, epochs=10, batch_size=32, validation_data=(X_test, Y_test))
-# Faire une prédiction
-predictions = model.predict(X_test)
-
-# Décoder les indices prédits en texte
-predicted_sequences = tokenizer.sequences_to_texts(predictions.argmax(axis=-1))
-
-# Affichage des prédictions
-for i in range(3):
-    print(f"True: {Y_test[i]}")
-    print(f"Predicted: {predicted_sequences[i]}")
+# Entraînement
+history = model.fit(X_train, 
+                    {'height_output': y_height_train, 
+                     'bounds_output': y_bounds_train, 
+                     'component_output': y_component_train}, 
+                    epochs=50, 
+                    batch_size=32)
