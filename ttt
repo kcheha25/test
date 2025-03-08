@@ -26,6 +26,11 @@ y_bounds = []
 y_component = []
 
 for _, row in df.iterrows():
+    # Pour chaque chromatogramme, préparer les informations des pics
+    chromatogram_y_height = []
+    chromatogram_y_bounds = []
+    chromatogram_y_component = []
+    
     for pic_key, pic_data in row["pics"].items():
         # Données des pics : [nom_composant, borne_avant, borne_apres]
         nom_composant, borne_avant, borne_apres = pic_data
@@ -48,18 +53,23 @@ for _, row in df.iterrows():
         else:
             pic_height = 0
         
-        # Stockage des labels pour ce pic
-        y_height.append(pic_height)
-        y_bounds.append([borne_avant, borne_apres])
+        # Ajouter les informations du pic au chromatogramme
+        chromatogram_y_height.append(pic_height)
+        chromatogram_y_bounds.append([borne_avant, borne_apres])
         
         # Pour le nom du composant, on utilise un encodeur de labels
         label_encoder = LabelEncoder()
-        y_component.append(label_encoder.fit_transform([nom_composant])[0])
+        chromatogram_y_component.append(label_encoder.fit_transform([nom_composant])[0])
+    
+    # Pour chaque chromatogramme, stocker toutes les informations
+    y_height.append(chromatogram_y_height)
+    y_bounds.append(chromatogram_y_bounds)
+    y_component.append(chromatogram_y_component)
 
 # 🔹 Conversion des listes en arrays numpy
-y_height = np.array(y_height)
-y_bounds = np.array(y_bounds)
-y_component = np.array(y_component)
+y_height = np.array(y_height, dtype=object)  # Utilisation de dtype=object pour gérer les listes de longueurs variables
+y_bounds = np.array(y_bounds, dtype=object)
+y_component = np.array(y_component, dtype=object)
 
 # 🔹 Split des données en train et test
 X_train, X_test, y_height_train, y_height_test, y_bounds_train, y_bounds_test, y_component_train, y_component_test = train_test_split(
