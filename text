@@ -37,3 +37,17 @@ Concernant la longueur des feuillets, nous avons décidé de prendre la diagonal
 \ref{fig:label}
 
 Journal of Science and Informatics for Society (JSIS)
+
+Dans la seconde partie de mon alternance, je commencerai par développer un système de détection des pics et de leurs types dans les données chromatogrammes en phase gazeuse GC. Ensuite, je corrigerai deux bugs présents dans l'application interne "plug im!" de l'IFPEN. Par la suite, je travaillerai à développer des modèles de détection et de segmentation pour détecter et analyser la morphologie des cristaux dans les images à fort grandissement, puis obtenir des informations sur les proportions des pores par rapport aux grands objets dans les images à faible grandissement, et enfin évaluer le taux de vide dans les images à grandissement intermédiaire. À partir de ces trois paramètres, je développerai un modèle de simulation 3D.
+
+Développement du système de détection des pics et de leurs types (GC)
+
+Correction des bugs dans l'application "plug im!"
+
+Développement des modèles de détection et de segmentation (Morphologie des cristaux - Images à fort grandissement)
+
+Développement des modèles de détection et de segmentation (Proportions des pores vs. grands objets - Images à faible grandissement)
+
+Développement des modèles de détection et de segmentation (Taux de vide - Images à grandissement intermédiaire)
+
+Développement du modèle de simulation 3D basé sur les paramètres analysés
