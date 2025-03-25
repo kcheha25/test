@@ -1,15 +1,6 @@
-                x, y = filter_by_x(x, y, max_x=150)
-                plot_single_chromatogram(x, y, f"Chromatogram_{i}", output_dir)
-            except KeyError:
-                print(f"Ligne {i} invalide")
-
-    else:
-        print("Format JSON non reconnu")
-
-def filter_by_x(x, y, max_x=150):
-    """
-    Filtre les points où x > max_x
-    Retourne les tableaux filtrés
-    """
-    mask = x <= max_x
-    return x[mask], y[mask]
+                x_filtered = []
+                y_filtered = []
+                for x_val, y_val in zip(row['x'], row['y']):
+                    if x_val < 150:
+                        x_filtered.append(x_val)
+                        y_filtered.append(y_val)
