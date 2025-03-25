@@ -1,29 +1,87 @@
-def plot_tight_chromatogram(x, y, title, output_dir):
+import numpy as np
+import matplotlib.pyplot as plt
+import os
+import pandas as pd
+
+def generate_yolo_annotations(x, y, peaks_data, img_width=1000, img_height=600):
+    """
+    Génère les annotations YOLO à partir des données chromatographiques
+    
+    Args:
+        x, y: Données du chromatogramme
+        peaks_data: Dictionnaire des pics au format {valeur_pic: [nom, borne_avant, borne_apres]}
+        img_width, img_height: Dimensions de l'image générée
+        
+    Returns:
+        str: Contenu du fichier d'annotations YOLO
+    """
+    annotations = []
+    x_min, x_max = min(x), max(x)
+    y_min, y_max = min(y), max(y)
+    
+    for valeur_pic, data in peaks_data.items():
+        nom_composant, borne_avant, borne_apres = data
+        
+        # Vérification que les bornes sont dans l'intervalle
+        if borne_avant > x_max or borne_apres < x_min:
+            continue
+            
+        # Normalisation des coordonnées (0-1)
+        x_center = ((borne_avant + borne_apres)/2 - x_min) / (x_max - x_min)
+        y_center = (valeur_pic - y_min) / (y_max - y_min)
+        width = (borne_apres - borne_avant) / (x_max - x_min)
+        height = valeur_pic / y_max  # Hauteur normalisée
+        
+        # Format YOLO: class x_center y_center width height
+        annotations.append(f"0 {x_center:.6f} {y_center:.6f} {width:.6f} {height:.6f}")
+    
+    return "\n".join(annotations)
+
+def plot_single_chromatogram(x, y, title, output_dir, peaks_data=None):
+    """Trace et sauvegarde le chromatogramme sans axes ni marges"""
     fig = plt.figure(figsize=(12, 6))
-    ax = fig.add_axes([0, 0, 1, 1])  # Axes qui remplissent la figure
+    ax = fig.add_axes([0, 0, 1, 1])  # Remplissage total
     
-    # Plot avec paramètres optimisés
-    ax.plot(
-        x, y, 
-        'b-', 
-        linewidth=1.5,
-        solid_capstyle='butt',  # Extrémités carrées
-        solid_joinstyle='miter'  # Joints angulaires
-    )
-    
-    # Désactivation de tout élément visuel superflu
+    # Plot de la courbe
+    ax.plot(x, y, 'b-', linewidth=1.5)
     ax.set_axis_off()
+    ax.set_xlim(min(x), max(x))
+    ax.set_ylim(min(y), max(y)*1.05)
     
-    # Ajustement des limites sans marge
-    padding = 0.001  # ~0.1% pour éviter coupure
-    ax.set_xlim(min(x)-padding, max(x)+padding)
-    ax.set_ylim(min(y)-padding, max(y)+padding)
-    
-    # Enregistrement ultra-serré
-    plt.savefig(
-        os.path.join(output_dir, f"{title}_tight.png"),
-        dpi=300,
-        pad_inches=0,
-        bbox_inches=None
-    )
+    # Sauvegarde image
+    img_filename = os.path.join(output_dir, "images", f"{title.replace(' ', '_')}.png")
+    plt.savefig(img_filename, dpi=300, bbox_inches=None, pad_inches=0)
     plt.close()
+    
+    # Génération annotations YOLO si peaks_data existe
+    if peaks_data:
+        annotations = generate_yolo_annotations(x, y, peaks_data)
+        txt_filename = os.path.join(output_dir, "labels", f"{title.replace(' ', '_')}.txt")
+        with open(txt_filename, 'w') as f:
+            f.write(annotations)
+    
+    print(f"Fichiers générés pour {title}: {img_filename}, {txt_filename}")
+
+# Structure des dossiers
+output_dir = "chromatograms_yolo"
+os.makedirs(os.path.join(output_dir, "images"), exist_ok=True)
+os.makedirs(os.path.join(output_dir, "labels"), exist_ok=True)
+
+# Traitement des données
+for i, row in df.iterrows():
+    try:
+        x = np.array(row['x'])
+        y = np.array(row['y'])
+        x, y = filter_by_x(x, y, max_x=150)
+        
+        # Récupération des pics si existants
+        peaks_data = row.get('pics', {})
+        
+        plot_single_chromatogram(
+            x, y, 
+            f"Chromatogram_{i}", 
+            output_dir,
+            peaks_data if peaks_data else None
+        )
+    except Exception as e:
+        print(f"Erreur ligne {i}: {str(e)}")
