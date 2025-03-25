@@ -1,1 +1,15 @@
-J'espère que vous allez bien. Je voulais savoir s'il serait possible, en plus du fichier JSON que vous nous avez fourni, d'obtenir également les images correspondantes des chromatogrammes.
+                x, y = filter_by_x(x, y, max_x=150)
+                plot_single_chromatogram(x, y, f"Chromatogram_{i}", output_dir)
+            except KeyError:
+                print(f"Ligne {i} invalide")
+
+    else:
+        print("Format JSON non reconnu")
+
+def filter_by_x(x, y, max_x=150):
+    """
+    Filtre les points où x > max_x
+    Retourne les tableaux filtrés
+    """
+    mask = x <= max_x
+    return x[mask], y[mask]
