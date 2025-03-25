@@ -1,9 +1,78 @@
-            temp_path = os.path.join(output_dir, f"temp_{name}.png")
-            plt.savefig(temp_path, bbox_inches='tight', pad_inches=0, dpi=100)
-            plt.close()
+import os
+import random
+import matplotlib.pyplot as plt
+from PIL import Image
+import numpy as np
 
-            # 3. Redimensionnement exact en 640x640
-            img = Image.open(temp_path).convert('RGB')
-            img = img.resize(TARGET_SIZE)
-            final_path = os.path.join(output_dir, "images", f"{name}.png")
-            img.save(final_path)
+def visualize_random_annotations(images_dir, labels_dir, num_samples=3):
+    """
+    Visualise des annotations YOLO sur des images aléatoires
+    
+    Args:
+        images_dir: Chemin vers le dossier contenant les images
+        labels_dir: Chemin vers le dossier contenant les annotations YOLO
+        num_samples: Nombre d'images à visualiser
+    """
+    # Liste les fichiers disponibles
+    image_files = [f for f in os.listdir(images_dir) if f.endswith('.png')]
+    selected_files = random.sample(image_files, min(num_samples, len(image_files)))
+    
+    for img_file in selected_files:
+        # Chemins complets
+        img_path = os.path.join(images_dir, img_file)
+        label_path = os.path.join(labels_dir, os.path.splitext(img_file)[0] + '.txt')
+        
+        # Vérification que l'annotation existe
+        if not os.path.exists(label_path):
+            print(f"Aucune annotation trouvée pour {img_file}")
+            continue
+        
+        # Chargement de l'image
+        img = np.array(Image.open(img_path))
+        height, width = img.shape[:2]
+        
+        # Création du plot
+        plt.figure(figsize=(10, 6))
+        plt.imshow(img)
+        plt.title(f"Visualisation des annotations - {img_file}")
+        ax = plt.gca()
+        
+        # Lecture des annotations
+        with open(label_path, 'r') as f:
+            annotations = f.readlines()
+        
+        # Dessin des bounding boxes
+        for ann in annotations:
+            class_id, x_center, y_center, box_width, box_height = map(float, ann.split())
+            
+            # Conversion des coordonnées normalisées en pixels
+            x_center *= width
+            y_center *= height
+            box_width *= width
+            box_height *= height
+            
+            # Calcul des coins de la bounding box
+            x_min = x_center - (box_width / 2)
+            y_min = y_center - (box_height / 2)
+            
+            # Création du rectangle
+            rect = plt.Rectangle(
+                (x_min, y_min), box_width, box_height,
+                linewidth=2, edgecolor='r', facecolor='none'
+            )
+            ax.add_patch(rect)
+            
+            # Ajout du label
+            plt.text(
+                x_min, y_min - 5, f"Pic {int(class_id)}",
+                color='red', fontsize=12, weight='bold',
+                bbox=dict(facecolor='white', alpha=0.8, edgecolor='none')
+            )
+        
+        plt.axis('off')
+        plt.show()
+
+# Exemple d'utilisation
+images_directory = "yolo_dataset/images"
+labels_directory = "yolo_dataset/labels"
+visualize_random_annotations(images_directory, labels_directory, num_samples=3)
