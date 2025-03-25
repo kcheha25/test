@@ -1,5 +1,76 @@
-max_pics = max(len(p) for p in y_heights)  # Trouver le max de pics dans un chromatogramme
+import pandas as pd
+import numpy as np
+import cv2
+import os
 
-y_heights = pad_sequences(y_heights, maxlen=max_pics, dtype="float32", padding="post")
-y_bounds = pad_sequences(y_bounds, maxlen=max_pics, dtype="float32", padding="post")
-y_components = pad_sequences(y_components, maxlen=max_pics, dtype="int32", padding="post")
+# 🔹 Charger les données JSON en DataFrame
+file_path = "chromatogrammes.json"  # Remplace par ton fichier réel
+df = pd.read_json(file_path)
+
+# 🔹 Suppression des chromatogrammes sans pics
+df = df.dropna(subset=['pics'])
+
+# 🔹 Suppression des chromatogrammes qui ne font pas exactement 71 840 points
+df = df[df["x"].apply(len) == 71840]
+
+# 🔹 Répertoire pour enregistrer les images et annotations
+output_dir = "output_chromatograms"
+if not os.path.exists(output_dir):
+    os.makedirs(output_dir)
+
+# 🔹 Fonction pour créer l'image de chromatogramme avec courbe et annotations
+def create_chromatogram_image(data, pics, img_width=71840, img_height=500):
+    # Création d'une image vide (noire)
+    img = np.zeros((img_height, img_width, 3), dtype=np.uint8)
+
+    # Tracer la courbe (relier les points)
+    for i in range(1, len(data)):
+        x1, y1 = data[i - 1]
+        x2, y2 = data[i]
+        
+        # Normalisation de l'intensité pour ajuster la hauteur des points
+        y1_pos = int(img_height - (y1 / np.max(data[:, 1]) * img_height))
+        y2_pos = int(img_height - (y2 / np.max(data[:, 1]) * img_height))
+        
+        cv2.line(img, (int(x1), y1_pos), (int(x2), y2_pos), (255, 255, 255), 1)
+
+    # Ajouter les bounding boxes sur les pics
+    annotations = []
+    for pic_id, data_pic in pics.items():
+        nom_composant = data_pic[0]
+        borne_avant = int(data_pic[1])
+        borne_apres = int(data_pic[2])
+
+        # Créer une bounding box (rectangle) autour du pic
+        cv2.rectangle(img, (borne_avant, 0), (borne_apres, img_height), (0, 255, 0), 2)
+
+        # Ajouter l'annotation au format YOLO
+        # Le centre de la boîte (borne avant et après) et la largeur
+        center_x = (borne_avant + borne_apres) / 2 / img_width
+        width = (borne_apres - borne_avant) / img_width
+        annotations.append(f"0 {center_x} 0.5 {width} 1")  # Classe 0 par défaut (peut être changé si nécessaire)
+
+    return img, annotations
+
+# 🔹 Boucle pour traiter chaque chromatogramme
+for idx, row in df.iterrows():
+    # Données X et Y pour chaque chromatogramme
+    data = np.column_stack((row["x"], row["y"]))
+    
+    # Pics associés à ce chromatogramme
+    pics = row["pics"]
+
+    # Création de l'image (courbe) et des annotations
+    img, annotations = create_chromatogram_image(data, pics)
+
+    # Sauvegarder l'image
+    img_filename = os.path.join(output_dir, f"chromatogramme_{idx}.png")
+    cv2.imwrite(img_filename, img)
+
+    # Sauvegarder les annotations dans un fichier YOLO
+    annotations_filename = os.path.join(output_dir, f"chromatogramme_{idx}.txt")
+    with open(annotations_filename, "w") as f:
+        for annotation in annotations:
+            f.write(f"{annotation}\n")
+
+    print(f"Image et annotations sauvegardées pour chromatogramme {idx}")
