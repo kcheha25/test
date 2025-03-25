@@ -1,6 +1,29 @@
-                x_filtered = []
-                y_filtered = []
-                for x_val, y_val in zip(row['x'], row['y']):
-                    if x_val < 150:
-                        x_filtered.append(x_val)
-                        y_filtered.append(y_val)
+def plot_tight_chromatogram(x, y, title, output_dir):
+    fig = plt.figure(figsize=(12, 6))
+    ax = fig.add_axes([0, 0, 1, 1])  # Axes qui remplissent la figure
+    
+    # Plot avec paramètres optimisés
+    ax.plot(
+        x, y, 
+        'b-', 
+        linewidth=1.5,
+        solid_capstyle='butt',  # Extrémités carrées
+        solid_joinstyle='miter'  # Joints angulaires
+    )
+    
+    # Désactivation de tout élément visuel superflu
+    ax.set_axis_off()
+    
+    # Ajustement des limites sans marge
+    padding = 0.001  # ~0.1% pour éviter coupure
+    ax.set_xlim(min(x)-padding, max(x)+padding)
+    ax.set_ylim(min(y)-padding, max(y)+padding)
+    
+    # Enregistrement ultra-serré
+    plt.savefig(
+        os.path.join(output_dir, f"{title}_tight.png"),
+        dpi=300,
+        pad_inches=0,
+        bbox_inches=None
+    )
+    plt.close()
