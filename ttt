@@ -1,78 +1,125 @@
-import os
-import random
-import matplotlib.pyplot as plt
-from PIL import Image
+import pandas as pd
 import numpy as np
+from sklearn.preprocessing import LabelEncoder
 
-def visualize_random_annotations(images_dir, labels_dir, num_samples=3):
-    """
-    Visualise des annotations YOLO sur des images aléatoires
-    
-    Args:
-        images_dir: Chemin vers le dossier contenant les images
-        labels_dir: Chemin vers le dossier contenant les annotations YOLO
-        num_samples: Nombre d'images à visualiser
-    """
-    # Liste les fichiers disponibles
-    image_files = [f for f in os.listdir(images_dir) if f.endswith('.png')]
-    selected_files = random.sample(image_files, min(num_samples, len(image_files)))
-    
-    for img_file in selected_files:
-        # Chemins complets
-        img_path = os.path.join(images_dir, img_file)
-        label_path = os.path.join(labels_dir, os.path.splitext(img_file)[0] + '.txt')
-        
-        # Vérification que l'annotation existe
-        if not os.path.exists(label_path):
-            print(f"Aucune annotation trouvée pour {img_file}")
-            continue
-        
-        # Chargement de l'image
-        img = np.array(Image.open(img_path))
-        height, width = img.shape[:2]
-        
-        # Création du plot
-        plt.figure(figsize=(10, 6))
-        plt.imshow(img)
-        plt.title(f"Visualisation des annotations - {img_file}")
-        ax = plt.gca()
-        
-        # Lecture des annotations
-        with open(label_path, 'r') as f:
-            annotations = f.readlines()
-        
-        # Dessin des bounding boxes
-        for ann in annotations:
-            class_id, x_center, y_center, box_width, box_height = map(float, ann.split())
-            
-            # Conversion des coordonnées normalisées en pixels
-            x_center *= width
-            y_center *= height
-            box_width *= width
-            box_height *= height
-            
-            # Calcul des coins de la bounding box
-            x_min = x_center - (box_width / 2)
-            y_min = y_center - (box_height / 2)
-            
-            # Création du rectangle
-            rect = plt.Rectangle(
-                (x_min, y_min), box_width, box_height,
-                linewidth=2, edgecolor='r', facecolor='none'
-            )
-            ax.add_patch(rect)
-            
-            # Ajout du label
-            plt.text(
-                x_min, y_min - 5, f"Pic {int(class_id)}",
-                color='red', fontsize=12, weight='bold',
-                bbox=dict(facecolor='white', alpha=0.8, edgecolor='none')
-            )
-        
-        plt.axis('off')
-        plt.show()
+file_path = "chromatogrammes.json"
+df = pd.read_json(file_path)
 
-# Exemple d'utilisation
-images_directory = "yolo_dataset/images"
-labels_directory = "yolo_dataset/labels"
-visualize_random_annotations(images_directory, labels_directory, num_samples=3)
+# On ne garde que les chromatogrammes avec pics
+df = df.dropna(subset=['pics'])
+df = df[df["x"].apply(len) == 71840]
+
+# Input X : (n, 71840, 2)
+X = np.array([np.column_stack((row["x"], row["y"])) for _, row in df.iterrows()])
+
+# Label Y point par point (n, 71840)
+# 0 = aucun, 1 = borne avant, 2 = pic, 3 = borne après
+Y = np.zeros((len(df), 71840), dtype=np.int32)
+
+for i, (_, row) in enumerate(df.iterrows()):
+    for valeur_pic, data in row["pics"].items():
+        borne_avant = data[1]
+        borne_apres = data[2]
+        pic_index = int(valeur_pic)
+
+        if 0 <= borne_avant < 71840:
+            Y[i, borne_avant] = 1  # borne avant
+        if 0 <= pic_index < 71840:
+            Y[i, pic_index] = 2    # pic
+        if 0 <= borne_apres < 71840:
+            Y[i, borne_apres] = 3  # borne après
+
+import tensorflow as tf
+from tensorflow.keras import layers, Model, initializers
+from tensorflow.keras.regularizers import L2
+
+class BasicConv1D(tf.keras.layers.Layer):
+    def __init__(self, filters, kernel_size, strides=1, **kwargs):
+        super(BasicConv1D, self).__init__()
+        self.conv = layers.Conv1D(filters, kernel_size=kernel_size, strides=strides, **kwargs)
+        self.activation = layers.LeakyReLU()
+
+    def call(self, x):
+        x = self.conv(x)
+        x = self.activation(x)
+        return x
+
+class Module_35x35(tf.keras.layers.Layer):
+    def __init__(self, in_channels, regularization_factor, seed_value):
+        super(Module_35x35, self).__init__()
+        self.branch1 = tf.keras.Sequential([
+            layers.MaxPooling1D(pool_size=2),
+            BasicConv1D(in_channels * 2, kernel_size=1, strides=2, kernel_regularizer=L2(regularization_factor),
+                        kernel_initializer=initializers.HeNormal(seed_value))
+        ])
+        self.branch2 = tf.keras.Sequential([
+            BasicConv1D(in_channels, kernel_size=1, strides=2, kernel_regularizer=L2(regularization_factor),
+                        kernel_initializer=initializers.HeNormal(seed_value)),
+            BasicConv1D(in_channels * 2, kernel_size=3, strides=1, kernel_regularizer=L2(regularization_factor),
+                        kernel_initializer=initializers.HeNormal(seed_value))
+        ])
+        self.branch3 = tf.keras.Sequential([
+            BasicConv1D(in_channels, kernel_size=1, strides=2, kernel_regularizer=L2(regularization_factor),
+                        kernel_initializer=initializers.HeNormal(seed_value)),
+            BasicConv1D(in_channels * 2, kernel_size=3, strides=2, kernel_regularizer=L2(regularization_factor),
+                        kernel_initializer=initializers.HeNormal(seed_value)),
+            BasicConv1D(in_channels * 2, kernel_size=3, strides=2, kernel_regularizer=L2(regularization_factor),
+                        kernel_initializer=initializers.HeNormal(seed_value))
+        ])
+        self.branch4 = tf.keras.Sequential([
+            BasicConv1D(in_channels * 2, kernel_size=1, strides=2, kernel_regularizer=L2(regularization_factor),
+                        kernel_initializer=initializers.HeNormal(seed_value))
+        ])
+
+    def call(self, x):
+        branch1 = self.branch1(x)
+        branch2 = self.branch2(x)
+        branch3 = self.branch3(x)
+        branch4 = self.branch4(x)
+        out = tf.concat([branch1, branch2, branch3, branch4], axis=1)
+        return out
+
+class IPA_LSTM(Model):
+    def __init__(self, seed_value, regularization_factor, dropout_rate=0.2):
+        super(IPA_LSTM, self).__init__()
+        self.stem = tf.keras.Sequential([
+            BasicConv1D(16, kernel_size=3, strides=2, kernel_regularizer=L2(regularization_factor),
+                        kernel_initializer=initializers.HeNormal(seed_value)),
+            BasicConv1D(16, kernel_size=3, kernel_regularizer=L2(regularization_factor),
+                        kernel_initializer=initializers.HeNormal(seed_value)),
+            BasicConv1D(16, kernel_size=3, kernel_regularizer=L2(regularization_factor),
+                        kernel_initializer=initializers.HeNormal(seed_value)),
+        ])
+        self.module_35x35 = Module_35x35(32, regularization_factor, seed_value)
+
+        # LSTM pour capter la dépendance temporelle
+        self.lstm = layers.Bidirectional(layers.LSTM(64, return_sequences=True))
+        
+        # Projection pour la classification (4 classes)
+        self.dropout = layers.Dropout(dropout_rate)
+        self.dense = layers.Dense(4, activation="softmax")
+
+    def call(self, x):
+        x = self.stem(x)
+        x = self.module_35x35(x)
+        x = self.lstm(x)  # Ajout du LSTM
+        x = self.dropout(x)
+        x = self.dense(x)  # Classification point par point
+        return x
+
+if __name__ == '__main__':
+    model = IPA_LSTM(seed_value=1, regularization_factor=0.0095)
+    model.build((None, 71840, 2))
+    model.summary()
+
+    # Compilation
+    model.compile(optimizer="adam",
+                  loss="sparse_categorical_crossentropy",
+                  metrics=["accuracy"])
+
+    # Train/test split
+    from sklearn.model_selection import train_test_split
+    X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
+
+    # Entraînement
+    model.fit(X_train, y_train, validation_data=(X_test, y_test), batch_size=2, epochs=10)
