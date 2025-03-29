@@ -4,66 +4,49 @@ import math
 from sklearn.model_selection import train_test_split
 import pandas as pd
 
-class ChromatogramLabelEncoder:
-    def __init__(self, num_windows=256, signal_length=71840):
-        self.num_windows = num_windows
+class FilteredLabelEncoder:
+    def __init__(self, signal_length=71840, x_threshold=150):
         self.signal_length = signal_length
-        self.window_size = signal_length / num_windows  # ≈280.625 points/fenêtre
-        self.window_borders = np.linspace(0, signal_length, num_windows + 1)
-        self.window_centers = self.window_borders[:-1] + self.window_size/2
-
-    def encode(self, peaks_data):
+        self.x_threshold = x_threshold
+        
+    def encode(self, peaks_data, x_values):
         """
+        Encode uniquement les points où x < x_threshold
         peaks_data: Dictionnaire {position_pic: [composant, borne_gauche, borne_droite]}
-        Retourne: array de shape (num_windows, 4) [prob, loc_norm, left_norm, right_norm]
+        x_values: Liste des valeurs x (temps de rétention)
+        Retourne: array de shape (N_filtered, 3) [prob, pos_norm, area_norm]
         """
-        labels = np.zeros((self.num_windows, 4))
+        # Filtrer les indices où x < threshold
+        valid_indices = [i for i, x in enumerate(x_values) if x < self.x_threshold]
+        num_filtered = len(valid_indices)
+        labels = np.zeros((num_filtered, 3))
         
+        if not isinstance(peaks_data, dict):
+            return labels
+            
         for rt_str, (_, left_bound, right_bound) in peaks_data.items():
-            # Conversion de la clé (position) en float
             try:
                 rt = float(rt_str)
-            except ValueError:
-                continue  # Ignore les entrées non convertibles
-                
-            # Trouver l'index de la fenêtre
-            window_idx = np.searchsorted(self.window_borders, rt) - 1
-            window_idx = np.clip(window_idx, 0, self.num_windows - 1)
-            
-            # Calculer la position relative dans la fenêtre [0,1]
-            window_start = self.window_borders[window_idx]
-            loc_in_window = (rt - window_start) / self.window_size
-            
-            # Normaliser les bornes [0,1] par rapport au signal complet
-            left_norm = float(left_bound) / self.signal_length
-            right_norm = float(right_bound) / self.signal_length
-            
-            labels[window_idx, 0] = 1.0  # Probabilité
-            labels[window_idx, 1] = loc_in_window  # Position relative
-            labels[window_idx, 2] = left_norm  # Borne gauche normalisée
-            labels[window_idx, 3] = right_norm  # Borne droite normalisée
-            
-        return labels
-
-    def remove_collisions(self, peaks_data):
-        """Supprime les pics dans la même fenêtre"""
-        filtered_peaks = {}
-        occupied_windows = set()
-        
-        for rt_str in sorted(peaks_data.keys()):
-            try:
-                rt = float(rt_str)
-            except ValueError:
+                left = float(left_bound)
+                right = float(right_bound)
+            except (ValueError, TypeError):
                 continue
                 
-            window_idx = np.searchsorted(self.window_borders, rt) - 1
-            if window_idx not in occupied_windows:
-                filtered_peaks[rt_str] = peaks_data[rt_str]
-                occupied_windows.add(window_idx)
+            # Trouver les indices valides dans la zone du pic
+            peak_indices = [i for i in valid_indices 
+                           if left <= x_values[i] <= right]
+            
+            for idx in peak_indices:
+                # Probabilité = 1 pour les points du pic
+                labels[valid_indices.index(idx), 0] = 1.0
+                # Position normalisée du pic [0,1]
+                labels[valid_indices.index(idx), 1] = rt / self.signal_length
+                # Aire approximative (largeur normalisée)
+                labels[valid_indices.index(idx), 2] = (right - left) / self.signal_length
                 
-        return filtered_peaks
+        return labels, valid_indices
 
-class ChromatogramDataGenerator(tf.keras.utils.Sequence):
+class FilteredDataGenerator(tf.keras.utils.Sequence):
     def __init__(self, df, label_encoder, batch_size=32, shuffle=False):
         self.df = df
         self.label_encoder = label_encoder
@@ -71,6 +54,11 @@ class ChromatogramDataGenerator(tf.keras.utils.Sequence):
         self.shuffle = shuffle
         self.indices = np.arange(len(df))
         self.on_epoch_end()
+        
+        # Déterminer la taille filtrée une fois pour toutes
+        sample_x = df.iloc[0]['x']
+        _, valid_indices = label_encoder.encode({}, sample_x)
+        self.filtered_length = len(valid_indices)
 
     def __len__(self):
         return math.ceil(len(self.df) / self.batch_size)
@@ -79,11 +67,15 @@ class ChromatogramDataGenerator(tf.keras.utils.Sequence):
         if self.shuffle:
             np.random.shuffle(self.indices)
 
-    def _preprocess(self, x, y=None):
-        """Normalisation du signal chromatographique"""
-        x = np.array(x, dtype=np.float32)
-        max_val = np.max(x) + 1e-8  # Éviter la division par zéro
-        x_norm = x[:, None] / max_val  # Shape (71840, 1)
+    def _preprocess(self, x, x_values, y=None):
+        """Normalisation des données filtrées"""
+        # Filtrer les points où x < threshold
+        filtered_x = [x[i] for i, x_val in enumerate(x_values) 
+                     if x_val < self.label_encoder.x_threshold]
+        
+        x_array = np.array(filtered_x, dtype=np.float32)
+        max_val = np.max(x_array) + 1e-8
+        x_norm = x_array[:, None] / max_val  # Shape (N_filtered, 1)
         
         if y is not None:
             return x_norm, y.astype(np.float32)
@@ -92,29 +84,25 @@ class ChromatogramDataGenerator(tf.keras.utils.Sequence):
     def __getitem__(self, index):
         batch_indices = self.indices[index*self.batch_size : (index+1)*self.batch_size]
         
-        x_batch = []
-        y_batch = []
+        x_batch = np.zeros((len(batch_indices), self.filtered_length, 1))
+        y_batch = np.zeros((len(batch_indices), self.filtered_length, 3))
         
-        for idx in batch_indices:
+        for i, idx in enumerate(batch_indices):
             row = self.df.iloc[idx]
-            
-            # Récupérer les données brutes
+            x_values = row['x']
             chromatogram = row['y']
-            peaks_data = row['pics']
+            peaks_data = row.get('pics', {})
             
-            # Nettoyer les collisions
-            filtered_peaks = self.label_encoder.remove_collisions(peaks_data)
+            # Encodage des labels avec filtrage
+            y, _ = self.label_encoder.encode(peaks_data, x_values)
             
-            # Encodage des labels
-            y = self.label_encoder.encode(filtered_peaks)
+            # Prétraitement avec filtrage
+            x, y = self._preprocess(chromatogram, x_values, y)
             
-            # Prétraitement
-            x, y = self._preprocess(chromatogram, y)
+            x_batch[i] = x
+            y_batch[i] = y
             
-            x_batch.append(x)
-            y_batch.append(y)
-            
-        return np.array(x_batch), np.array(y_batch)
+        return x_batch, y_batch
 
 # -----------------------------------------------------------
 # Exemple d'utilisation
@@ -124,21 +112,31 @@ if __name__ == "__main__":
     df = pd.read_json("chromatogrammes.json")
     df = df[df['x'].apply(len) == 71840]  # Filtrer par longueur
     
-    # 2. Initialiser les composants
-    label_encoder = ChromatogramLabelEncoder(num_windows=256)
+    # 2. Initialiser l'encodeur avec seuil x < 150
+    label_encoder = FilteredLabelEncoder(x_threshold=150)
     
-    # 3. Split train/test
+    # 3. Déterminer la taille filtrée
+    sample_x = df.iloc[0]['x']
+    _, valid_indices = label_encoder.encode({}, sample_x)
+    print(f"Nombre de points conservés: {len(valid_indices)}/{len(sample_x)}")
+    
+    # 4. Split train/test
     train_df, test_df = train_test_split(df, test_size=0.2, random_state=42)
     
-    # 4. Créer les générateurs
-    train_gen = ChromatogramDataGenerator(
+    # 5. Créer les générateurs
+    train_gen = FilteredDataGenerator(
         train_df, label_encoder, batch_size=32, shuffle=True
     )
-    test_gen = ChromatogramDataGenerator(
+    test_gen = FilteredDataGenerator(
         test_df, label_encoder, batch_size=32, shuffle=False
     )
     
-    # 5. Exemple de batch
+    # 6. Exemple de batch
     x_batch, y_batch = train_gen[0]
-    print(f"Batch X shape: {x_batch.shape}")  # (32, 71840, 1)
-    print(f"Batch y shape: {y_batch.shape}")  # (32, 256, 4)
+    print(f"\nBatch X shape: {x_batch.shape}")  # (32, N_filtered, 1)
+    print(f"Batch y shape: {y_batch.shape}")  # (32, N_filtered, 3)
+    
+    # 7. Vérification des valeurs x
+    sample_x_filtered = [x for x in df.iloc[0]['x'] if x < 150]
+    print(f"\nExemple de valeurs x filtrées (max={max(sample_x_filtered):.2f}):")
+    print(sample_x_filtered[:5])
