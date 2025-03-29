@@ -223,3 +223,29 @@ else:
     print('Model does exist, loading...')
     model = tf.keras.models.load_model(path_model + MODEL_NAME)
 
+# Évaluation globale
+loss, acc = model.evaluate(X_test, Y_test)
+print(f"Test Loss = {loss:.4f} | Test Accuracy = {acc:.4f}")
+# Prédiction sur le premier chromatogramme du test
+sample_idx = 0
+X_sample = X_test[sample_idx:sample_idx+1]  # (1, seq_len, 2)
+Y_sample_true = Y_test[sample_idx]          # (seq_len, 4)
+
+# Prédiction
+Y_sample_pred = model.predict(X_sample)[0]  # (seq_len, 4)
+
+# Décodage des classes point par point
+predicted_classes = np.argmax(Y_sample_pred, axis=-1)
+true_classes = np.argmax(Y_sample_true, axis=-1)
+
+print("Classes prédictes :", predicted_classes)
+print("Classes réelles   :", true_classes)
+import matplotlib.pyplot as plt
+
+plt.figure(figsize=(15,4))
+plt.plot(X_sample[0, :, 0], X_sample[0, :, 1], label="Signal chromatogramme")
+plt.scatter(X_sample[0, :, 0], predicted_classes * 0.1, label="Classes prédictes", marker='x')
+plt.scatter(X_sample[0, :, 0], true_classes * 0.1, label="Classes vraies", marker='o', alpha=0.5)
+plt.legend()
+plt.title("Résultat sur un échantillon de test")
+plt.show()
