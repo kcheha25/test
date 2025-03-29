@@ -1,79 +1,154 @@
+import numpy as np
+import pandas as pd
+from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
-import matplotlib.patches as patches
 
-def plot_chromatogram_with_peaks(x_batch, y_batch, sample_idx=0):
-    """
-    Affiche un chromatogramme avec les pics détectés
-    
-    Args:
-        x_batch: Batch de données chromatographiques (shape: [batch, points, 1])
-        y_batch: Batch de labels (shape: [batch, points, 3])
-        sample_idx: Index de l'échantillon dans le batch à visualiser
-    """
+class PrecisionLabelEncoder:
+    def __init__(self, x_threshold=150, rt_precision=3):
+        """
+        Args:
+            x_threshold: Seuil de filtration des points
+            rt_precision: Précision décimale pour l'arrondi des temps de rétention
+        """
+        self.x_threshold = x_threshold
+        self.rt_precision = rt_precision
+        
+    def encode(self, peaks_data, x_values, y_values):
+        """
+        Nouvelle version avec gestion de la précision des temps de rétention
+        
+        Args:
+            peaks_data: Dict {rt: [comp, left, right]}
+            x_values: Array des temps de rétention
+            y_values: Array des intensités
+            
+        Returns:
+            Tuple (labels, filtered_indices)
+            labels: Array de [prob, rt_norm, area_norm]
+        """
+        # Filtrage initial
+        valid_mask = np.array(x_values) < self.x_threshold
+        filtered_x = np.array(x_values)[valid_mask]
+        filtered_y = np.array(y_values)[valid_mask]
+        
+        # Initialisation des labels
+        labels = np.zeros((len(filtered_x), 3))
+        
+        if not isinstance(peaks_data, dict):
+            return labels, np.where(valid_mask)[0]
+            
+        # Préparation des pics avec arrondi
+        rounded_peaks = {}
+        for rt_str, (comp, left, right) in peaks_data.items():
+            try:
+                rt = round(float(rt_str), self.rt_precision)
+                left = round(float(left), self.rt_precision)
+                right = round(float(right), self.rt_precision)
+                rounded_peaks[rt] = (comp, left, right)
+            except (ValueError, TypeError):
+                continue
+                
+        # Encodage avec matching de précision
+        for rt, (comp, left, right) in rounded_peaks.items():
+            # Trouver les points dans la plage [left, right]
+            peak_mask = (filtered_x >= left) & (filtered_x <= right)
+            peak_indices = np.where(peak_mask)[0]
+            
+            if len(peak_indices) == 0:
+                continue
+                
+            # Centre du pic (point d'intensité max dans la plage)
+            peak_center_idx = peak_indices[np.argmax(filtered_y[peak_indices])]
+            rt_actual = filtered_x[peak_center_idx]
+            
+            # Mise à jour des labels
+            labels[peak_indices, 0] = 1.0  # Probabilité
+            labels[peak_indices, 1] = rt_actual  # Position réelle
+            labels[peak_indices, 2] = (right - left)  # Largeur
+            
+        return labels, np.where(valid_mask)[0]
+
+class ImprovedDataGenerator(tf.keras.utils.Sequence):
+    def __init__(self, df, label_encoder, batch_size=32, shuffle=False):
+        self.df = df
+        self.label_encoder = label_encoder
+        self.batch_size = batch_size
+        self.shuffle = shuffle
+        self.indices = np.arange(len(df))
+        self.on_epoch_end()
+        
+        # Initialisation de la taille filtrée
+        sample = df.iloc[0]
+        _, valid_idx = label_encoder.encode({}, sample['x'], sample['y'])
+        self.filtered_length = len(valid_idx)
+
+    def __getitem__(self, index):
+        batch_indices = self.indices[index*self.batch_size:(index+1)*self.batch_size]
+        
+        x_batch = np.zeros((len(batch_indices), self.filtered_length, 1))
+        y_batch = np.zeros((len(batch_indices), self.filtered_length, 3))
+        
+        for i, idx in enumerate(batch_indices):
+            row = self.df.iloc[idx]
+            x_vals = row['x']
+            y_vals = row['y']
+            peaks = row.get('pics', {})
+            
+            # Encodage avec la nouvelle méthode
+            y, _ = self.label_encoder.encode(peaks, x_vals, y_vals)
+            
+            # Normalisation
+            x_filtered = np.array([y_vals[i] for i, x in enumerate(x_vals) 
+                                if x < self.label_encoder.x_threshold])
+            x_norm = (x_filtered / (np.max(x_filtered) + 1e-8))[:, None]
+            
+            x_batch[i] = x_norm
+            y_batch[i] = y.astype(np.float32)
+            
+        return x_batch, y_batch
+
+    # [...] (autres méthodes restent identiques)
+
+def plot_peaks_with_precision(x_batch, y_batch, sample_idx=0):
+    """Visualisation avec marquage précis des pics"""
     plt.figure(figsize=(15, 6))
     
-    # Extraire les données du sample spécifique
-    chromatogram = x_batch[sample_idx, :, 0]  # Signal chromatographique
-    y_sample = y_batch[sample_idx]  # Labels
+    signal = x_batch[sample_idx, :, 0]
+    labels = y_batch[sample_idx]
+    x_points = np.arange(len(signal))
     
-    # Créer un array d'indices pour l'axe x (points filtrés)
-    x_points = np.arange(len(chromatogram))
+    plt.plot(x_points, signal, 'b-', label='Signal', lw=1)
     
-    # Tracer le chromatogramme
-    plt.plot(x_points, chromatogram, label='Signal chromatographique', linewidth=1)
-    
-    # Identifier les pics (où prob > 0.5)
-    peak_indices = np.where(y_sample[:, 0] > 0.5)[0]
-    
-    if len(peak_indices) > 0:
-        # Tracer les pics détectés
-        plt.scatter(x_points[peak_indices], chromatogram[peak_indices], 
-                   color='red', s=30, label='Pics détectés', zorder=3)
+    # Détection des pics
+    peak_mask = labels[:, 0] > 0.5
+    if np.any(peak_mask):
+        peak_positions = labels[peak_mask, 1]  # Positions réelles
+        unique_peaks = np.unique(np.round(peak_positions, 3))  # Regroupement par précision
         
-        # Ajouter les zones de pics (bornes)
-        for idx in peak_indices:
-            # Calculer les bornes en points
-            pos_norm = y_sample[idx, 1]
-            area_norm = y_sample[idx, 2]
-            
-            # Convertir en positions réelles
-            left = int(pos_norm * len(chromatogram) - int(area_norm * len(chromatogram)/2
-            right = int(pos_norm * len(chromatogram)) + int(area_norm * len(chromatogram)/2
-            
-            # Ajuster pour rester dans les bornes
-            left = max(0, left)
-            right = min(len(chromatogram)-1, right)
-            
-            # Créer un rectangle pour la zone du pic
-            rect = patches.Rectangle(
-                (left, np.min(chromatogram)), 
-                right-left, 
-                np.max(chromatogram)-np.min(chromatogram),
-                linewidth=1, 
-                edgecolor='orange', 
-                facecolor='orange',
-                alpha=0.2,
-                label='Zone du pic' if idx == peak_indices[0] else ""
-            )
-            plt.gca().add_patch(rect)
+        for peak in unique_peaks:
+            idx = np.argmin(np.abs(labels[:, 1] - peak))
+            plt.scatter(x_points[idx], signal[idx], 
+                       color='red', s=100, zorder=3,
+                       label=f'Pic à {peak:.3f}')
     
-    plt.title(f"Chromatogramme filtré (échantillon {sample_idx})")
-    plt.xlabel("Points filtrés (x < 150)")
-    plt.ylabel("Intensité normalisée")
+    plt.title("Chromatogramme avec détection précise des pics")
+    plt.xlabel("Index des points")
+    plt.ylabel("Intensité")
     plt.legend()
     plt.grid(alpha=0.3)
-    plt.tight_layout()
     plt.show()
 
-# -----------------------------------------------------------
-# Ajout à la partie visualisation existante
-# -----------------------------------------------------------
+# Exemple d'utilisation
 if __name__ == "__main__":
-    # [...] (le reste du code existant)
+    df = pd.read_json("chromatogrammes.json")
+    df = df[df['x'].apply(len) == 71840]
     
-    # 8. Visualisation d'un chromatogramme avec ses pics
-    print("\nVisualisation d'un chromatogramme exemple:")
-    plot_chromatogram_with_peaks(x_batch, y_batch, sample_idx=0)
+    # Encodage avec précision décimale ajustée
+    label_encoder = PrecisionLabelEncoder(x_threshold=150, rt_precision=3)
     
-    # Option: Sauvegarde de la figure
-    # plt.savefig('chromatogramme_avec_pics.png', dpi=300)
+    train_df, test_df = train_test_split(df, test_size=0.2, random_state=42)
+    train_gen = ImprovedDataGenerator(train_df, label_encoder, batch_size=16)
+    
+    # Visualisation
+    x_batch, y_batch = train_gen[0]
+    plot_peaks_with_precision(x_batch, y_batch)
