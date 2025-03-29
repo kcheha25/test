@@ -84,6 +84,12 @@ class IPA(tf.keras.Model):
         out = self.dropout(out)
         out = self.classifier(out)  # (batch, seq_len, 4)
         return out
+self.branch1 = tf.keras.Sequential([
+    AveragePooling1D(pool_size=3, strides=1, padding='same'),
+    BasicConv1D(filters=in_channels * 2, kernel_size=1, strides=1,
+                kernel_regularizer=L2(regularization_factor),
+                kernel_initializer=initializers.HeNormal(seed_value))
+])
 
 if __name__ == '__main__':
     model = IPA(seed_value=1, regularization_factor=0.0095)
