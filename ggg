@@ -1,0 +1,81 @@
+import numpy as np
+import tensorflow as tf
+import math
+from collections import defaultdict
+
+class ChromatogramLabelEncoder:
+    def __init__(self, num_windows=256, signal_length=71840):
+        self.num_windows = num_windows
+        self.signal_length = signal_length
+        self.window_size = signal_length / num_windows
+        self.window_borders = np.linspace(0, signal_length, num_windows + 1)
+
+    def encode(self, peaks_data):
+        """
+        Encode TOUS les pics (même dans la même fenêtre)
+        peaks_data: Dict {position_pic: [composant, gauche, droite]}
+        Retourne: (num_windows, 4) où les 4 valeurs sont:
+            [max_prob, mean_loc, mean_left, mean_right] pour chaque fenêtre
+        """
+        # Initialiser avec des listes vides pour chaque fenêtre
+        window_data = defaultdict(lambda: {'probs': [], 'locs': [], 'lefts': [], 'rights': []})
+
+        for rt, (_, left, right) in peaks_data.items():
+            window_idx = np.searchsorted(self.window_borders, rt) - 1
+            window_idx = np.clip(window_idx, 0, self.num_windows - 1)
+            
+            # Position relative dans la fenêtre [0,1]
+            window_start = self.window_borders[window_idx]
+            loc_in_window = (rt - window_start) / self.window_size
+            
+            # Stocker toutes les valeurs
+            window_data[window_idx]['probs'].append(1.0)
+            window_data[window_idx]['locs'].append(loc_in_window)
+            window_data[window_idx]['lefts'].append(left / self.signal_length)
+            window_data[window_idx]['rights'].append(right / self.signal_length)
+
+        # Agrégation par fenêtre (moyenne/max)
+        labels = np.zeros((self.num_windows, 4))
+        for window_idx in range(self.num_windows):
+            data = window_data[window_idx]
+            if data['probs']:
+                labels[window_idx, 0] = np.max(data['probs'])  # Probabilité max
+                labels[window_idx, 1] = np.mean(data['locs'])  # Position moyenne
+                labels[window_idx, 2] = np.mean(data['lefts'])  # Borne gauche moyenne
+                labels[window_idx, 3] = np.mean(data['rights']) # Borne droite moyenne
+                
+        return labels
+
+class ChromatogramDataGenerator(tf.keras.utils.Sequence):
+    def __init__(self, df, label_encoder, batch_size=32, shuffle=False):
+        self.df = df
+        self.label_encoder = label_encoder
+        self.batch_size = batch_size
+        self.shuffle = shuffle
+        self.indices = np.arange(len(df))
+        self.on_epoch_end()
+
+    def __len__(self):
+        return math.ceil(len(self.df) / self.batch_size)
+
+    def on_epoch_end(self):
+        if self.shuffle:
+            np.random.shuffle(self.indices)
+
+    def _preprocess(self, x):
+        """Normalisation du signal seul"""
+        x = x.astype(np.float32)
+        return (x / (np.max(x) + 1e-8))[:, np.newaxis]  # (71840, 1)
+
+    def __getitem__(self, index):
+        batch_indices = self.indices[index*self.batch_size:(index+1)*self.batch_size]
+        
+        x_batch = np.zeros((len(batch_indices), 71840, 1))
+        y_batch = np.zeros((len(batch_indices), 256, 4))
+        
+        for i, idx in enumerate(batch_indices):
+            row = self.df.iloc[idx]
+            x_batch[i] = self._preprocess(row['y'])
+            y_batch[i] = self.label_encoder.encode(row['pics'])
+            
+        return x_batch, y_batch
