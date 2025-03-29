@@ -57,7 +57,10 @@ class DataGenerator(tf.keras.utils.Sequence):
                 # Calcul de l'aire sous la courbe
                 area = np.trapz(chromatogram_y[int(borne_avant):int(borne_apres)])
                 
-                heights.append(chromatogram_y[int(valeur_pic)])
+                # Trouver l'index correspondant au temps de valeur_pic
+                pic_idx = np.argmin(np.abs(chromatogram_x - valeur_pic))  # Trouver l'index le plus proche
+
+                heights.append(chromatogram_y[pic_idx])  # Utiliser pic_idx au lieu de valeur_pic
                 bounds.append((borne_avant, borne_apres))
                 components.append(valeur_pic)
 
