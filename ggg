@@ -1,142 +1,79 @@
-import numpy as np
-import tensorflow as tf
-import math
-from sklearn.model_selection import train_test_split
-import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
 
-class FilteredLabelEncoder:
-    def __init__(self, signal_length=71840, x_threshold=150):
-        self.signal_length = signal_length
-        self.x_threshold = x_threshold
+def plot_chromatogram_with_peaks(x_batch, y_batch, sample_idx=0):
+    """
+    Affiche un chromatogramme avec les pics détectés
+    
+    Args:
+        x_batch: Batch de données chromatographiques (shape: [batch, points, 1])
+        y_batch: Batch de labels (shape: [batch, points, 3])
+        sample_idx: Index de l'échantillon dans le batch à visualiser
+    """
+    plt.figure(figsize=(15, 6))
+    
+    # Extraire les données du sample spécifique
+    chromatogram = x_batch[sample_idx, :, 0]  # Signal chromatographique
+    y_sample = y_batch[sample_idx]  # Labels
+    
+    # Créer un array d'indices pour l'axe x (points filtrés)
+    x_points = np.arange(len(chromatogram))
+    
+    # Tracer le chromatogramme
+    plt.plot(x_points, chromatogram, label='Signal chromatographique', linewidth=1)
+    
+    # Identifier les pics (où prob > 0.5)
+    peak_indices = np.where(y_sample[:, 0] > 0.5)[0]
+    
+    if len(peak_indices) > 0:
+        # Tracer les pics détectés
+        plt.scatter(x_points[peak_indices], chromatogram[peak_indices], 
+                   color='red', s=30, label='Pics détectés', zorder=3)
         
-    def encode(self, peaks_data, x_values):
-        """
-        Encode uniquement les points où x < x_threshold
-        peaks_data: Dictionnaire {position_pic: [composant, borne_gauche, borne_droite]}
-        x_values: Liste des valeurs x (temps de rétention)
-        Retourne: array de shape (N_filtered, 3) [prob, pos_norm, area_norm]
-        """
-        # Filtrer les indices où x < threshold
-        valid_indices = [i for i, x in enumerate(x_values) if x < self.x_threshold]
-        num_filtered = len(valid_indices)
-        labels = np.zeros((num_filtered, 3))
-        
-        if not isinstance(peaks_data, dict):
-            return labels
+        # Ajouter les zones de pics (bornes)
+        for idx in peak_indices:
+            # Calculer les bornes en points
+            pos_norm = y_sample[idx, 1]
+            area_norm = y_sample[idx, 2]
             
-        for rt_str, (_, left_bound, right_bound) in peaks_data.items():
-            try:
-                rt = float(rt_str)
-                left = float(left_bound)
-                right = float(right_bound)
-            except (ValueError, TypeError):
-                continue
-                
-            # Trouver les indices valides dans la zone du pic
-            peak_indices = [i for i in valid_indices 
-                           if left <= x_values[i] <= right]
+            # Convertir en positions réelles
+            left = int(pos_norm * len(chromatogram) - int(area_norm * len(chromatogram)/2
+            right = int(pos_norm * len(chromatogram)) + int(area_norm * len(chromatogram)/2
             
-            for idx in peak_indices:
-                # Probabilité = 1 pour les points du pic
-                labels[valid_indices.index(idx), 0] = 1.0
-                # Position normalisée du pic [0,1]
-                labels[valid_indices.index(idx), 1] = rt / self.signal_length
-                # Aire approximative (largeur normalisée)
-                labels[valid_indices.index(idx), 2] = (right - left) / self.signal_length
-                
-        return labels, valid_indices
-
-class FilteredDataGenerator(tf.keras.utils.Sequence):
-    def __init__(self, df, label_encoder, batch_size=32, shuffle=False):
-        self.df = df
-        self.label_encoder = label_encoder
-        self.batch_size = batch_size
-        self.shuffle = shuffle
-        self.indices = np.arange(len(df))
-        self.on_epoch_end()
-        
-        # Déterminer la taille filtrée une fois pour toutes
-        sample_x = df.iloc[0]['x']
-        _, valid_indices = label_encoder.encode({}, sample_x)
-        self.filtered_length = len(valid_indices)
-
-    def __len__(self):
-        return math.ceil(len(self.df) / self.batch_size)
-
-    def on_epoch_end(self):
-        if self.shuffle:
-            np.random.shuffle(self.indices)
-
-    def _preprocess(self, x, x_values, y=None):
-        """Normalisation des données filtrées"""
-        # Filtrer les points où x < threshold
-        filtered_x = [x[i] for i, x_val in enumerate(x_values) 
-                     if x_val < self.label_encoder.x_threshold]
-        
-        x_array = np.array(filtered_x, dtype=np.float32)
-        max_val = np.max(x_array) + 1e-8
-        x_norm = x_array[:, None] / max_val  # Shape (N_filtered, 1)
-        
-        if y is not None:
-            return x_norm, y.astype(np.float32)
-        return x_norm
-
-    def __getitem__(self, index):
-        batch_indices = self.indices[index*self.batch_size : (index+1)*self.batch_size]
-        
-        x_batch = np.zeros((len(batch_indices), self.filtered_length, 1))
-        y_batch = np.zeros((len(batch_indices), self.filtered_length, 3))
-        
-        for i, idx in enumerate(batch_indices):
-            row = self.df.iloc[idx]
-            x_values = row['x']
-            chromatogram = row['y']
-            peaks_data = row.get('pics', {})
+            # Ajuster pour rester dans les bornes
+            left = max(0, left)
+            right = min(len(chromatogram)-1, right)
             
-            # Encodage des labels avec filtrage
-            y, _ = self.label_encoder.encode(peaks_data, x_values)
-            
-            # Prétraitement avec filtrage
-            x, y = self._preprocess(chromatogram, x_values, y)
-            
-            x_batch[i] = x
-            y_batch[i] = y
-            
-        return x_batch, y_batch
+            # Créer un rectangle pour la zone du pic
+            rect = patches.Rectangle(
+                (left, np.min(chromatogram)), 
+                right-left, 
+                np.max(chromatogram)-np.min(chromatogram),
+                linewidth=1, 
+                edgecolor='orange', 
+                facecolor='orange',
+                alpha=0.2,
+                label='Zone du pic' if idx == peak_indices[0] else ""
+            )
+            plt.gca().add_patch(rect)
+    
+    plt.title(f"Chromatogramme filtré (échantillon {sample_idx})")
+    plt.xlabel("Points filtrés (x < 150)")
+    plt.ylabel("Intensité normalisée")
+    plt.legend()
+    plt.grid(alpha=0.3)
+    plt.tight_layout()
+    plt.show()
 
 # -----------------------------------------------------------
-# Exemple d'utilisation
+# Ajout à la partie visualisation existante
 # -----------------------------------------------------------
 if __name__ == "__main__":
-    # 1. Charger les données
-    df = pd.read_json("chromatogrammes.json")
-    df = df[df['x'].apply(len) == 71840]  # Filtrer par longueur
+    # [...] (le reste du code existant)
     
-    # 2. Initialiser l'encodeur avec seuil x < 150
-    label_encoder = FilteredLabelEncoder(x_threshold=150)
+    # 8. Visualisation d'un chromatogramme avec ses pics
+    print("\nVisualisation d'un chromatogramme exemple:")
+    plot_chromatogram_with_peaks(x_batch, y_batch, sample_idx=0)
     
-    # 3. Déterminer la taille filtrée
-    sample_x = df.iloc[0]['x']
-    _, valid_indices = label_encoder.encode({}, sample_x)
-    print(f"Nombre de points conservés: {len(valid_indices)}/{len(sample_x)}")
-    
-    # 4. Split train/test
-    train_df, test_df = train_test_split(df, test_size=0.2, random_state=42)
-    
-    # 5. Créer les générateurs
-    train_gen = FilteredDataGenerator(
-        train_df, label_encoder, batch_size=32, shuffle=True
-    )
-    test_gen = FilteredDataGenerator(
-        test_df, label_encoder, batch_size=32, shuffle=False
-    )
-    
-    # 6. Exemple de batch
-    x_batch, y_batch = train_gen[0]
-    print(f"\nBatch X shape: {x_batch.shape}")  # (32, N_filtered, 1)
-    print(f"Batch y shape: {y_batch.shape}")  # (32, N_filtered, 3)
-    
-    # 7. Vérification des valeurs x
-    sample_x_filtered = [x for x in df.iloc[0]['x'] if x < 150]
-    print(f"\nExemple de valeurs x filtrées (max={max(sample_x_filtered):.2f}):")
-    print(sample_x_filtered[:5])
+    # Option: Sauvegarde de la figure
+    # plt.savefig('chromatogramme_avec_pics.png', dpi=300)
