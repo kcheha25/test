@@ -1,112 +1,133 @@
-import json
 import numpy as np
-import matplotlib.pyplot as plt
-from scipy import stats
+import tensorflow as tf
+import math
+from sklearn.model_selection import train_test_split
 
-def calculate_optimal_windows(json_path, plot_distribution=False):
-    """
-    Calcule le nombre optimal de fenêtres en analysant la distribution des pics
-    Args:
-        json_path: Chemin vers le fichier JSON contenant les chromatogrammes
-        plot_distribution: Booléen pour afficher la distribution des distances
-    Returns:
-        optimal_windows: Nombre recommandé de fenêtres
-        analysis_report: Dictionnaire contenant les métriques d'analyse
-    """
-    
-    # 1. Chargement des données
-    with open(json_path) as f:
-        data = json.load(f)
-    
-    # 2. Extraction de tous les pics et calcul des distances
-    all_peaks = []
-    distances = []
-    
-    for chrom in data:
-        if 'pics' in chrom and chrom['pics']:
-            peaks = sorted([float(rt) for rt in chrom['pics'].keys()])
-            all_peaks.extend(peaks)
-            if len(peaks) > 1:
-                distances.extend(np.diff(peaks))
-    
-    if not distances:
-        return 256, {"message": "Pas assez de pics pour l'analyse, utilisation de la valeur par défaut 256"}
-    
-    # 3. Analyse statistique
-    distances = np.array(distances)
-    mean_dist = np.mean(distances)
-    median_dist = np.median(distances)
-    mode_dist = stats.mode(distances, keepdims=True)[0][0]
-    
-    # 4. Calcul du nombre optimal de fenêtres (3 méthodes)
-    signal_length = 71840  # Longueur fixe de vos chromatogrammes
-    
-    # Méthode 1: Basée sur la distance médiane
-    windows_median = int(signal_length / (median_dist * 2))  # Espacement de 2x la médiane
-    
-    # Méthode 2: Basée sur le clustering automatique (KDE)
-    kde = stats.gaussian_kde(distances)
-    x = np.linspace(0, np.max(distances), 1000)
-    y = kde(x)
-    mode_kde = x[np.argmax(y)]
-    windows_kde = int(signal_length / (mode_kde * 1.5))
-    
-    # Méthode 3: Basée sur le nombre moyen de pics
-    avg_peaks = len(all_peaks) / len(data)
-    windows_peaks = int(avg_peaks * 4)  # 4 fenêtres par pic moyen
-    
-    # 5. Sélection de la valeur optimale (médiane des 3 méthodes)
-    methods = [windows_median, windows_kde, windows_peaks]
-    optimal_windows = int(np.median(methods))
-    
-    # 6. Validation des limites
-    min_windows = 32   # Minimum absolu
-    max_windows = 1024 # Maximum absolu
-    optimal_windows = np.clip(optimal_windows, min_windows, max_windows)
-    
-    # 7. Visualisation (optionnelle)
-    if plot_distribution:
-        plt.figure(figsize=(12, 6))
-        plt.hist(distances, bins=50, density=True, alpha=0.7, label='Distances réelles')
-        plt.plot(x, y, 'r-', label='Estimation KDE')
-        plt.axvline(median_dist, color='g', linestyle='--', label=f'Médiane: {median_dist:.2f}')
-        plt.axvline(mode_kde, color='b', linestyle=':', label=f'Mode KDE: {mode_kde:.2f}')
-        plt.title(f'Distribution des distances entre pics\nFenêtres recommandées: {optimal_windows}')
-        plt.xlabel('Distance entre pics')
-        plt.ylabel('Densité')
-        plt.legend()
-        plt.show()
-    
-    # 8. Rapport d'analyse
-    analysis_report = {
-        "optimal_windows": optimal_windows,
-        "signal_length": signal_length,
-        "total_chromatograms": len(data),
-        "total_peaks": len(all_peaks),
-        "mean_distance": float(mean_dist),
-        "median_distance": float(median_dist),
-        "mode_distance_kde": float(mode_kde),
-        "average_peaks_per_chrom": len(all_peaks)/len(data),
-        "calculation_methods": {
-            "median_based": windows_median,
-            "kde_based": windows_kde,
-            "peak_count_based": windows_peaks
-        },
-        "window_size_pixels": signal_length/optimal_windows
-    }
-    
-    return optimal_windows, analysis_report
+class ChromatogramLabelEncoder:
+    def __init__(self, num_windows=256, signal_length=71840):
+        self.num_windows = num_windows
+        self.signal_length = signal_length
+        self.window_size = signal_length / num_windows  # ≈280.625 points/fenêtre
+        self.window_borders = np.linspace(0, signal_length, num_windows + 1)
+        self.window_centers = self.window_borders[:-1] + self.window_size/2
 
+    def encode(self, peaks_data):
+        """
+        peaks_data: Dictionnaire {position_pic: [composant, borne_gauche, borne_droite]}
+        Retourne: array de shape (num_windows, 4) [prob, loc_norm, left_norm, right_norm]
+        """
+        labels = np.zeros((self.num_windows, 4))
+        
+        for rt, (_, left_bound, right_bound) in peaks_data.items():
+            # Trouver l'index de la fenêtre
+            window_idx = np.searchsorted(self.window_borders, rt) - 1
+            window_idx = np.clip(window_idx, 0, self.num_windows - 1)
+            
+            # Calculer la position relative dans la fenêtre [0,1]
+            window_start = self.window_borders[window_idx]
+            loc_in_window = (rt - window_start) / self.window_size
+            
+            # Normaliser les bornes [0,1] par rapport au signal complet
+            left_norm = left_bound / self.signal_length
+            right_norm = right_bound / self.signal_length
+            
+            labels[window_idx, 0] = 1.0  # Probabilité
+            labels[window_idx, 1] = loc_in_window  # Position relative
+            labels[window_idx, 2] = left_norm  # Borne gauche normalisée
+            labels[window_idx, 3] = right_norm  # Borne droite normalisée
+            
+        return labels
+
+    def remove_collisions(self, peaks_data):
+        """Supprime les pics dans la même fenêtre"""
+        filtered_peaks = {}
+        occupied_windows = set()
+        
+        for rt in sorted(peaks_data.keys()):
+            window_idx = np.searchsorted(self.window_borders, rt) - 1
+            if window_idx not in occupied_windows:
+                filtered_peaks[rt] = peaks_data[rt]
+                occupied_windows.add(window_idx)
+                
+        return filtered_peaks
+
+class ChromatogramDataGenerator(tf.keras.utils.Sequence):
+    def __init__(self, df, label_encoder, batch_size=32, shuffle=False):
+        self.df = df
+        self.label_encoder = label_encoder
+        self.batch_size = batch_size
+        self.shuffle = shuffle
+        self.indices = np.arange(len(df))
+        self.on_epoch_end()
+
+    def __len__(self):
+        return math.ceil(len(self.df) / self.batch_size)
+
+    def on_epoch_end(self):
+        if self.shuffle:
+            np.random.shuffle(self.indices)
+
+    def _preprocess(self, x, y=None):
+        """Normalisation du signal chromatographique"""
+        x = x.astype(np.float32)
+        max_val = np.max(x) + 1e-8  # Éviter la division par zéro
+        x_norm = x[:, None] / max_val  # Shape (71840, 1)
+        
+        if y is not None:
+            # Pas de scaling des bornes ici (déjà normalisées dans l'encodeur)
+            return x_norm, y.astype(np.float32)
+        return x_norm
+
+    def __getitem__(self, index):
+        batch_indices = self.indices[index*self.batch_size : (index+1)*self.batch_size]
+        
+        x_batch = []
+        y_batch = []
+        
+        for idx in batch_indices:
+            row = self.df.iloc[idx]
+            
+            # Récupérer les données brutes
+            chromatogram = row['y']  # Intensités (71840 points)
+            peaks_data = row['pics']  # Dictionnaire des pics
+            
+            # Nettoyer les collisions
+            filtered_peaks = self.label_encoder.remove_collisions(peaks_data)
+            
+            # Encodage des labels
+            y = self.label_encoder.encode(filtered_peaks)
+            
+            # Prétraitement
+            x, y = self._preprocess(chromatogram, y)
+            
+            x_batch.append(x)
+            y_batch.append(y)
+            
+        return np.array(x_batch), np.array(y_batch)
+
+# -----------------------------------------------------------
 # Exemple d'utilisation
+# -----------------------------------------------------------
 if __name__ == "__main__":
-    json_path = "chromatogrammes.json"
-    optimal_windows, report = calculate_optimal_windows(json_path, plot_distribution=True)
+    # 1. Charger les données
+    df = pd.read_json("chromatogrammes.json")
+    df = df[df['x'].apply(len) == 71840]  # Filtrer par longueur
     
-    print("\n=== Rapport d'analyse ===")
-    print(f"Nombre optimal de fenêtres: {optimal_windows}")
-    print(f"Méthodes de calcul:")
-    print(f"- Basée sur médiane: {report['calculation_methods']['median_based']}")
-    print(f"- Basée sur KDE: {report['calculation_methods']['kde_based']}")
-    print(f"- Basée sur nombre de pics: {report['calculation_methods']['peak_count_based']}")
-    print(f"\nTaille de fenêtre: {report['window_size_pixels']:.2f} points")
-    print(f"Distance médiane entre pics: {report['median_distance']:.2f} points")
+    # 2. Initialiser les composants
+    label_encoder = ChromatogramLabelEncoder(num_windows=256)
+    
+    # 3. Split train/test
+    train_df, test_df = train_test_split(df, test_size=0.2, random_state=42)
+    
+    # 4. Créer les générateurs
+    train_gen = ChromatogramDataGenerator(
+        train_df, label_encoder, batch_size=32, shuffle=True
+    )
+    test_gen = ChromatogramDataGenerator(
+        test_df, label_encoder, batch_size=32, shuffle=False
+    )
+    
+    # 5. Exemple de batch
+    x_batch, y_batch = train_gen[0]
+    print(f"Batch X shape: {x_batch.shape}")  # (32, 71840, 1)
+    print(f"Batch y shape: {y_batch.shape}")  # (32, 256, 4)
