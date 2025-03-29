@@ -2,6 +2,7 @@ import numpy as np
 import tensorflow as tf
 import math
 from sklearn.model_selection import train_test_split
+import pandas as pd
 
 class ChromatogramLabelEncoder:
     def __init__(self, num_windows=256, signal_length=71840):
@@ -18,7 +19,13 @@ class ChromatogramLabelEncoder:
         """
         labels = np.zeros((self.num_windows, 4))
         
-        for rt, (_, left_bound, right_bound) in peaks_data.items():
+        for rt_str, (_, left_bound, right_bound) in peaks_data.items():
+            # Conversion de la clé (position) en float
+            try:
+                rt = float(rt_str)
+            except ValueError:
+                continue  # Ignore les entrées non convertibles
+                
             # Trouver l'index de la fenêtre
             window_idx = np.searchsorted(self.window_borders, rt) - 1
             window_idx = np.clip(window_idx, 0, self.num_windows - 1)
@@ -28,8 +35,8 @@ class ChromatogramLabelEncoder:
             loc_in_window = (rt - window_start) / self.window_size
             
             # Normaliser les bornes [0,1] par rapport au signal complet
-            left_norm = left_bound / self.signal_length
-            right_norm = right_bound / self.signal_length
+            left_norm = float(left_bound) / self.signal_length
+            right_norm = float(right_bound) / self.signal_length
             
             labels[window_idx, 0] = 1.0  # Probabilité
             labels[window_idx, 1] = loc_in_window  # Position relative
@@ -43,10 +50,15 @@ class ChromatogramLabelEncoder:
         filtered_peaks = {}
         occupied_windows = set()
         
-        for rt in sorted(peaks_data.keys()):
+        for rt_str in sorted(peaks_data.keys()):
+            try:
+                rt = float(rt_str)
+            except ValueError:
+                continue
+                
             window_idx = np.searchsorted(self.window_borders, rt) - 1
             if window_idx not in occupied_windows:
-                filtered_peaks[rt] = peaks_data[rt]
+                filtered_peaks[rt_str] = peaks_data[rt_str]
                 occupied_windows.add(window_idx)
                 
         return filtered_peaks
@@ -69,12 +81,11 @@ class ChromatogramDataGenerator(tf.keras.utils.Sequence):
 
     def _preprocess(self, x, y=None):
         """Normalisation du signal chromatographique"""
-        x = x.astype(np.float32)
+        x = np.array(x, dtype=np.float32)
         max_val = np.max(x) + 1e-8  # Éviter la division par zéro
         x_norm = x[:, None] / max_val  # Shape (71840, 1)
         
         if y is not None:
-            # Pas de scaling des bornes ici (déjà normalisées dans l'encodeur)
             return x_norm, y.astype(np.float32)
         return x_norm
 
@@ -88,8 +99,8 @@ class ChromatogramDataGenerator(tf.keras.utils.Sequence):
             row = self.df.iloc[idx]
             
             # Récupérer les données brutes
-            chromatogram = row['y']  # Intensités (71840 points)
-            peaks_data = row['pics']  # Dictionnaire des pics
+            chromatogram = row['y']
+            peaks_data = row['pics']
             
             # Nettoyer les collisions
             filtered_peaks = self.label_encoder.remove_collisions(peaks_data)
