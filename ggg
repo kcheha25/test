@@ -1,5 +1,109 @@
+import tensorflow as tf
+from tensorflow.keras import Model, initializers
+from tensorflow.keras.regularizers import L2
+from tensorflow.keras.layers import Conv1D, MaxPooling1D, Flatten, Dropout, BatchNormalization, Dense, LeakyReLU, Input, Bidirectional, LSTM
+
+class BasicConv1D(tf.keras.layers.Layer):
+    def __init__(self, filters, kernel_size, strides=1, **kwargs):
+        super(BasicConv1D, self).__init__()
+        self.conv = Conv1D(filters, kernel_size=kernel_size, strides=strides, padding="same", **kwargs)
+        self.activation = LeakyReLU()
+
+    def call(self, x):
+        x = self.conv(x)
+        x = self.activation(x)
+        return x
+
+class Module_35x35(tf.keras.layers.Layer):
+    def __init__(self, in_channels: int, regularization_factor: float, seed_value: int):
+        super(Module_35x35, self).__init__()
+        self.branch1 = tf.keras.Sequential([
+            MaxPooling1D(pool_size=2, padding='same'),
+            BasicConv1D(filters=in_channels * 2, kernel_size=1, strides=1,
+                        kernel_regularizer=L2(regularization_factor),
+                        kernel_initializer=initializers.HeNormal(seed_value))
+        ])
+        self.branch2 = tf.keras.Sequential([
+            BasicConv1D(filters=in_channels, kernel_size=1, strides=1,
+                        kernel_regularizer=L2(regularization_factor),
+                        kernel_initializer=initializers.HeNormal(seed_value)),
+            BasicConv1D(filters=in_channels * 2, kernel_size=3, strides=1,
+                        kernel_regularizer=L2(regularization_factor),
+                        kernel_initializer=initializers.HeNormal(seed_value)),
+        ])
+        self.branch3 = tf.keras.Sequential([
+            BasicConv1D(filters=in_channels, kernel_size=1, strides=1,
+                        kernel_regularizer=L2(regularization_factor),
+                        kernel_initializer=initializers.HeNormal(seed_value)),
+            BasicConv1D(filters=in_channels * 2, kernel_size=3, strides=1,
+                        kernel_regularizer=L2(regularization_factor),
+                        kernel_initializer=initializers.HeNormal(seed_value)),
+            BasicConv1D(filters=in_channels * 2, kernel_size=3, strides=1,
+                        kernel_regularizer=L2(regularization_factor),
+                        kernel_initializer=initializers.HeNormal(seed_value)),
+        ])
+        self.branch4 = tf.keras.Sequential([
+            BasicConv1D(filters=in_channels * 2, kernel_size=1, strides=1,
+                        kernel_regularizer=L2(regularization_factor),
+                        kernel_initializer=initializers.HeNormal(seed_value)),
+        ])
+
+    def call(self, x):
+        branch1 = self.branch1(x)
+        branch2 = self.branch2(x)
+        branch3 = self.branch3(x)
+        branch4 = self.branch4(x)
+        out = tf.concat([branch1, branch2, branch3, branch4], axis=-1)
+        return out
+
+class IPA(tf.keras.Model):
+    def __init__(self, seed_value, regularization_factor, dropout_rate=0.2):
+        super(IPA, self).__init__()
+        self.stem = tf.keras.Sequential([
+            BasicConv1D(filters=32, kernel_size=3, strides=1,
+                        kernel_regularizer=L2(regularization_factor),
+                        kernel_initializer=initializers.HeNormal(seed_value)),
+            BasicConv1D(filters=32, kernel_size=3, strides=1,
+                        kernel_regularizer=L2(regularization_factor),
+                        kernel_initializer=initializers.HeNormal(seed_value)),
+        ])
+        self.module_35x35 = Module_35x35(in_channels=32, regularization_factor=regularization_factor, seed_value=seed_value)
+        
+        # LSTM pour capturer la dépendance temporelle
+        self.lstm = Bidirectional(LSTM(64, return_sequences=True))
+
+        self.dropout = Dropout(rate=dropout_rate)
+
+        # Prédiction pour chaque point
+        self.classifier = Dense(4, activation='softmax')
+
+    def call(self, x):
+        out = self.stem(x)
+        out = self.module_35x35(out)
+        out = self.lstm(out)
+        out = self.dropout(out)
+        out = self.classifier(out)  # (batch, seq_len, 4)
+        return out
+
+if __name__ == '__main__':
+    model = IPA(seed_value=1, regularization_factor=0.0095)
+    model.build((None, 3890, 2))  # (batch, seq_len, 2)
+    model.summary()
+
+
+
+import os
 import pandas as pd
 import numpy as np
+import tensorflow as tf
+from tensorflow.keras import optimizers
+from tensorflow.keras.callbacks import EarlyStopping
+from tqdm.keras import TqdmCallback
+from sklearn.model_selection import train_test_split
+
+# =========================
+# Chargement et préparation
+# =========================
 
 file_path = "chromatogrammes.json"
 df = pd.read_json(file_path)
@@ -17,41 +121,30 @@ def truncate(row):
 
 df = df.apply(truncate, axis=1)
 
-# Taille après découpage
 sequence_length = df.iloc[0]["x"].__len__()
 
 # Input X : (n, sequence_length, 2)
 X = np.array([np.column_stack((row["x"], row["y"])) for _, row in df.iterrows()])
 
-# ======================
-# Normalisation de X
-# ======================
-
-# Normalisation du temps entre [0,1]
+# Normalisation du temps
 X[:, :, 0] = X[:, :, 0] / 150.0
 
-# Normalisation de l'intensité par chromatogramme
+# Normalisation de l'intensité
 for i in range(X.shape[0]):
     max_intensity = np.max(X[i, :, 1])
     if max_intensity > 0:
         X[i, :, 1] /= max_intensity
 
-# ======================
-# Création de Y (one-hot)
-# ======================
-
-# Label Y one-hot : (n, sequence_length, 4)
+# Labels Y one-hot : (n, sequence_length, 4)
 Y = np.zeros((len(df), sequence_length, 4), dtype=np.int32)
 
 for i, (_, row) in enumerate(df.iterrows()):
-    x_time = np.array(row["x"])  # temps après découpage
-    
+    x_time = np.array(row["x"])
     for pic_time, data in row["pics"].items():
         borne_avant_time = data[1]
         pic_time = float(pic_time)
         borne_apres_time = data[2]
 
-        # Vérification que l'événement est toujours dans l'intervalle <=150
         if pic_time > 150:
             continue
 
@@ -63,5 +156,64 @@ for i, (_, row) in enumerate(df.iterrows()):
         Y[i, pic_idx, 2] = 1
         Y[i, borne_apres_idx, 3] = 1
 
-# Classe "aucun"
 Y[:, :, 0] = (Y.sum(axis=-1) == 0).astype(int)
+
+# ======================
+# Split train/test
+# ======================
+
+X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
+
+# ======================
+# Hyperparamètres
+# ======================
+
+MODEL_NAME = 'IPA'
+path_model = 'model/'
+SEED_VALUE = 1
+
+LEARNING_RATE = .001
+BATCH_SIZE = 16
+EPOCHS = 500
+
+REGULARIZATION_COEF = .0095
+DROPOUT_RATE = .2
+
+# ======================
+# Entraînement
+# ======================
+
+if not os.path.exists(path_model + MODEL_NAME):
+    print('Model does not exist, training in progress...')
+
+    model = IPA(seed_value=SEED_VALUE,
+                regularization_factor=REGULARIZATION_COEF,
+                dropout_rate=DROPOUT_RATE)
+
+    # Schedule
+    lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
+        initial_learning_rate=LEARNING_RATE,
+        decay_steps=10000, decay_rate=.001)
+
+    optimizer = optimizers.Adam(learning_rate=lr_schedule)
+    model.compile(optimizer=optimizer, loss='categorical_crossentropy', metrics=['accuracy'])
+
+    stop_early = EarlyStopping(monitor='val_loss', patience=50, restore_best_weights=True)
+
+    history = model.fit(
+        X_train, Y_train,
+        epochs=EPOCHS,
+        batch_size=BATCH_SIZE,
+        validation_data=(X_test, Y_test),
+        callbacks=[stop_early, TqdmCallback(verbose=1)],
+        verbose=0
+    )
+
+    print('Saving model')
+    os.makedirs(path_model + MODEL_NAME, exist_ok=True)
+    model.save(path_model + MODEL_NAME, overwrite=True, save_format='tf')
+
+else:
+    print('Model does exist, loading...')
+    model = tf.keras.models.load_model(path_model + MODEL_NAME)
+
