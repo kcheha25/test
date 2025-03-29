@@ -1,162 +1,112 @@
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import train_test_split
-import matplotlib.pyplot as plt
+import tensorflow as tf
+import math
 
-class DirectPeakEncoder:
-    def __init__(self, x_threshold=150):
-        self.x_threshold = x_threshold
-    
-    def encode(self, peaks_data, x_values, y_values):
-        """
-        Nouvel encodage direct point à point
-        
-        Args:
-            peaks_data: Dict {rt: [comp, left, right]}
-            x_values: Array des temps de rétention
-            y_values: Array des intensités
-            
-        Returns:
-            Tuple (labels, filtered_indices)
-            labels: Array de [prob, rt_norm, width_norm]
-        """
-        # Filtrage initial
-        valid_mask = np.array(x_values) < self.x_threshold
-        filtered_x = np.array(x_values)[valid_mask]
-        filtered_y = np.array(y_values)[valid_mask]
-        
-        labels = np.zeros((len(filtered_x), 3))
-        
-        if not isinstance(peaks_data, dict):
-            return labels, np.where(valid_mask)[0]
-        
-        # Conversion des pics en array structuré
-        peaks_list = []
-        for rt_str, (_, left, right) in peaks_data.items():
-            try:
-                rt = float(rt_str)
-                left = float(left)
-                right = float(right)
-                peaks_list.append((rt, left, right))
-            except (ValueError, TypeError):
-                continue
-        
-        if not peaks_list:
-            return labels, np.where(valid_mask)[0]
-            
-        peaks_array = np.array(peaks_list, dtype=[
-            ('rt', 'f4'), ('left', 'f4'), ('right', 'f4')
-        ])
-        
-        # Pour chaque point, trouver le pic correspondant
-        for i, x in enumerate(filtered_x):
-            # Trouver tous les pics contenant ce point
-            matching_peaks = peaks_array[
-                (peaks_array['left'] <= x) & 
-                (peaks_array['right'] >= x)
-            ]
-            
-            if len(matching_peaks) > 0:
-                # Prendre le pic le plus proche
-                closest_peak = matching_peaks[
-                    np.argmin(np.abs(matching_peaks['rt'] - x))
-                ]
-                
-                labels[i, 0] = 1.0  # Probabilité
-                labels[i, 1] = closest_peak['rt']  # Position réelle
-                labels[i, 2] = closest_peak['right'] - closest_peak['left']  # Largeur
-                
-        return labels, np.where(valid_mask)[0]
+class DataGenerator(tf.keras.utils.Sequence):
 
-class RobustDataGenerator(tf.keras.utils.Sequence):
-    def __init__(self, df, encoder, batch_size=32, shuffle=False):
+    def __init__(
+        self,
+        indices,
+        df,
+        batch_size=32,
+        window_size=256,
+        shuffle=False
+    ):
+        self.indices = indices
         self.df = df
-        self.encoder = encoder
         self.batch_size = batch_size
+        self.window_size = window_size
         self.shuffle = shuffle
-        self.indices = np.arange(len(df))
         self.on_epoch_end()
-        
-        # Initialisation de la taille
-        sample = df.iloc[0]
-        _, valid_idx = encoder.encode({}, sample['x'], sample['y'])
-        self.filtered_length = len(valid_idx)
-    
-    def __getitem__(self, index):
-        batch_indices = self.indices[index*self.batch_size:(index+1)*self.batch_size]
-        
-        x_batch = np.zeros((len(batch_indices), self.filtered_length, 1))
-        y_batch = np.zeros((len(batch_indices), self.filtered_length, 3))
-        
-        for i, idx in enumerate(batch_indices):
-            row = self.df.iloc[idx]
-            x_vals = row['x']
-            y_vals = row['y']
-            peaks = row.get('pics', {})
-            
-            y, _ = self.encoder.encode(peaks, x_vals, y_vals)
-            
-            # Normalisation
-            x_filtered = np.array([y_vals[i] for i, x in enumerate(x_vals) 
-                                if x < self.encoder.x_threshold])
-            x_norm = (x_filtered / (np.max(x_filtered) + 1e-8))[:, None]
-            
-            x_batch[i] = x_norm
-            y_batch[i] = y.astype(np.float32)
-            
-        return x_batch, y_batch
-    
+
     def __len__(self):
-        return math.ceil(len(self.df) / self.batch_size)
-    
+        return math.ceil(len(self.indices) / self.batch_size)
+
     def on_epoch_end(self):
         if self.shuffle:
             np.random.shuffle(self.indices)
 
-def plot_peaks_direct(x_batch, y_batch, x_values, sample_idx=0):
-    """Visualisation avec matching exact des positions"""
-    plt.figure(figsize=(15, 6))
-    
-    signal = x_batch[sample_idx, :, 0]
-    labels = y_batch[sample_idx]
-    x_points = x_values[x_values < 150]  # Utiliser les vrais x
-    
-    plt.plot(x_points, signal, 'b-', lw=1, label='Signal')
-    
-    # Points avec prob=1
-    peak_mask = labels[:, 0] > 0.5
-    if np.any(peak_mask):
-        # Groupement par pic (même position rt)
-        unique_peaks = {}
-        for i in np.where(peak_mask)[0]:
-            rt = labels[i, 1]
-            if rt not in unique_peaks:
-                unique_peaks[rt] = x_points[i]
-        
-        # Affichage
-        for rt, x_pos in unique_peaks.items():
-            y_pos = signal[np.argmin(np.abs(x_points - x_pos))]
-            plt.scatter(x_pos, y_pos, color='red', s=50, 
-                       label=f'Pic à {rt:.3f}')
-    
-    plt.title("Détection précise des pics")
-    plt.xlabel("Temps de rétention (x)")
-    plt.ylabel("Intensité normalisée")
-    plt.legend()
-    plt.grid(alpha=0.3)
-    plt.show()
+    @staticmethod
+    def _preprocess(x, y=None):
+        x = x[:, None]
+        max_val = x.max()
+        if y is not None:
+            y[:, -1] /= max_val
+            y[:, -1] *= 600  # scale area to a 600 second long run
+            return x / max_val, y
+        return x / max_val
 
-# Utilisation
-if __name__ == "__main__":
-    df = pd.read_json("chromatogrammes.json")
-    df = df[df['x'].apply(len) == 71840]
-    
-    encoder = DirectPeakEncoder(x_threshold=150)
-    train_df, _ = train_test_split(df, test_size=0.2)
-    
-    train_gen = RobustDataGenerator(train_df, encoder, batch_size=8)
-    x_batch, y_batch = train_gen[0]
-    
-    # Visualisation avec les vraies valeurs x
-    sample_x = train_df.iloc[0]['x']
-    plot_peaks_direct(x_batch, y_batch, np.array(sample_x))
+    def __getitem__(self, index):
+
+        batch_indices = self.indices[
+            index * self.batch_size: (1 + index) * self.batch_size
+        ]
+
+        x_batch, y_batch = [], []
+        for idx in batch_indices:
+            row = self.df.iloc[idx]
+            chromatogram_x = np.array(row["x"])
+            chromatogram_y = np.array(row["y"])
+
+            # Extraire les informations des pics
+            heights, bounds, components = [], [], []
+            for valeur_pic, data in row["pics"].items():
+                borne_avant = data[1]
+                borne_apres = data[2]
+                # Calcul de l'aire sous la courbe
+                area = np.trapz(chromatogram_y[int(borne_avant):int(borne_apres)])
+                
+                heights.append(chromatogram_y[int(valeur_pic)])
+                bounds.append((borne_avant, borne_apres))
+                components.append(valeur_pic)
+
+            # Création de X et Y pour chaque fenêtre
+            for start_idx in range(0, len(chromatogram_x) - self.window_size + 1, self.window_size):
+                end_idx = start_idx + self.window_size
+                window_x = chromatogram_x[start_idx:end_idx]
+                window_y = chromatogram_y[start_idx:end_idx]
+                
+                # Initialisation de Y (probabilité de pic, localisation, aire sous la courbe)
+                y = np.zeros((self.window_size, 4))  # 4: probabilité, localisation, aire, (0)
+                
+                # Pour chaque pic, remplir les informations correspondantes dans Y
+                for h, (borne_avant, borne_apres), pic in zip(heights, bounds, components):
+                    # Localisation du pic dans la fenêtre (en terme de l'index local)
+                    local_loc = np.argmin(np.abs(window_x - pic))
+                    # Probabilité d'avoir un pic à cet endroit
+                    prob = 1.0
+                    y[local_loc, 0] = prob  # probabilité
+                    y[local_loc, 1] = pic   # localisation du pic
+                    y[local_loc, 2] = area  # aire sous la courbe
+                    # Optionnel : la 4ème colonne pourrait être des informations supplémentaires
+                    y[local_loc, 3] = 0     # (par exemple, 0 si on ne souhaite pas l'utiliser)
+                
+                x_batch.append(window_x)
+                y_batch.append(y)
+
+        # Retourner les batchs prétraités
+        return np.array(x_batch), np.array(y_batch)
+
+
+# Exemple d'utilisation du générateur
+
+# 🔹 Charger les données JSON en DataFrame
+file_path = "chromatogrammes.json"  # Remplace par ton fichier réel
+df = pd.read_json(file_path)
+
+# 🔹 Suppression des chromatogrammes sans pics
+df = df.dropna(subset=['pics'])
+
+# 🔹 Suppression des chromatogrammes qui ne font pas exactement 71 840 points
+df = df[df["x"].apply(len) == 71840]
+
+# 🔹 Initialisation du générateur de données
+indices = np.arange(len(df))  # indices pour l'ensemble des données
+batch_size = 32
+data_generator = DataGenerator(indices=indices, df=df, batch_size=batch_size, window_size=256, shuffle=True)
+
+# 🔹 Accéder aux données du générateur (par exemple, lors de l'entraînement)
+for x_batch, y_batch in data_generator:
+    print(x_batch.shape, y_batch.shape)  # Afficher les dimensions de X et Y
+    break  # Ne prend qu'un seul batch pour l'exemple
