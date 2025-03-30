@@ -249,3 +249,18 @@ plt.scatter(X_sample[0, :, 0], true_classes * 0.1, label="Classes vraies", marke
 plt.legend()
 plt.title("Résultat sur un échantillon de test")
 plt.show()
+
+
+from sklearn.utils.class_weight import compute_class_weight
+
+# Calcul des poids de classe
+y_flat = np.argmax(Y_train, axis=-1).flatten()
+class_weights = compute_class_weight('balanced', classes=[0, 1, 2, 3], y=y_flat)
+class_weights_dict = {i: w for i, w in enumerate(class_weights)}
+
+print("Poids des classes :", class_weights_dict)
+
+# Compilation du modèle avec la fonction de perte pondérée
+model.compile(optimizer=optimizer, 
+              loss=tf.keras.losses.CategoricalCrossentropy(),
+              metrics=['accuracy', Precision(), Recall()])
