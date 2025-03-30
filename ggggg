@@ -149,3 +149,22 @@ history = model.fit(
     callbacks=[stop_early, TqdmCallback(verbose=1)],
     verbose=0
 )
+
+
+    def call(self, x):
+        out = self.stem(x)
+        out = self.module_35x35(out)
+        out = self.lstm(out)
+        out = self.dropout(out)
+        out = self.classifier(out)  # (batch, seq_len, 3)
+
+        # Séparer la sortie en 3 parties
+        pred, loc, area = tf.split(out, 3, axis=-1)
+
+        # Appliquer sigmoid sur pred et loc
+        pred = tf.nn.sigmoid(pred)
+        loc = tf.nn.sigmoid(loc)
+
+        # Concatenate les résultats
+        out = tf.concat([pred, loc, area], axis=-1)
+        return out
