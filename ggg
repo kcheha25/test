@@ -276,3 +276,34 @@ class_counts = Counter(y_flat)
 # Affichage des résultats
 for class_label in sorted(class_counts.keys()):
     print(f"Classe {class_label} : {class_counts[class_label]} occurrences")
+def count_pics_and_borders(row):
+    pic_count = 0
+    borne_avant_count = 0
+    borne_apres_count = 0
+    
+    for pic_time, data in row["pics"].items():
+        borne_avant_time = data[1]
+        pic_time = float(pic_time)
+        borne_apres_time = data[2]
+
+        # Incrémenter les compteurs pour chaque pic et bornes
+        pic_count += 1
+        borne_avant_count += 1
+        borne_apres_count += 1
+
+    return pd.Series([pic_count, borne_avant_count, borne_apres_count])
+
+# Ajouter les résultats dans le DataFrame
+df[["Nombre_de_pics", "Nombre_de_bornes_avant", "Nombre_de_bornes_apres"]] = df.apply(count_pics_and_borders, axis=1)
+
+# Afficher les résultats
+print(df[["Nombre_de_pics", "Nombre_de_bornes_avant", "Nombre_de_bornes_apres"]])
+
+# Si tu veux une vue d'ensemble avec des statistiques globales sur les chromatogrammes
+total_pics = df["Nombre_de_pics"].sum()
+total_bornes_avant = df["Nombre_de_bornes_avant"].sum()
+total_bornes_apres = df["Nombre_de_bornes_apres"].sum()
+
+print(f"Total des pics : {total_pics}")
+print(f"Total des bornes avant : {total_bornes_avant}")
+print(f"Total des bornes après : {total_bornes_apres}")
