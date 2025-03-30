@@ -264,3 +264,15 @@ print("Poids des classes :", class_weights_dict)
 model.compile(optimizer=optimizer, 
               loss=tf.keras.losses.CategoricalCrossentropy(),
               metrics=['accuracy', Precision(), Recall()])
+import numpy as np
+from collections import Counter
+
+# Conversion de Y_train en labels de classe (0, 1, 2 ou 3)
+y_flat = np.argmax(Y_train, axis=-1).flatten()
+
+# Comptage des occurrences des classes
+class_counts = Counter(y_flat)
+
+# Affichage des résultats
+for class_label in sorted(class_counts.keys()):
+    print(f"Classe {class_label} : {class_counts[class_label]} occurrences")
