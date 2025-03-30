@@ -1,0 +1,151 @@
+import tensorflow as tf
+from tensorflow.keras import optimizers
+from tensorflow.keras.callbacks import EarlyStopping
+from tqdm.keras import TqdmCallback
+
+# =========================
+# Définir la fonction de perte personnalisée
+# =========================
+
+class CustomLoss(tf.keras.losses.Loss):
+    def __init__(self, n_splits, weight_prob=1.0, weight_loc=1.0, weight_area=1.0, **kwargs):
+        super().__init__(**kwargs)
+        self.n_splits = n_splits
+        self.weight_prob = weight_prob
+        self.weight_loc = weight_loc
+        self.weight_area = weight_area
+
+    def call(self, y_true, y_pred):
+        # Séparer les prédictions et les vérités cibles
+        pred_prob, pred_loc, pred_area = tf.split(y_pred, self.n_splits, axis=-1)
+        true_prob, true_loc, true_area = tf.split(y_true, self.n_splits, axis=-1)
+
+        # Calcul de la perte de probabilité
+        prob_loss = tf.keras.losses.BinaryCrossentropy()(true_prob, pred_prob)
+
+        # Calcul de la perte de localisation
+        loc_loss = tf.keras.losses.BinaryCrossentropy()(true_loc, pred_loc)
+
+        # Calcul de la perte d'aire (MRE)
+        area_loss = tf.math.abs(true_area - pred_area) / true_area
+
+        return (prob_loss * self.weight_prob) + (loc_loss * self.weight_loc) + (area_loss * self.weight_area)
+
+# =========================
+# Définir les métriques personnalisées
+# =========================
+
+class CustomMREArea(tf.keras.metrics.Mean):
+    def update_state(self, y_true, y_pred, sample_weight=None):
+        y_true_prob, _, y_true = tf.split(y_true, 3, axis=-1)
+        y_pred_prob, _, y_pred = tf.split(y_pred, 3, axis=-1)
+
+        # Masque pour les pics
+        mask = tf.math.equal(y_true_prob, 1.)
+        y_true = tf.boolean_mask(y_true, mask)
+        y_pred = tf.boolean_mask(y_pred, mask)
+
+        error = tf.math.abs(y_true - y_pred) / tf.math.abs(y_true)
+        super().update_state(error, sample_weight=sample_weight)
+
+class CustomMAELoc(tf.keras.metrics.Mean):
+    def update_state(self, y_true, y_pred, sample_weight=None):
+        y_true_prob, y_true, _ = tf.split(y_true, 3, axis=-1)
+        y_pred_prob, y_pred, _  = tf.split(y_pred, 3, axis=-1)
+
+        # Masque pour les pics
+        mask = tf.math.equal(y_true_prob, 1.)
+        y_true = tf.boolean_mask(y_true, mask)
+        y_pred = tf.boolean_mask(y_pred, mask)
+
+        error = tf.math.abs(y_true - y_pred)
+        super().update_state(error, sample_weight=sample_weight)
+
+class CustomAUC(tf.keras.metrics.AUC):
+    def update_state(self, y_true, y_pred, sample_weight=None):
+        y_true = tf.split(y_true, 3, axis=-1)[0]
+        y_pred = tf.split(y_pred, 3, axis=-1)[0]
+        super().update_state(y_true, y_pred, sample_weight)
+
+class CustomAccuracy(tf.keras.metrics.BinaryAccuracy):
+    def update_state(self, y_true, y_pred, sample_weight=None):
+        y_true = tf.split(y_true, 3, axis=-1)[0]
+        y_pred = tf.split(y_pred, 3, axis=-1)[0]
+        super().update_state(y_true, y_pred, sample_weight)
+
+# =========================
+# Charger et préparer les données
+# =========================
+
+# Charger les chromatogrammes
+file_path = "chromatogrammes.json"
+df = pd.read_json(file_path)
+
+# Filtrer les chromatogrammes
+df = df.dropna(subset=['pics'])
+df = df[df["x"].apply(len) == 71840]
+
+# Troncature des chromatogrammes
+def truncate(row):
+    mask = np.array(row["x"]) <= 150
+    row["x"] = np.array(row["x"])[mask].tolist()
+    row["y"] = np.array(row["y"])[mask].tolist()
+    return row
+
+df = df.apply(truncate, axis=1)
+
+sequence_length = df.iloc[0]["x"].__len__()
+
+# Préparer les données d'entrée X et de sortie Y
+X = np.array([np.column_stack((row["x"], row["y"])) for _, row in df.iterrows()])
+X[:, :, 0] = X[:, :, 0] / 150.0  # Normalisation du temps
+for i in range(X.shape[0]):
+    max_intensity = np.max(X[i, :, 1])
+    if max_intensity > 0:
+        X[i, :, 1] /= max_intensity
+
+Y = np.zeros((len(df), sequence_length, 3), dtype=np.float32)
+for i, (_, row) in enumerate(df.iterrows()):
+    x_time = np.array(row["x"])
+    for pic_time, data in row["pics"].items():
+        borne_avant_time = data[1]
+        pic_time = float(pic_time)
+        borne_apres_time = data[2]
+        if pic_time > 150:
+            continue
+        borne_avant_idx = np.argmin(np.abs(x_time - borne_avant_time))
+        pic_idx = np.argmin(np.abs(x_time - pic_time))
+        borne_apres_idx = np.argmin(np.abs(x_time - borne_apres_time))
+
+        Y[i, pic_idx, 0] = 1
+        Y[i, pic_idx, 1] = pic_time / 150.0
+        time_diff = borne_apres_time - borne_avant_time
+        Y[i, pic_idx, 2] = time_diff
+
+# Séparer les données en ensembles d'entraînement et de test
+X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
+
+# =========================
+# Entraînement du modèle
+# =========================
+
+model = IPA(seed_value=1, regularization_factor=0.0095, dropout_rate=0.2)
+
+# Compiler le modèle avec la fonction de perte et les métriques personnalisées
+optimizer = optimizers.Adam(learning_rate=0.001)
+model.compile(optimizer=optimizer, 
+              loss=CustomLoss(n_splits=3),
+              metrics=[CustomAccuracy(), CustomAUC(), CustomMREArea(), CustomMAELoc()])
+
+# Callback pour l'arrêt précoce
+stop_early = EarlyStopping(monitor='val_loss', patience=50, restore_best_weights=True)
+
+# Entraînement du modèle
+history = model.fit(
+    X_train, Y_train,
+    epochs=500,
+    batch_size=16,
+    validation_data=(X_test, Y_test),
+    callbacks=[stop_early, TqdmCallback(verbose=1)],
+    verbose=0
+)
