@@ -387,3 +387,41 @@ for i in range(X.shape[0]):
 
 # Séparer les données en train/test
 X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
+
+
+import matplotlib.pyplot as plt
+
+def plot_segment_with_peak(segment_x, segment_y):
+    # Extraire les données X et Y pour le segment
+    x_data = segment_x[:, 0]
+    y_data = segment_x[:, 1]
+
+    # Créer la figure
+    plt.figure(figsize=(10, 6))
+    
+    # Tracer le chromatogramme
+    plt.plot(x_data, y_data, label="Chromatogramme", color='blue')
+    
+    # Ajouter les pics
+    for idx, peak_info in enumerate(segment_y):
+        if peak_info[0] == 1:  # Si un pic est présent
+            pic_time = peak_info[1] * 150  # Dénomination normalisée à l'échelle originale
+            plt.scatter(pic_time, y_data[np.argmin(np.abs(x_data - pic_time))], color='red', label='Pic')
+
+            # Afficher la largeur du pic entre les bornes
+            borne_avant = peak_info[1] * 150 - peak_info[2] / 2
+            borne_apres = peak_info[1] * 150 + peak_info[2] / 2
+            plt.axvline(borne_avant, color='green', linestyle='--', label='Borne avant')
+            plt.axvline(borne_apres, color='green', linestyle='--', label='Borne après')
+
+    # Ajouter des labels et titre
+    plt.title("Segment de chromatogramme avec pic marqué")
+    plt.xlabel("Temps (unités normalisées)")
+    plt.ylabel("Intensité")
+    plt.legend()
+
+    # Afficher le graphique
+    plt.show()
+
+# Exemple d'utilisation pour un segment
+plot_segment_with_peak(X[0], Y[0])
