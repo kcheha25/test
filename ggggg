@@ -7,71 +7,215 @@ from tqdm.keras import TqdmCallback
 # Définir la fonction de perte personnalisée
 # =========================
 
+import tensorflow as tf
+
+
 class CustomLoss(tf.keras.losses.Loss):
-    def __init__(self, n_splits, weight_prob=1.0, weight_loc=1.0, weight_area=1.0, **kwargs):
+
+    def __init__(
+        self,
+        n_splits,
+        weight_prob=1.0,
+        weight_loc=1.0,
+        weight_area=1.0,
+        **kwargs
+    ):
         super().__init__(**kwargs)
         self.n_splits = n_splits
         self.weight_prob = weight_prob
         self.weight_loc = weight_loc
         self.weight_area = weight_area
 
-    def call(self, y_true, y_pred):
-        # Séparer les prédictions et les vérités cibles
+    def call(self, y_true, y_pred, sample_weight=None):
+
+        # Cast to dtype float32 just in case
+        y_true = tf.cast(y_true, tf.float32)
+        y_pred = tf.cast(y_pred, tf.float32)
+
+        # Unpack trues and preds
         pred_prob, pred_loc, pred_area = tf.split(y_pred, self.n_splits, axis=-1)
         true_prob, true_loc, true_area = tf.split(y_true, self.n_splits, axis=-1)
 
-        # Calcul de la perte de probabilité
+        # Mask for where y_true is indicating a peak
+        mask = tf.math.equal(true_prob, 1.)
+
+        # Compute loss for all instances
         prob_loss = tf.keras.losses.BinaryCrossentropy()(true_prob, pred_prob)
+        # Compute loss only for instances in mask
+        loc_loss = tf.keras.losses.BinaryCrossentropy()(
+            tf.boolean_mask(true_loc, mask), tf.boolean_mask(pred_loc, mask))
+        area_loss = MeanRelativeError()(
+            tf.boolean_mask(true_area, mask), tf.boolean_mask(pred_area, mask))
 
-        # Calcul de la perte de localisation
-        loc_loss = tf.keras.losses.BinaryCrossentropy()(true_loc, pred_loc)
+        return (
+            prob_loss * self.weight_prob +
+            loc_loss * self.weight_loc +
+            area_loss * self.weight_area
+        )
 
-        # Calcul de la perte d'aire (MRE)
-        area_loss = tf.math.abs(true_area - pred_area) / true_area
+class MeanRelativeError(tf.keras.losses.Loss):
 
-        return (prob_loss * self.weight_prob) + (loc_loss * self.weight_loc) + (area_loss * self.weight_area)
+    def call(self, y_true, y_pred, sample_weight=None):
+        return tf.math.abs(y_true - y_pred) / y_true
+
 
 # =========================
 # Définir les métriques personnalisées
 # =========================
 
+import tensorflow as tf
+
+
+
+class CustomTruePositiveRate(tf.keras.metrics.Metric):
+
+    def __init__(self, threshold, **kwargs):
+        super().__init__(**kwargs)
+        self.threshold = threshold
+        self.true_positives = self.add_weight(name='tp', initializer='zeros')
+        self.false_negatives = self.add_weight(name='tp', initializer='zeros')
+
+    def update_state(self, y_true, y_pred, sample_weight=None):
+
+        y_true = tf.split(y_true, 3, axis=-1)[0]
+        y_pred = tf.split(y_pred, 3, axis=-1)[0]
+
+        y_pred = y_pred > self.threshold
+        y_true = tf.cast(y_true, tf.bool)
+
+        values = tf.logical_and(tf.equal(y_true, True), tf.equal(y_pred, True))
+        values = tf.cast(values, dtype=self.dtype)
+        self.true_positives.assign_add(tf.reduce_sum(values))
+
+        values = tf.logical_and(tf.equal(y_true, True), tf.equal(y_pred, False))
+        values = tf.cast(values, dtype=self.dtype)
+        self.false_negatives.assign_add(tf.reduce_sum(values))
+
+    def result(self):
+        return self.true_positives / (self.true_positives + self.false_negatives)
+
+    def reset_states(self):
+        self.true_positives.assign(0)
+        self.false_negatives.assign(0)
+
+
+class CustomFalsePositiveRate(tf.keras.metrics.Metric):
+
+    def __init__(self, threshold, **kwargs):
+        super().__init__(**kwargs)
+        self.threshold = threshold
+        self.false_positives = self.add_weight(name='tp', initializer='zeros')
+        self.true_negatives = self.add_weight(name='tp', initializer='zeros')
+
+    def update_state(self, y_true, y_pred, sample_weight=None):
+
+        y_true = tf.split(y_true, 3, axis=-1)[0]
+        y_pred = tf.split(y_pred, 3, axis=-1)[0]
+
+        y_pred = y_pred > self.threshold
+        y_true = tf.cast(y_true, tf.bool)
+
+        values = tf.logical_and(tf.equal(y_true, False), tf.equal(y_pred, True))
+        values = tf.cast(values, dtype=self.dtype)
+        self.false_positives.assign_add(tf.reduce_sum(values))
+
+        values = tf.logical_and(tf.equal(y_true, False), tf.equal(y_pred, False))
+        values = tf.cast(values, dtype=self.dtype)
+        self.true_negatives.assign_add(tf.reduce_sum(values))
+
+    def result(self):
+        return self.false_positives / (self.false_positives + self.true_negatives)
+
+    def reset_states(self):
+        self.false_positives.assign(0)
+        self.true_negatives.assign(0)
+
+
+class CustomAUC(tf.keras.metrics.AUC):
+
+    def update_state(self, y_true, y_pred, sample_weight=None):
+
+        y_true = tf.split(y_true, 3, axis=-1)[0]
+        y_pred = tf.split(y_pred, 3, axis=-1)[0]
+
+        super().update_state(y_true, y_pred, sample_weight)
+
+
+class CustomAccuracy(tf.keras.metrics.BinaryAccuracy):
+
+    def update_state(self, y_true, y_pred, sample_weight=None):
+
+        y_true = tf.split(y_true, 3, axis=-1)[0]
+        y_pred = tf.split(y_pred, 3, axis=-1)[0]
+
+        super().update_state(y_true, y_pred, sample_weight)
+
+
 class CustomMREArea(tf.keras.metrics.Mean):
+
     def update_state(self, y_true, y_pred, sample_weight=None):
         y_true_prob, _, y_true = tf.split(y_true, 3, axis=-1)
         y_pred_prob, _, y_pred = tf.split(y_pred, 3, axis=-1)
 
-        # Masque pour les pics
-        mask = tf.math.equal(y_true_prob, 1.)
+        mask = tf.math.logical_and(
+            tf.math.equal(y_true_prob, 1.), tf.math.greater(y_pred_prob, 0.5))
+
         y_true = tf.boolean_mask(y_true, mask)
         y_pred = tf.boolean_mask(y_pred, mask)
 
-        error = tf.math.abs(y_true - y_pred) / tf.math.abs(y_true)
+        error = tf.math.divide_no_nan(
+            tf.math.abs(y_true - y_pred),
+            tf.math.abs(y_true)
+        )
         super().update_state(error, sample_weight=sample_weight)
 
-class CustomMAELoc(tf.keras.metrics.Mean):
+
+class CustomMRELoc(tf.keras.metrics.Mean):
+
     def update_state(self, y_true, y_pred, sample_weight=None):
         y_true_prob, y_true, _ = tf.split(y_true, 3, axis=-1)
         y_pred_prob, y_pred, _  = tf.split(y_pred, 3, axis=-1)
 
-        # Masque pour les pics
-        mask = tf.math.equal(y_true_prob, 1.)
+        mask = tf.math.logical_and(
+            tf.math.equal(y_true_prob, 1.), tf.math.greater(y_pred_prob, 0.5))
+
+        y_true = tf.boolean_mask(y_true, mask)
+        y_pred = tf.boolean_mask(y_pred, mask)
+
+        error = tf.math.divide_no_nan(
+            tf.math.abs(y_true - y_pred),
+            tf.math.abs(y_true)
+        )
+        super().update_state(error, sample_weight=sample_weight)
+
+
+class CustomMAELoc(tf.keras.metrics.Mean):
+
+    def update_state(self, y_true, y_pred, sample_weight=None):
+        y_true_prob, y_true, _ = tf.split(y_true, 3, axis=-1)
+        y_pred_prob, y_pred, _  = tf.split(y_pred, 3, axis=-1)
+
+        mask = tf.math.logical_and(
+            tf.math.equal(y_true_prob, 1.), tf.math.greater(y_pred_prob, 0.5))
+
         y_true = tf.boolean_mask(y_true, mask)
         y_pred = tf.boolean_mask(y_pred, mask)
 
         error = tf.math.abs(y_true - y_pred)
+
         super().update_state(error, sample_weight=sample_weight)
 
-class CustomAUC(tf.keras.metrics.AUC):
-    def update_state(self, y_true, y_pred, sample_weight=None):
-        y_true = tf.split(y_true, 3, axis=-1)[0]
-        y_pred = tf.split(y_pred, 3, axis=-1)[0]
-        super().update_state(y_true, y_pred, sample_weight)
 
-class CustomAccuracy(tf.keras.metrics.BinaryAccuracy):
-    def update_state(self, y_true, y_pred, sample_weight=None):
-        y_true = tf.split(y_true, 3, axis=-1)[0]
-        y_pred = tf.split(y_pred, 3, axis=-1)[0]
-        super().update_state(y_true, y_pred, sample_weight)
+def get_accuracy_metrics_at_thresholds(
+    thresholds=[
+        # has been narrowed down from [0.05, 0.95]
+        0.45, 0.46, 0.47, 0.48, 0.49, 0.50, 0.51, 0.52, 0.53, 0.54, 0.55
+    ]
+):
+    return [
+        CustomAccuracy(name='acc_' + str(t).split('.')[-1], threshold=t)
+        for t in thresholds
+    ]
 
 # =========================
 # Charger et préparer les données
@@ -168,3 +312,78 @@ history = model.fit(
         # Concatenate les résultats
         out = tf.concat([pred, loc, area], axis=-1)
         return out
+
+
+import numpy as np
+import pandas as pd
+from sklearn.model_selection import train_test_split
+
+# Charger les chromatogrammes
+file_path = "chromatogrammes.json"
+df = pd.read_json(file_path)
+
+# Filtrer les chromatogrammes
+df = df.dropna(subset=['pics'])
+df = df[df["x"].apply(len) == 71840]
+
+# Troncature des chromatogrammes
+def truncate(row):
+    mask = np.array(row["x"]) <= 150
+    row["x"] = np.array(row["x"])[mask].tolist()
+    row["y"] = np.array(row["y"])[mask].tolist()
+    return row
+
+df = df.apply(truncate, axis=1)
+
+sequence_length = 512  # Nouvelle longueur des segments
+
+# Découper les données en segments de 512 points
+def segment_data(x, y, pics, segment_size=512):
+    segments_X, segments_Y = [], []
+    num_segments = len(x) // segment_size  # Nombre de segments complets
+
+    for i in range(num_segments):
+        start_idx = i * segment_size
+        end_idx = start_idx + segment_size
+
+        segment_x = np.column_stack((x[start_idx:end_idx], y[start_idx:end_idx]))
+        segment_y = np.zeros((segment_size, 3), dtype=np.float32)
+
+        x_time = np.array(x[start_idx:end_idx])
+        
+        for pic_time, data in pics.items():
+            pic_time = float(pic_time)
+            borne_avant_time, borne_apres_time = data[1], data[2]
+
+            if start_idx <= np.argmin(np.abs(np.array(x) - pic_time)) < end_idx:
+                pic_idx = np.argmin(np.abs(x_time - pic_time))
+                borne_avant_idx = np.argmin(np.abs(x_time - borne_avant_time))
+                borne_apres_idx = np.argmin(np.abs(x_time - borne_apres_time))
+
+                segment_y[pic_idx, 0] = 1  # Marquer la présence d'un pic
+                segment_y[pic_idx, 1] = pic_time / 150.0  # Normalisation
+                segment_y[pic_idx, 2] = borne_apres_time - borne_avant_time  # Largeur du pic
+            
+        segments_X.append(segment_x)
+        segments_Y.append(segment_y)
+
+    return segments_X, segments_Y
+
+X, Y = [], []
+
+for _, row in df.iterrows():
+    segments_X, segments_Y = segment_data(np.array(row["x"]), np.array(row["y"]), row["pics"], sequence_length)
+    X.extend(segments_X)
+    Y.extend(segments_Y)
+
+X = np.array(X)
+Y = np.array(Y)
+
+# Normalisation des intensités
+for i in range(X.shape[0]):
+    max_intensity = np.max(X[i, :, 1])
+    if max_intensity > 0:
+        X[i, :, 1] /= max_intensity
+
+# Séparer les données en train/test
+X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
