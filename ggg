@@ -18,7 +18,7 @@ class Module_35x35(tf.keras.layers.Layer):
     def __init__(self, in_channels: int, regularization_factor: float, seed_value: int):
         super(Module_35x35, self).__init__()
         self.branch1 = tf.keras.Sequential([
-            MaxPooling1D(pool_size=2, padding='same'),
+            AveragePooling1D(pool_size=3, strides=1, padding='same'),
             BasicConv1D(filters=in_channels * 2, kernel_size=1, strides=1,
                         kernel_regularizer=L2(regularization_factor),
                         kernel_initializer=initializers.HeNormal(seed_value))
@@ -75,15 +75,26 @@ class IPA(tf.keras.Model):
         self.dropout = Dropout(rate=dropout_rate)
 
         # Prédiction pour chaque point
-        self.classifier = Dense(4, activation='softmax')
+        self.classifier = Dense(3)
 
     def call(self, x):
         out = self.stem(x)
         out = self.module_35x35(out)
         out = self.lstm(out)
         out = self.dropout(out)
-        out = self.classifier(out)  # (batch, seq_len, 4)
+        out = self.classifier(out)  # (batch, seq_len, 3)
+
+        # Séparer la sortie en 3 parties
+        pred, loc, area = tf.split(out, 3, axis=-1)
+
+        # Appliquer sigmoid sur pred et loc
+        pred = tf.nn.sigmoid(pred)
+        loc = tf.nn.sigmoid(loc)
+
+        # Concatenate les résultats
+        out = tf.concat([pred, loc, area], axis=-1)
         return out
+
 self.branch1 = tf.keras.Sequential([
     AveragePooling1D(pool_size=3, strides=1, padding='same'),
     BasicConv1D(filters=in_channels * 2, kernel_size=1, strides=1,
@@ -141,11 +152,11 @@ for i in range(X.shape[0]):
     if max_intensity > 0:
         X[i, :, 1] /= max_intensity
 
-# Labels Y one-hot : (n, sequence_length, 4)
-Y = np.zeros((len(df), sequence_length, 4), dtype=np.int32)
+Y = np.zeros((len(df), sequence_length, 3), dtype=np.float32)
 
 for i, (_, row) in enumerate(df.iterrows()):
     x_time = np.array(row["x"])
+    
     for pic_time, data in row["pics"].items():
         borne_avant_time = data[1]
         pic_time = float(pic_time)
@@ -154,16 +165,20 @@ for i, (_, row) in enumerate(df.iterrows()):
         if pic_time > 150:
             continue
 
+        # Trouver les indices les plus proches des bornes et du pic
         borne_avant_idx = np.argmin(np.abs(x_time - borne_avant_time))
         pic_idx = np.argmin(np.abs(x_time - pic_time))
         borne_apres_idx = np.argmin(np.abs(x_time - borne_apres_time))
 
-        Y[i, borne_avant_idx, 1] = 1
-        Y[i, pic_idx, 2] = 1
-        Y[i, borne_apres_idx, 3] = 1
+        # Colonne 1 : Pic (mettre 1 à l'indice du pic)
+        Y[i, pic_idx, 0] = 1
 
-Y[:, :, 0] = (Y.sum(axis=-1) == 0).astype(int)
+        # Colonne 2 : Temps normalisé du pic (mettre le temps normalisé à l'indice du pic)
+        Y[i, pic_idx, 1] = pic_time / 150.0
 
+        # Colonne 3 : Différence entre le temps à la borne après et la borne avant (mettre la différence dans la troisième colonne)
+        time_diff = borne_apres_time - borne_avant_time
+        Y[i, pic_idx, 2] = time_diff
 # ======================
 # Split train/test
 # ======================
@@ -276,30 +291,3 @@ class_counts = Counter(y_flat)
 # Affichage des résultats
 for class_label in sorted(class_counts.keys()):
     print(f"Classe {class_label} : {class_counts[class_label]} occurrences")
-Y = np.zeros((len(df), sequence_length, 3), dtype=np.float32)
-
-for i, (_, row) in enumerate(df.iterrows()):
-    x_time = np.array(row["x"])
-    
-    for pic_time, data in row["pics"].items():
-        borne_avant_time = data[1]
-        pic_time = float(pic_time)
-        borne_apres_time = data[2]
-
-        if pic_time > 150:
-            continue
-
-        # Trouver les indices les plus proches des bornes et du pic
-        borne_avant_idx = np.argmin(np.abs(x_time - borne_avant_time))
-        pic_idx = np.argmin(np.abs(x_time - pic_time))
-        borne_apres_idx = np.argmin(np.abs(x_time - borne_apres_time))
-
-        # Colonne 1 : Pic (mettre 1 à l'indice du pic)
-        Y[i, pic_idx, 0] = 1
-
-        # Colonne 2 : Temps normalisé du pic (mettre le temps normalisé à l'indice du pic)
-        Y[i, pic_idx, 1] = pic_time / 150.0
-
-        # Colonne 3 : Différence entre le temps à la borne après et la borne avant (mettre la différence dans la troisième colonne)
-        time_diff = borne_apres_time - borne_avant_time
-        Y[i, pic_idx, 2] = time_diff
