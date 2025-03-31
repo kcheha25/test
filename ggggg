@@ -425,3 +425,25 @@ def plot_segment_with_peak(segment_x, segment_y):
 
 # Exemple d'utilisation pour un segment
 plot_segment_with_peak(X[0], Y[0])
+
+
+import tensorflow as tf
+
+class CustomAUC(tf.keras.metrics.AUC):
+
+    def update_state(self, y_true, y_pred, sample_weight=None):
+        # Séparer les classes de y_true et y_pred (on se concentre sur la classe des pics)
+        y_true = tf.split(y_true, 3, axis=-1)[0]  # Classe 0 (absence de pic)
+        y_pred = tf.split(y_pred, 3, axis=-1)[0]
+
+        # Si y_true est de la classe 1 (pic), augmenter le poids
+        if sample_weight is None:
+            sample_weight = tf.cast(tf.equal(y_true, 1), tf.float32)
+        
+        # Optionnel : vous pouvez multiplier le poids par un facteur pour renforcer l'importance des pics
+        # Par exemple, si on veut multiplier le poids des pics par 10
+        sample_weight = sample_weight * 10.0  # Ajustez ce facteur selon vos besoins
+
+        # Calculer l'AUC avec les poids ajustés
+        super().update_state(y_true, y_pred, sample_weight)
+

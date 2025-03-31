@@ -86,3 +86,60 @@ for chromatogram_index, row in df.iterrows():
         save_segment_and_labels(x, y, pics, chromatogram_index, segment_index, sequence_length)
 
 print("Segmentation terminée ! Images et annotations sauvegardées.")
+
+import os
+import random
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+import numpy as np
+from PIL import Image
+
+# Dossiers des images et annotations
+image_dir = "output/images"
+label_dir = "output/labels"
+
+# Liste des fichiers disponibles
+image_files = [f for f in os.listdir(image_dir) if f.endswith(".png")]
+
+# Sélectionner aléatoirement 5 images
+selected_images = random.sample(image_files, 5)
+
+# Fonction pour afficher une image avec ses annotations
+def visualize_annotations(image_filename):
+    image_path = os.path.join(image_dir, image_filename)
+    label_path = os.path.join(label_dir, image_filename.replace(".png", ".txt"))
+
+    # Charger l'image
+    img = Image.open(image_path)
+    img_w, img_h = img.size
+
+    # Créer la figure
+    fig, ax = plt.subplots(1, figsize=(6.4, 6.4))
+    ax.imshow(img)
+
+    # Lire les annotations
+    if os.path.exists(label_path):
+        with open(label_path, "r") as f:
+            lines = f.readlines()
+        
+        for line in lines:
+            parts = line.strip().split()
+            if len(parts) == 5:
+                _, x_center, y_center, width, height = map(float, parts)
+
+                # Convertir en coordonnées pixels
+                x_min = (x_center - width / 2) * img_w
+                y_min = (y_center - height / 2) * img_h
+                bbox_w = width * img_w
+                bbox_h = height * img_h
+
+                # Dessiner la bbox
+                rect = patches.Rectangle((x_min, y_min), bbox_w, bbox_h, linewidth=2, edgecolor='r', facecolor='none')
+                ax.add_patch(rect)
+
+    plt.axis("off")
+    plt.show()
+
+# Afficher les 5 images avec annotations
+for img_file in selected_images:
+    visualize_annotations(img_file)
