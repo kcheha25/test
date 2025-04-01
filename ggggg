@@ -447,3 +447,93 @@ class CustomAUC(tf.keras.metrics.AUC):
         # Calculer l'AUC avec les poids ajustés
         super().update_state(y_true, y_pred, sample_weight)
 
+import numpy as np
+import pandas as pd
+from sklearn.model_selection import train_test_split
+
+# Charger les chromatogrammes
+file_path = "chromatogrammes.json"
+df = pd.read_json(file_path)
+
+# Filtrer les chromatogrammes
+df = df.dropna(subset=['pics'])
+df = df[df["x"].apply(len) == 71840]
+
+# Troncature des chromatogrammes
+def truncate(row):
+    mask = np.array(row["x"]) <= 150
+    row["x"] = np.array(row["x"])[mask].tolist()
+    row["y"] = np.array(row["y"])[mask].tolist()
+    return row
+
+df = df.apply(truncate, axis=1)
+
+sequence_length = 512  # Taille du segment
+stride = 256  # Chevauchement
+
+# Fonction de segmentation avec padding du dernier segment
+def segment_data(x, y, pics, segment_size=512, stride=256):
+    segments_X, segments_Y = [], []
+    num_segments = (len(x) - segment_size) // stride + 1  # Nombre de segments
+
+    for i in range(num_segments):
+        start_idx = i * stride
+        end_idx = start_idx + segment_size
+
+        segment_x = np.column_stack((x[start_idx:end_idx], y[start_idx:end_idx]))
+        segment_y = np.zeros((segment_size, 3), dtype=np.float32)
+
+        x_time = np.array(x[start_idx:end_idx])
+        
+        for pic_time, data in pics.items():
+            pic_time = float(pic_time)
+            borne_avant_time, borne_apres_time = data[1], data[2]
+
+            if start_idx <= np.argmin(np.abs(np.array(x) - pic_time)) < end_idx:
+                pic_idx = np.argmin(np.abs(x_time - pic_time))
+                borne_avant_idx = np.argmin(np.abs(x_time - borne_avant_time))
+                borne_apres_idx = np.argmin(np.abs(x_time - borne_apres_time))
+
+                segment_y[pic_idx, 0] = 1  # Marquer la présence d'un pic
+                segment_y[pic_idx, 1] = pic_time / 150.0  # Normalisation
+                segment_y[pic_idx, 2] = borne_apres_time - borne_avant_time  # Largeur du pic
+            
+        segments_X.append(segment_x)
+        segments_Y.append(segment_y)
+
+    # Gestion du dernier segment (padding si nécessaire)
+    if (len(x) - segment_size) % stride != 0:
+        start_idx = len(x) - segment_size
+        segment_x = np.column_stack((x[start_idx:], y[start_idx:]))
+
+        # Compléter avec des zéros si la taille est inférieure
+        padding_needed = segment_size - len(segment_x)
+        if padding_needed > 0:
+            pad_x = np.zeros((padding_needed, 2))
+            pad_y = np.zeros((padding_needed, 3))
+            segment_x = np.vstack((segment_x, pad_x))
+            segment_y = np.vstack((segment_y, pad_y))
+
+        segments_X.append(segment_x)
+        segments_Y.append(segment_y)
+
+    return segments_X, segments_Y
+
+X, Y = [], []
+
+for _, row in df.iterrows():
+    segments_X, segments_Y = segment_data(np.array(row["x"]), np.array(row["y"]), row["pics"], sequence_length, stride)
+    X.extend(segments_X)
+    Y.extend(segments_Y)
+
+X = np.array(X)
+Y = np.array(Y)
+
+# Normalisation des intensités (sur l'ensemble du chromatogramme)
+for i in range(len(df)):
+    max_intensity = np.max(df.iloc[i]["y"])
+    if max_intensity > 0:
+        df.iloc[i]["y"] = (np.array(df.iloc[i]["y"]) / max_intensity).tolist()
+
+# Séparer les données en train/test
+X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
