@@ -16,8 +16,7 @@ class CustomLoss(tf.keras.losses.Loss):
         self,
         n_splits,
         weight_prob=1.0,
-        weight_loc=1.0,
-        weight_area=1.0,
+
         **kwargs
     ):
         super().__init__(**kwargs)
@@ -32,25 +31,12 @@ class CustomLoss(tf.keras.losses.Loss):
         y_true = tf.cast(y_true, tf.float32)
         y_pred = tf.cast(y_pred, tf.float32)
 
-        # Unpack trues and preds
-        pred_prob, pred_loc, pred_area = tf.split(y_pred, self.n_splits, axis=-1)
-        true_prob, true_loc, true_area = tf.split(y_true, self.n_splits, axis=-1)
-
-        # Mask for where y_true is indicating a peak
-        mask = tf.math.equal(true_prob, 1.)
 
         # Compute loss for all instances
-        prob_loss = tf.keras.losses.BinaryCrossentropy()(true_prob, pred_prob)
-        # Compute loss only for instances in mask
-        loc_loss = tf.keras.losses.BinaryCrossentropy()(
-            tf.boolean_mask(true_loc, mask), tf.boolean_mask(pred_loc, mask))
-        area_loss = MeanRelativeError()(
-            tf.boolean_mask(true_area, mask), tf.boolean_mask(pred_area, mask))
+        prob_loss = tf.keras.losses.BinaryCrossentropy()(y_true, y_pred)
 
         return (
-            prob_loss * self.weight_prob +
-            loc_loss * self.weight_loc +
-            area_loss * self.weight_area
+            prob_loss
         )
 
 class MeanRelativeError(tf.keras.losses.Loss):
@@ -594,7 +580,7 @@ class IPA(tf.keras.Model):
         self.attention2 = SpatioTemporalAttention(units=lstm_units)
 
         self.dropout = Dropout(rate=dropout_rate)
-        self.classifier = Dense(3)
+        self.classifier = Dense(1, "sigmoid")
 
     def call(self, x):
         out = self.stem(x)
@@ -611,8 +597,7 @@ class IPA(tf.keras.Model):
 
         pred, loc, area = tf.split(out, 3, axis=-1)
         pred = tf.nn.sigmoid(pred)
-        loc = tf.nn.sigmoid(loc)
-        out = tf.concat([pred, loc, area], axis=-1)
+
 
         return out
 
@@ -829,3 +814,258 @@ else:
     if os.path.exists(checkpoint_path + ".index"):  # Vérifie si les poids existent
         print('Loading best weights...')
         model.load_weights(checkpoint_path)
+
+
+import tensorflow as tf
+
+class CustomLoss(tf.keras.losses.Loss):
+    def __init__(self, n_splits, weight_prob=1.0, weight_hinge=1.0, **kwargs):
+        super().__init__(**kwargs)
+        self.n_splits = n_splits
+        self.weight_prob = weight_prob
+        self.weight_hinge = weight_hinge
+
+    def call(self, y_true, y_pred, sample_weight=None):
+        # Cast to float32
+        y_true = tf.cast(y_true, tf.float32)
+        y_pred = tf.cast(y_pred, tf.float32)
+
+        # Binary Crossentropy Loss
+        prob_loss = tf.keras.losses.BinaryCrossentropy()(y_true, y_pred)
+
+        # Convert {0,1} labels to {-1,1} for Hinge Loss
+        y_true_hinge = 2 * y_true - 1  
+
+        # Hinge Loss
+        hinge_loss = tf.keras.losses.Hinge()(y_true_hinge, y_pred)
+
+        # Weighted sum of both losses
+        total_loss = self.weight_prob * prob_loss + self.weight_hinge * hinge_loss
+        return total_loss
+import tensorflow as tf
+
+class CustomLoss(tf.keras.losses.Loss):
+    def __init__(self, n_splits, weight_prob=1.0, weight_hinge=1.0, weight_class_1=5.0, weight_class_0=1.0, **kwargs):
+        super().__init__(**kwargs)
+        self.n_splits = n_splits
+        self.weight_prob = weight_prob
+        self.weight_hinge = weight_hinge
+        self.weight_class_1 = weight_class_1  # Poids pour la classe 1
+        self.weight_class_0 = weight_class_0  # Poids pour la classe 0
+
+    def call(self, y_true, y_pred):
+        # Cast to float32
+        y_true = tf.cast(y_true, tf.float32)
+        y_pred = tf.cast(y_pred, tf.float32)
+
+        # Calcul de la Binary Crossentropy Loss
+        prob_loss = tf.keras.losses.BinaryCrossentropy()(y_true, y_pred)
+
+        # Appliquer les poids de classe directement sur la probabilité (class 1 et class 0)
+        weights = tf.where(y_true == 1, self.weight_class_1, self.weight_class_0)
+
+        # Calcul de la Hinge Loss
+        y_true_hinge = 2 * y_true - 1  # Convertir {0,1} en {-1,1} pour la Hinge Loss
+        hinge_loss = tf.keras.losses.Hinge()(y_true_hinge, y_pred)
+
+        # Somme pondérée des deux pertes
+        total_loss = self.weight_prob * prob_loss + self.weight_hinge * hinge_loss
+
+        # Appliquer les poids de classe sur la perte totale
+        weighted_loss = total_loss * weights
+
+        return weighted_loss
+import tensorflow as tf
+
+class CustomAUC(tf.keras.metrics.AUC):
+    def __init__(self, beta=2.0, name="weighted_auc", **kwargs):
+        super().__init__(name=name, **kwargs)
+        self.beta = beta  # Poids de la classe 1
+
+    def update_state(self, y_true, y_pred, sample_weight=None):
+        y_true = tf.split(y_true, 3, axis=-1)[0]  # Extraire la probabilité
+        y_pred = tf.split(y_pred, 3, axis=-1)[0]  # Extraire la probabilité prédite
+
+        # Appliquer un poids sur la classe 1
+        weights = tf.where(y_true == 1, self.beta, 1.0)  # Classe 1 a un poids de beta, sinon 1
+
+        # Mise à jour de l'AUC en tenant compte du poids
+        super().update_state(y_true, y_pred, sample_weight=weights)
+class CustomAccuracy(tf.keras.metrics.BinaryAccuracy):
+    def __init__(self, beta=2.0, name="weighted_binary_accuracy", **kwargs):
+        super().__init__(name=name, **kwargs)
+        self.beta = beta  # Poids pour la classe 1
+
+    def update_state(self, y_true, y_pred, sample_weight=None):
+        y_true = tf.split(y_true, 3, axis=-1)[0]  # Extraire la probabilité vraie
+        y_pred = tf.split(y_pred, 3, axis=-1)[0]  # Extraire la probabilité prédite
+
+        # Appliquer un poids sur la classe 1
+        weights = tf.where(y_true == 1, self.beta, 1.0)  # Classe 1 a un poids de beta, sinon 1
+
+        # Mise à jour de la précision binaire en tenant compte du poids
+        super().update_state(y_true, y_pred, sample_weight=weights)
+class_weights = {0: 1.0, 1: 5.0}  # Applique un poids plus élevé à la classe 1
+
+model.fit(X_train, y_train, epochs=10, batch_size=32, class_weight=class_weights)
+import tensorflow as tf
+from sklearn.metrics import f1_score
+
+class CustomF1Score(tf.keras.metrics.Metric):
+    def __init__(self, beta=2.0, name="weighted_f1_score", **kwargs):
+        super().__init__(name=name, **kwargs)
+        self.beta = beta
+        self.correct = self.add_weight(name="correct", initializer="zeros")
+        self.total = self.add_weight(name="total", initializer="zeros")
+
+    def update_state(self, y_true, y_pred, sample_weight=None):
+        y_true = tf.split(y_true, 3, axis=-1)[0]
+        y_pred = tf.split(y_pred, 3, axis=-1)[0]
+        y_pred = tf.cast(y_pred > 0.5, tf.float32)  # Binaires : 1 ou 0
+        
+        weights = tf.where(y_true == 1, self.beta, 1.0)
+
+        # Calcul des prédictions correctes
+        correct_preds = tf.cast(tf.equal(y_true, y_pred), tf.float32) * weights
+        self.correct.assign_add(tf.reduce_sum(correct_preds))
+        self.total.assign_add(tf.reduce_sum(weights))
+
+    def result(self):
+        precision = self.correct / (self.total + tf.keras.backend.epsilon())
+        recall = self.correct / (tf.reduce_sum(self.total) + tf.keras.backend.epsilon())
+        return 2 * (precision * recall) / (precision + recall + tf.keras.backend.epsilon())
+import tensorflow as tf
+from tensorflow.keras.layers import Bidirectional, LSTM, Dense, Dropout
+from tensorflow.keras import initializers
+from tensorflow.keras.regularizers import l2 as L2
+
+class IPA(tf.keras.Model):
+    def __init__(self, seed_value, regularization_factor, dropout_rate=0.2, lstm_units=128):
+        super(IPA, self).__init__()
+
+        self.stem = tf.keras.Sequential([
+            BasicConv1D(filters=64, kernel_size=3, strides=1,
+                        kernel_regularizer=L2(regularization_factor),
+                        kernel_initializer=initializers.HeNormal(seed_value)),
+            BasicConv1D(filters=64, kernel_size=3, strides=1,
+                        kernel_regularizer=L2(regularization_factor),
+                        kernel_initializer=initializers.HeNormal(seed_value)),
+        ])
+        
+        self.module_35x35 = Module_35x35(in_channels=64, regularization_factor=regularization_factor, seed_value=seed_value)
+
+        # Première couche LSTM + Attention spatio-temporelle
+        self.lstm1 = Bidirectional(LSTM(lstm_units, return_sequences=True))
+        self.attention1 = SpatioTemporalAttention(units=lstm_units)
+
+        # Deuxième couche LSTM + Self-Attention
+        self.lstm2 = Bidirectional(LSTM(lstm_units, return_sequences=True))
+        self.attention2 = tf.keras.layers.Attention()  # Self-Attention simple pour la deuxième couche
+
+        self.dropout = Dropout(rate=dropout_rate)
+
+        # Couche de classification
+        self.classifier = Dense(1, activation="sigmoid")
+
+    def call(self, inputs):
+        x = self.stem(inputs)  # Passer par les couches de convolutions
+        x = self.module_35x35(x)  # Module supplémentaire
+
+        # Première couche LSTM + Attention spatio-temporelle
+        lstm1_out = self.lstm1(x)
+        attention1_out = self.attention1(lstm1_out)
+
+        # Deuxième couche LSTM + Self-Attention
+        lstm2_out = self.lstm2(attention1_out)
+        attention2_out = self.attention2([lstm2_out, lstm2_out])  # Self-attention
+
+        # Dropout pour régularisation
+        x = self.dropout(attention2_out)
+
+        # Classification
+        output = self.classifier(x)
+        return output
+import tensorflow as tf
+from tensorflow.keras.layers import Bidirectional, LSTM, Dense, Dropout, LayerNormalization
+from tensorflow.keras import initializers
+from tensorflow.keras.regularizers import l2 as L2
+from tensorflow.keras.layers import MultiHeadAttention
+
+
+# Définition de la couche Transformer (Encoder Layer)
+class TransformerEncoder(tf.keras.layers.Layer):
+    def __init__(self, num_heads, d_model, ff_dim, dropout_rate=0.1):
+        super(TransformerEncoder, self).__init__()
+        self.attention = MultiHeadAttention(num_heads=num_heads, key_dim=d_model)
+        self.dense1 = Dense(ff_dim, activation="relu")
+        self.dense2 = Dense(d_model)
+        self.layernorm1 = LayerNormalization(epsilon=1e-6)
+        self.layernorm2 = LayerNormalization(epsilon=1e-6)
+        self.dropout = Dropout(dropout_rate)
+
+    def call(self, inputs):
+        # Attention
+        attn_output = self.attention(inputs, inputs)
+        attn_output = self.dropout(attn_output)
+        out1 = self.layernorm1(inputs + attn_output)
+
+        # Feed-forward network
+        ff_output = self.dense1(out1)
+        ff_output = self.dense2(ff_output)
+        ff_output = self.dropout(ff_output)
+        return self.layernorm2(out1 + ff_output)
+
+
+# Modèle IPA avec Transformer et LSTM
+class IPA(tf.keras.Model):
+    def __init__(self, seed_value, regularization_factor, dropout_rate=0.2, lstm_units=128, transformer_units=128, num_heads=8):
+        super(IPA, self).__init__()
+
+        self.stem = tf.keras.Sequential([  
+            BasicConv1D(filters=64, kernel_size=3, strides=1,
+                        kernel_regularizer=L2(regularization_factor),
+                        kernel_initializer=initializers.HeNormal(seed_value)),
+            BasicConv1D(filters=64, kernel_size=3, strides=1,
+                        kernel_regularizer=L2(regularization_factor),
+                        kernel_initializer=initializers.HeNormal(seed_value)),
+        ])
+
+        self.module_35x35 = Module_35x35(in_channels=64, regularization_factor=regularization_factor, seed_value=seed_value)
+
+        # Transformer Encoder Layer
+        self.transformer_encoder = TransformerEncoder(num_heads=num_heads, d_model=transformer_units, ff_dim=transformer_units * 2, dropout_rate=dropout_rate)
+
+        # Première couche LSTM + Attention spatio-temporelle
+        self.lstm1 = Bidirectional(LSTM(lstm_units, return_sequences=True))
+        self.attention1 = SpatioTemporalAttention(units=lstm_units)
+
+        # Deuxième couche LSTM + Self-Attention
+        self.lstm2 = Bidirectional(LSTM(lstm_units, return_sequences=True))
+        self.attention2 = tf.keras.layers.Attention()  # Self-Attention simple pour la deuxième couche
+
+        self.dropout = Dropout(rate=dropout_rate)
+
+        # Couche de classification
+        self.classifier = Dense(1, activation="sigmoid")
+
+    def call(self, inputs):
+        x = self.stem(inputs)  # Passer par les couches de convolutions
+        x = self.module_35x35(x)  # Module supplémentaire
+
+        # Passer par l'encodeur Transformer
+        transformer_out = self.transformer_encoder(x)
+
+        # Première couche LSTM + Attention spatio-temporelle
+        lstm1_out = self.lstm1(transformer_out)
+        attention1_out = self.attention1(lstm1_out)
+
+        # Deuxième couche LSTM + Self-Attention
+        lstm2_out = self.lstm2(attention1_out)
+        attention2_out = self.attention2([lstm2_out, lstm2_out])  # Self-attention
+
+        # Dropout pour régularisation
+        x = self.dropout(attention2_out)
+
+        # Classification
+        output = self.classifier(x)
+        return output
