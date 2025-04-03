@@ -537,3 +537,295 @@ for i in range(len(df)):
 
 # Séparer les données en train/test
 X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
+
+
+import tensorflow as tf
+from tensorflow.keras.layers import Layer, Dense, Softmax
+
+class SpatioTemporalAttention(Layer):
+    def __init__(self, units):
+        super(SpatioTemporalAttention, self).__init__()
+        self.query_dense = Dense(units)  # Transformation de la requête
+        self.key_dense = Dense(units)    # Transformation de la clé
+        self.value_dense = Dense(units)  # Transformation de la valeur
+        self.softmax = Softmax(axis=1)   # Softmax pour pondérer
+
+    def call(self, inputs, mask=None):
+        """
+        inputs : (batch, seq_length, features)
+        On veut calculer l'attention sur les régions où il y a des pics.
+        """
+
+        # Transformer les entrées
+        query = self.query_dense(inputs)  
+        key = self.key_dense(inputs)  
+        value = self.value_dense(inputs)  
+
+        # Calcul du score d'attention
+        scores = tf.matmul(query, key, transpose_b=True)  # (batch, seq_length, seq_length)
+        scores = scores / tf.sqrt(tf.cast(tf.shape(key)[-1], tf.float32))  # Normalisation
+
+        # Application du softmax pour obtenir les poids d'attention
+        attention_weights = self.softmax(scores)  # (batch, seq_length, seq_length)
+
+        # Appliquer l'attention sur les valeurs
+        weighted_output = tf.matmul(attention_weights, value)  # (batch, seq_length, features)
+
+        return weighted_output, attention_weights  # On retourne aussi les poids pour analyse
+class IPA(tf.keras.Model):
+    def __init__(self, seed_value, regularization_factor, dropout_rate=0.2, lstm_units=128):
+        super(IPA, self).__init__()
+
+        self.stem = tf.keras.Sequential([
+            BasicConv1D(filters=64, kernel_size=3, strides=1,
+                        kernel_regularizer=L2(regularization_factor),
+                        kernel_initializer=initializers.HeNormal(seed_value)),
+            BasicConv1D(filters=64, kernel_size=3, strides=1,
+                        kernel_regularizer=L2(regularization_factor),
+                        kernel_initializer=initializers.HeNormal(seed_value)),
+        ])
+        self.module_35x35 = Module_35x35(in_channels=64, regularization_factor=regularization_factor, seed_value=seed_value)
+
+        # Deux LSTM + Deux Attention Spatio-Temporelle
+        self.lstm1 = Bidirectional(LSTM(lstm_units, return_sequences=True))
+        self.attention1 = SpatioTemporalAttention(units=lstm_units)
+
+        self.lstm2 = Bidirectional(LSTM(lstm_units, return_sequences=True))
+        self.attention2 = SpatioTemporalAttention(units=lstm_units)
+
+        self.dropout = Dropout(rate=dropout_rate)
+        self.classifier = Dense(3)
+
+    def call(self, x):
+        out = self.stem(x)
+        out = self.module_35x35(out)
+
+        out = self.lstm1(out)
+        out, _ = self.attention1(out)  
+
+        out = self.lstm2(out)
+        out, _ = self.attention2(out)  
+
+        out = self.dropout(out)
+        out = self.classifier(out)
+
+        pred, loc, area = tf.split(out, 3, axis=-1)
+        pred = tf.nn.sigmoid(pred)
+        loc = tf.nn.sigmoid(loc)
+        out = tf.concat([pred, loc, area], axis=-1)
+
+        return out
+
+import tensorflow as tf
+from tensorflow.keras.layers import Input, Conv1D, LSTM, Dense, Dropout, LayerNormalization, Add
+from tensorflow.keras.models import Model
+import math
+
+# Définition de la Locality Self-Attention (LSA)
+class MultiHeadAttention_LSA(tf.keras.layers.MultiHeadAttention):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.tau = tf.Variable(math.sqrt(float(self._key_dim)), trainable=True)
+
+    def _compute_attention(self, query, key, value, attention_mask=None, training=None):
+        query = tf.multiply(query, 1.0 / self.tau)
+        attention_scores = tf.einsum(self._dot_product_equation, key, query)
+        attention_scores = self._masked_softmax(attention_scores, attention_mask)
+        attention_scores_dropout = self._dropout_layer(attention_scores, training=training)
+        attention_output = tf.einsum(self._combine_equation, attention_scores_dropout, value)
+        return attention_output, attention_scores
+
+# Fonction pour ajouter un bloc MHA+LSA
+def mha_lsa_block(x, key_dim=8, num_heads=2, dropout=0.5):
+    x_norm = LayerNormalization(epsilon=1e-6)(x)
+    num_patches = x.shape[1]
+
+    # Masque diagonal pour Locality Self-Attention
+    diag_attn_mask = 1 - tf.eye(num_patches)
+    diag_attn_mask = tf.cast([diag_attn_mask], dtype=tf.int8)
+
+    # Application de l'attention
+    x_attn = MultiHeadAttention_LSA(key_dim=key_dim, num_heads=num_heads, dropout=dropout)(
+        x_norm, x_norm, attention_mask=diag_attn_mask
+    )
+
+    x_drop = Dropout(0.3)(x_attn)
+    x_out = Add()([x, x_drop])  # Skip connection
+    return x_out
+
+# Définition du modèle IPA avec CNN+LSTM + MHA+LSA
+def build_model(input_shape=(1000, 2)):
+    inputs = Input(shape=input_shape)
+
+    # Extraction de caractéristiques avec CNN
+    x = Conv1D(filters=64, kernel_size=5, activation='relu', padding='same')(inputs)
+    x = Conv1D(filters=128, kernel_size=5, activation='relu', padding='same')(x)
+    x = Dropout(0.3)(x)
+
+    # Passage par LSTM pour capturer les dépendances temporelles
+    x = LSTM(128, return_sequences=True)(x)
+    x = LSTM(64, return_sequences=True)(x)
+
+    # Application de l'attention LSA
+    x = mha_lsa_block(x, key_dim=8, num_heads=4, dropout=0.5)
+
+    # Prédictions finales
+    outputs = Dense(3, activation='sigmoid')(x)  # 3 sorties : probabilité du pic, localisation, largeur
+
+    model = Model(inputs, outputs)
+    return model
+
+# Instanciation du modèle
+model = build_model()
+model.summary()
+import tensorflow as tf
+import math
+from tensorflow.keras.layers import Layer, Dense, Dropout, LSTM, Bidirectional, LayerNormalization, Add
+from tensorflow.keras.regularizers import L2
+from tensorflow.keras.initializers import HeNormal
+
+# Assurez-vous d'avoir ces modules définis ailleurs
+# from your_module import BasicConv1D, Module_35x35  
+
+# Multi-Head Self Attention avec Locality Self Attention (LSA)
+class MultiHeadAttention_LSA(tf.keras.layers.MultiHeadAttention):
+    """Local Multi-Head Self Attention (LSA) basé sur https://arxiv.org/abs/2112.13492v1"""
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # Paramètre d'ajustement de la température pour améliorer la localité
+        self.tau = tf.Variable(math.sqrt(float(self._key_dim)), trainable=True)
+
+    def _compute_attention(self, query, key, value, attention_mask=None, training=None):
+        query = tf.multiply(query, 1.0 / self.tau)  # Ajustement de la température
+        attention_scores = tf.einsum(self._dot_product_equation, key, query)
+        attention_scores = self._masked_softmax(attention_scores, attention_mask)
+        attention_scores_dropout = self._dropout_layer(attention_scores, training=training)
+        attention_output = tf.einsum(self._combine_equation, attention_scores_dropout, value)
+        return attention_output, attention_scores
+
+# Bloc Multi-Head Self Attention avec Locality Self Attention
+def mha_lsa_block(input_feature, key_dim=8, num_heads=2, dropout=0.3, vanilla=False):
+    """Bloc Multi-Head Self Attention avec LSA ou MHA standard"""
+    x = LayerNormalization(epsilon=1e-6)(input_feature)
+
+    if vanilla:
+        # MHA classique (Attention is All You Need)
+        x = tf.keras.layers.MultiHeadAttention(num_heads=num_heads, key_dim=key_dim, dropout=dropout)(x, x)
+    else:
+        # LSA (Vision Transformer for Small Datasets)
+        num_patches = tf.shape(input_feature)[1]
+        diag_attn_mask = 1 - tf.eye(num_patches)
+        diag_attn_mask = tf.cast([diag_attn_mask], dtype=tf.int8)
+
+        x = MultiHeadAttention_LSA(num_heads=num_heads, key_dim=key_dim, dropout=dropout)(x, x, attention_mask=diag_attn_mask)
+
+    x = Dropout(dropout)(x)
+    return Add()([input_feature, x])  # Skip connection
+
+# Modèle IPA avec MHA-LSA
+class IPA(tf.keras.Model):
+    def __init__(self, seed_value, regularization_factor, dropout_rate=0.2, lstm_units=128, num_heads=8, key_dim=64):
+        super(IPA, self).__init__()
+
+        self.stem = tf.keras.Sequential([
+            BasicConv1D(filters=64, kernel_size=3, strides=1,
+                        kernel_regularizer=L2(regularization_factor),
+                        kernel_initializer=HeNormal(seed_value)),
+            BasicConv1D(filters=64, kernel_size=3, strides=1,
+                        kernel_regularizer=L2(regularization_factor),
+                        kernel_initializer=HeNormal(seed_value)),
+        ])
+        self.module_35x35 = Module_35x35(in_channels=64, regularization_factor=regularization_factor, seed_value=seed_value)
+
+        # Deux LSTM + Deux Multi-Head Self Attention LSA
+        self.lstm1 = Bidirectional(LSTM(lstm_units, return_sequences=True))
+        self.attention1 = mha_lsa_block
+
+        self.lstm2 = Bidirectional(LSTM(lstm_units, return_sequences=True))
+        self.attention2 = mha_lsa_block
+
+        self.dropout = Dropout(rate=dropout_rate)
+        self.classifier = Dense(3)
+
+    def call(self, x):
+        out = self.stem(x)
+        out = self.module_35x35(out)
+
+        out = self.lstm1(out)
+        out = self.attention1(out, key_dim=64, num_heads=8, dropout=0.3, vanilla=False)
+
+        out = self.lstm2(out)
+        out = self.attention2(out, key_dim=64, num_heads=8, dropout=0.3, vanilla=False)
+
+        out = self.dropout(out)
+        out = self.classifier(out)
+
+        # Découpage des sorties
+        pred, loc, area = tf.split(out, 3, axis=-1)
+        pred = tf.nn.sigmoid(pred)
+        loc = tf.nn.sigmoid(loc)
+        area = tf.nn.relu(area)  # S'assure que l'aire est positive
+
+        return tf.concat([pred, loc, area], axis=-1)
+
+# Instanciation du modèle (exemple)
+seed_value = 42
+regularization_factor = 0.0001
+model = IPA(seed_value, regularization_factor)
+
+import os
+import tensorflow as tf
+from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
+from tensorflow.keras import optimizers
+
+if not os.path.exists(os.path.join(path_model, MODEL_NAME)):
+    print('Model does not exist, training in progress...')
+
+    model = IPA(seed_value=SEED_VALUE,
+                regularization_factor=REGULARIZATION_COEF,
+                dropout_rate=DROPOUT_RATE)
+
+    # Schedule du learning rate
+    lr_schedule = tf.keras.optimizers.schedules.ExponentialDecay(
+        initial_learning_rate=LEARNING_RATE,
+        decay_steps=10000, decay_rate=0.001
+    )
+
+    optimizer = optimizers.Adam(learning_rate=lr_schedule)
+    model.compile(optimizer=optimizer, loss='categorical_crossentropy', metrics=['accuracy'])
+
+    # Callbacks
+    stop_early = EarlyStopping(monitor='val_loss', patience=50, restore_best_weights=True)
+
+    checkpoint_path = os.path.join(path_model, MODEL_NAME, "best_weights.tf")
+    checkpoint_callback = ModelCheckpoint(
+        filepath=checkpoint_path,
+        monitor='val_loss',
+        save_best_only=True,  # Sauvegarde uniquement les meilleurs poids
+        save_weights_only=True,  # Ne sauvegarde que les poids, pas l'architecture
+        mode='min',
+        verbose=1
+    )
+
+    history = model.fit(
+        X_train, Y_train,
+        epochs=EPOCHS,
+        batch_size=BATCH_SIZE,
+        validation_data=(X_test, Y_test),
+        callbacks=[stop_early, checkpoint_callback, TqdmCallback(verbose=1)],
+        verbose=0
+    )
+
+    print('Saving model architecture...')
+    os.makedirs(os.path.join(path_model, MODEL_NAME), exist_ok=True)
+    model.save(os.path.join(path_model, MODEL_NAME), overwrite=True, save_format='tf')
+
+else:
+    print('Model does exist, loading...')
+    model = tf.keras.models.load_model(os.path.join(path_model, MODEL_NAME))
+
+    # Charger les meilleurs poids s'ils existent
+    checkpoint_path = os.path.join(path_model, MODEL_NAME, "best_weights.tf")
+    if os.path.exists(checkpoint_path + ".index"):  # Vérifie si les poids existent
+        print('Loading best weights...')
+        model.load_weights(checkpoint_path)
