@@ -168,8 +168,7 @@ for i, (_, row) in enumerate(df.iterrows()):
         # Trouver les indices les plus proches des bornes et du pic
         borne_avant_idx = np.argmin(np.abs(x_time - borne_avant_time))
         pic_idx = np.argmin(np.abs(x_time - pic_time))
-        borne_apres_idx = np.argmin(np.abs(x_time - borne_apres_time))
-
+z
         # Colonne 1 : Pic (mettre 1 à l'indice du pic)
         Y[i, pic_idx, 0] = 1
 
@@ -291,3 +290,236 @@ class_counts = Counter(y_flat)
 # Affichage des résultats
 for class_label in sorted(class_counts.keys()):
     print(f"Classe {class_label} : {class_counts[class_label]} occurrences")
+
+
+import os
+import pandas as pd
+import numpy as np
+import tensorflow as tf
+from tensorflow.keras.callbacks import EarlyStopping
+from sklearn.preprocessing import LabelEncoder, OneHotEncoder
+from sklearn.model_selection import train_test_split
+
+# =========================
+# Chargement et préparation
+# =========================
+
+file_path = "chromatogrammes.json"
+df = pd.read_json(file_path)
+
+# On garde seulement les chromatogrammes contenant des pics
+df = df.dropna(subset=['pics'])
+
+# === Extraction des temps de pic et des noms de composants ===
+
+pic_times = []
+component_names = []
+
+for _, row in df.iterrows():
+    for pic_time_str, data in row["pics"].items():
+        pic_time = float(pic_time_str)
+        component_name = data[0]  # Nom du composant
+        if pic_time <= 150:
+            pic_times.append(pic_time)
+            component_names.append(component_name)
+
+# ==========================
+# Normalisation des inputs X
+# ==========================
+
+X = np.array(pic_times, dtype=np.float32).reshape(-1, 1)
+X /= 150.0  # Normalisation
+
+# ========================================
+# Encodage des labels (one-hot vector Y)
+# ========================================
+
+# Étape 1 : encoder les labels en entiers
+label_encoder = LabelEncoder()
+integer_encoded = label_encoder.fit_transform(component_names)
+
+# Étape 2 : transformer en one-hot
+onehot_encoder = OneHotEncoder(sparse=False)
+Y = onehot_encoder.fit_transform(integer_encoded.reshape(-1, 1))
+
+# ======================
+# Split train/test
+# ======================
+
+X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
+
+# ======================
+# Infos pour le modèle
+# ======================
+
+num_classes = Y.shape[1]
+input_shape = X.shape[1:]  # (1,)
+print(f"Nombre total d’échantillons : {X.shape[0]}")
+print(f"Nombre de classes : {num_classes}")
+print(f"Noms des classes : {label_encoder.classes_}")
+import os
+import pandas as pd
+import numpy as np
+import tensorflow as tf
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder, OneHotEncoder
+from sklearn.metrics import classification_report
+from tensorflow.keras.callbacks import EarlyStopping
+from tensorflow.keras.optimizers import Adam
+
+# =========================
+# Chargement et préparation
+# =========================
+
+file_path = "chromatogrammes.json"
+df = pd.read_json(file_path)
+
+df = df.dropna(subset=['pics'])
+
+pic_times = []
+component_names = []
+
+for _, row in df.iterrows():
+    for pic_time_str, data in row["pics"].items():
+        pic_time = float(pic_time_str)
+        if pic_time <= 150:
+            pic_times.append(pic_time)
+            component_names.append(data[0])
+
+# ====================
+# Normalisation et Encodage
+# ====================
+
+X = np.array(pic_times, dtype=np.float32).reshape(-1, 1) / 150.0  # Normalisation
+
+# Label encoding
+label_encoder = LabelEncoder()
+integer_encoded = label_encoder.fit_transform(component_names)
+
+# One-hot encoding
+onehot_encoder = OneHotEncoder(sparse=False)
+Y = onehot_encoder.fit_transform(integer_encoded.reshape(-1, 1))
+
+# ===============
+# Split des données
+# ===============
+
+X_train, X_temp, Y_train, Y_temp = train_test_split(X, Y, test_size=0.3, random_state=42, stratify=Y)
+X_val, X_test, Y_val, Y_test = train_test_split(X_temp, Y_temp, test_size=0.5, random_state=42, stratify=Y_temp)
+
+print(f"Train: {X_train.shape}, Val: {X_val.shape}, Test: {X_test.shape}")
+print(f"Nombre de classes : {Y.shape[1]}")
+print(f"Classes : {label_encoder.classes_}")
+
+# ======================
+# Définition du modèle IPA
+# ======================
+
+from tensorflow.keras import Model, initializers
+from tensorflow.keras.regularizers import L2
+from tensorflow.keras.layers import Conv1D, MaxPooling1D, Flatten
+from tensorflow.keras.layers import Dropout, Dense, LeakyReLU, Input, Concatenate
+
+class BasicConv1D(tf.keras.layers.Layer):
+    def __init__(self, filters, kernel_size, strides=1, **kwargs):
+        super(BasicConv1D, self).__init__()
+        self.conv = Conv1D(filters, kernel_size=kernel_size, strides=strides, **kwargs)
+        self.activation = LeakyReLU()
+
+    def call(self, x):
+        x = self.conv(x)
+        x = self.activation(x)
+        return x
+
+class Module_35x35(tf.keras.layers.Layer):
+    def __init__(self, in_channels, regularization_factor, seed_value):
+        super(Module_35x35, self).__init__()
+        self.branch1 = tf.keras.Sequential([
+            MaxPooling1D(pool_size=2),
+            BasicConv1D(filters=in_channels * 2, kernel_size=1, strides=2,
+                        kernel_regularizer=L2(regularization_factor),
+                        kernel_initializer=initializers.HeNormal(seed_value))
+        ])
+        self.branch2 = tf.keras.Sequential([
+            BasicConv1D(filters=in_channels, kernel_size=1, strides=2,
+                        kernel_regularizer=L2(regularization_factor),
+                        kernel_initializer=initializers.HeNormal(seed_value)),
+            BasicConv1D(filters=in_channels * 2, kernel_size=3, strides=1,
+                        kernel_regularizer=L2(regularization_factor),
+                        kernel_initializer=initializers.HeNormal(seed_value)),
+        ])
+        self.branch3 = tf.keras.Sequential([
+            BasicConv1D(filters=in_channels, kernel_size=1, strides=2,
+                        kernel_regularizer=L2(regularization_factor),
+                        kernel_initializer=initializers.HeNormal(seed_value)),
+            BasicConv1D(filters=in_channels * 2, kernel_size=3, strides=2,
+                        kernel_regularizer=L2(regularization_factor),
+                        kernel_initializer=initializers.HeNormal(seed_value)),
+            BasicConv1D(filters=in_channels * 2, kernel_size=3, strides=2,
+                        kernel_regularizer=L2(regularization_factor),
+                        kernel_initializer=initializers.HeNormal(seed_value)),
+        ])
+        self.branch4 = tf.keras.Sequential([
+            BasicConv1D(filters=in_channels * 2, kernel_size=1, strides=2,
+                        kernel_regularizer=L2(regularization_factor),
+                        kernel_initializer=initializers.HeNormal(seed_value)),
+        ])
+
+    def call(self, x):
+        return Concatenate(axis=1)([self.branch1(x), self.branch2(x), self.branch3(x), self.branch4(x)])
+
+class IPA(tf.keras.Model):
+    def __init__(self, seed_value, regularization_factor, num_classes, dropout_rate=0.2):
+        super(IPA, self).__init__()
+        self.stem = tf.keras.Sequential([
+            BasicConv1D(16, kernel_size=3, strides=2,
+                        kernel_regularizer=L2(regularization_factor),
+                        kernel_initializer=initializers.HeNormal(seed_value)),
+            BasicConv1D(16, kernel_size=3,
+                        kernel_regularizer=L2(regularization_factor),
+                        kernel_initializer=initializers.HeNormal(seed_value)),
+            BasicConv1D(16, kernel_size=3,
+                        kernel_regularizer=L2(regularization_factor),
+                        kernel_initializer=initializers.HeNormal(seed_value)),
+        ])
+        self.module_35x35 = Module_35x35(32, regularization_factor, seed_value)
+        self.flatten = Flatten()
+        self.dropout = Dropout(rate=dropout_rate)
+        self.classifier = Dense(num_classes, activation="softmax")
+
+    def call(self, x):
+        x = tf.expand_dims(x, axis=2)  # (batch, length, 1)
+        x = self.stem(x)
+        x = self.module_35x35(x)
+        x = self.flatten(x)
+        x = self.dropout(x)
+        return self.classifier(x)
+
+# ================
+# Compilation & Entraînement
+# ================
+
+model = IPA(seed_value=42, regularization_factor=0.001, num_classes=Y.shape[1])
+model.compile(optimizer=Adam(learning_rate=0.001),
+              loss="categorical_crossentropy",
+              metrics=["accuracy"])
+
+early_stop = EarlyStopping(patience=10, restore_best_weights=True)
+
+model.fit(X_train, Y_train,
+          validation_data=(X_val, Y_val),
+          epochs=100,
+          batch_size=32,
+          callbacks=[early_stop],
+          verbose=1)
+
+# ==========
+# Évaluation
+# ==========
+
+Y_pred = model.predict(X_test)
+y_pred_labels = np.argmax(Y_pred, axis=1)
+y_true_labels = np.argmax(Y_test, axis=1)
+
+report = classification_report(y_true_labels, y_pred_labels, target_names=label_encoder.classes_)
+print("\nClassification Report:\n", report)
