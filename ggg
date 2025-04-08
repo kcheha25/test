@@ -523,3 +523,241 @@ y_true_labels = np.argmax(Y_test, axis=1)
 
 report = classification_report(y_true_labels, y_pred_labels, target_names=label_encoder.classes_)
 print("\nClassification Report:\n", report)
+
+import tensorflow as tf
+import tensorflow.keras.backend as K
+
+class CustomLoss(tf.keras.losses.Loss):
+    def __init__(self, n_splits, weight_prob=1.0, weight_hinge=1.0, gamma=2.0, alpha=0.25, **kwargs):
+        super().__init__(**kwargs)
+        self.n_splits = n_splits
+        self.weight_prob = weight_prob
+        self.weight_hinge = weight_hinge
+        self.gamma = gamma
+        self.alpha = alpha
+
+    def categorical_focal_loss(self, y_true, y_pred):
+        epsilon = K.epsilon()
+        y_pred = K.clip(y_pred, epsilon, 1. - epsilon)
+        
+        # Normalisation
+        y_pred /= K.sum(y_pred, axis=-1, keepdims=True)
+        
+        # Calcul de la perte
+        cross_entropy = -y_true * K.log(y_pred)
+        focal_loss = self.alpha * K.pow(1 - y_pred, self.gamma) * cross_entropy
+        return K.sum(focal_loss, axis=-1)
+
+    def call(self, y_true, y_pred, sample_weight=None):
+        y_true = tf.cast(y_true, tf.float32)
+        y_pred = tf.cast(y_pred, tf.float32)
+
+        prob_loss = self.categorical_focal_loss(y_true, y_pred)
+        return self.weight_prob * tf.reduce_mean(prob_loss)
+model.compile(
+    optimizer='adam',
+    loss=CustomLoss(n_splits=1, weight_prob=1.0, gamma=2.0, alpha=0.25),
+    metrics=['accuracy']
+)
+
+
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder
+from sklearn.metrics import classification_report, accuracy_score
+import xgboost as xgb
+
+# ================
+# Chargement des données
+# ================
+
+file_path = "chromatogrammes.json"
+df = pd.read_json(file_path)
+df = df.dropna(subset=['pics'])
+
+pic_times = []
+component_names = []
+
+for _, row in df.iterrows():
+    for pic_time_str, data in row["pics"].items():
+        pic_time = float(pic_time_str)
+        if pic_time <= 150:
+            pic_times.append(pic_time)
+            component_names.append(data[0])
+
+# ================
+# Normalisation et Label Encoding
+# ================
+
+X = np.array(pic_times, dtype=np.float32).reshape(-1, 1) / 150.0  # Normalisation entre 0 et 1
+
+label_encoder = LabelEncoder()
+y = label_encoder.fit_transform(component_names)  # Pas de one-hot ici
+
+# ================
+# Split des données
+# ================
+
+X_train, X_temp, y_train, y_temp = train_test_split(X, y, test_size=0.3, random_state=42, stratify=y)
+X_val, X_test, y_val, y_test = train_test_split(X_temp, y_temp, test_size=0.5, random_state=42, stratify=y_temp)
+
+print(f"Train: {X_train.shape}, Val: {X_val.shape}, Test: {X_test.shape}")
+print(f"Nombre de classes : {len(label_encoder.classes_)}")
+print(f"Classes : {label_encoder.classes_}")
+
+# ================
+# Entraînement du modèle XGBoost
+# ================
+
+model = xgb.XGBClassifier(
+    objective='multi:softmax',
+    num_class=len(label_encoder.classes_),
+    eval_metric='mlogloss',
+    use_label_encoder=False,
+    max_depth=4,
+    learning_rate=0.1,
+    n_estimators=100,
+    random_state=42
+)
+
+model.fit(
+    X_train, y_train,
+    eval_set=[(X_val, y_val)],
+    early_stopping_rounds=10,
+    verbose=True
+)
+
+# ================
+# Évaluation
+# ================
+
+y_pred = model.predict(X_test)
+
+print("\nAccuracy :", accuracy_score(y_test, y_pred))
+print("\nClassification Report :\n", classification_report(y_test, y_pred, target_names=label_encoder.classes_))
+
+# (Optionnel) prédire le nom du composant
+predicted_class_names = label_encoder.inverse_transform(y_pred)
+from sklearn.utils.class_weight import compute_sample_weight
+
+# Poids inverses pour équilibrer les classes
+weights = compute_sample_weight(class_weight='balanced', y=y_train)
+
+model.fit(
+    X_train, y_train,
+    sample_weight=weights,
+    eval_set=[(X_val, y_val)],
+    early_stopping_rounds=10,
+    verbose=True
+)
+from sklearn.model_selection import GridSearchCV
+from sklearn.metrics import classification_report
+from xgboost import XGBClassifier
+from sklearn.utils.class_weight import compute_sample_weight
+
+# Poids des classes pour compenser le déséquilibre
+weights = compute_sample_weight(class_weight='balanced', y=y_train)
+
+# Définition du modèle de base
+xgb_model = XGBClassifier(
+    objective='multi:softmax',
+    num_class=len(np.unique(y_train)),
+    use_label_encoder=False,
+    eval_metric='mlogloss',
+    random_state=42
+)
+
+# Grille des hyperparamètres à tester
+param_grid = {
+    'max_depth': [3, 5, 7],
+    'learning_rate': [0.01, 0.1, 0.3],
+    'n_estimators': [50, 100, 200],
+    'subsample': [0.8, 1.0],
+    'colsample_bytree': [0.8, 1.0]
+}
+
+# GridSearchCV avec validation croisée
+grid_search = GridSearchCV(
+    estimator=xgb_model,
+    param_grid=param_grid,
+    scoring='f1_macro',  # ou 'accuracy', 'balanced_accuracy', 'f1_weighted'
+    cv=3,
+    verbose=1,
+    n_jobs=-1
+)
+
+# Entraînement
+grid_search.fit(X_train, y_train, sample_weight=weights)
+
+# Résultats
+print("Meilleurs hyperparamètres :", grid_search.best_params_)
+
+# Évaluation sur le test
+best_model = grid_search.best_estimator_
+y_pred = best_model.predict(X_test)
+
+print(classification_report(y_test, y_pred, target_names=label_encoder.classes_))
+import numpy as np
+import xgboost as xgb
+
+# Définir la fonction de perte personnalisée pour XGBoost (Focal Loss)
+def focal_loss(gamma=2.0, alpha=0.25):
+    def focal_loss_inner(y_true, y_pred):
+        y_true = np.array(y_true)
+        y_pred = np.clip(np.array(y_pred), 1e-7, 1 - 1e-7)
+        
+        # Calcul du cross entropy classique
+        cross_entropy = -y_true * np.log(y_pred)
+        
+        # Calcul du modulateur de focal loss
+        modulating_factor = np.power(1 - y_pred, gamma)
+        loss = alpha * modulating_factor * cross_entropy
+        grad = loss - y_true
+        hess = grad * (1 - y_pred)  # Calcul du hessien
+        
+        return grad, hess
+    return focal_loss_inner
+
+# Paramètres de base pour XGBoost
+params = {
+    'objective': 'multi:softmax',  # pour la classification multi-classes
+    'num_class': 5,  # Remplace par le nombre de classes de ton dataset
+    'eval_metric': 'mlogloss',
+    'eta': 0.1,
+    'max_depth': 6,
+    'alpha': 0.25,  # alpha de la focal loss
+    'gamma': 2.0    # gamma de la focal loss
+}
+
+# Charger les données et créer un DMatrix
+dtrain = xgb.DMatrix(X_train, label=y_train)
+dtest = xgb.DMatrix(X_test, label=y_test)
+
+# Appliquer la fonction de perte personnalisée dans l'entraînement
+bst = xgb.train(
+    params,
+    dtrain,
+    num_boost_round=100,
+    obj=focal_loss(gamma=2.0, alpha=0.25),  # Fonction de perte focalisée
+    evals=[(dtest, 'test')],
+    early_stopping_rounds=10
+)
+
+# Prédiction
+y_pred = bst.predict(dtest)
+from sklearn.svm import SVC
+from sklearn.metrics import accuracy_score
+
+# Initialisation du modèle SVM
+model = SVC(class_weight='balanced', kernel='linear', random_state=42)
+
+# Entraînement
+model.fit(X_train, np.argmax(Y_train, axis=1))
+
+# Prédictions
+y_pred = model.predict(X_test)
+
+# Évaluation
+accuracy = accuracy_score(np.argmax(Y_test, axis=1), y_pred)
+print(f"Accuracy : {accuracy}")
