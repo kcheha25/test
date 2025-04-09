@@ -1034,38 +1034,57 @@ model = Sequential([
 ])
 
 from collections import Counter
+import numpy as np
+import pandas as pd
+from sklearn.preprocessing import LabelEncoder, OneHotEncoder
+
+# Supposons que tu aies déjà chargé les données et préparé les variables pic_times et component_names
+# Exemple de données : 
+# component_names = ["comp1", "comp2", "comp1", "comp3", ...]
+# pic_times = [0.1, 0.2, 0.15, 0.25, ...]
+
+# Encodage des composants (Label Encoding et One Hot Encoding)
+label_encoder = LabelEncoder()
+integer_encoded = label_encoder.fit_transform(component_names)
+
+# Normalisation des données de temps de pic
+X_full = np.array(pic_times, dtype=np.float32).reshape(-1, 1) / 150.0  # Normalisation
+X_full = np.pad(X_full, ((0, 0), (0, 2)), mode='constant')  # Ajout du padding pour correspondre à la forme attendue
+
+# One-hot encoding des labels
+onehot_encoder = OneHotEncoder(sparse=False)
+Y_full = onehot_encoder.fit_transform(integer_encoded.reshape(-1, 1))
 
 # Compter les instances par classe
-integer_encoded = label_encoder.transform(component_names)
-X_full = np.array(pic_times, dtype=np.float32).reshape(-1, 1) / 150.0
-X_full = np.pad(X_full, ((0, 0), (0, 2)), mode='constant') 
-Y_full = onehot_encoder.transform(integer_encoded.reshape(-1, 1))
-
 class_counts = Counter(integer_encoded)
 
+# Listes pour stocker les données augmentées
 X_augmented = []
 Y_augmented = []
 
+# Parcourir chaque classe pour appliquer l'augmentation ou la réduction
 for class_idx in range(len(label_encoder.classes_)):
-    indices = np.where(integer_encoded == class_idx)[0]
-    count = len(indices)
+    indices = np.where(integer_encoded == class_idx)[0]  # Obtenir les indices des échantillons de cette classe
+    count = len(indices)  # Nombre d'exemples pour cette classe
 
-    if count < 400:
-        repeat_factor = (400 + count - 1) // count  # nombre de répétitions nécessaires
-        repeated_indices = np.tile(indices, repeat_factor)
-        selected_indices = repeated_indices[:400]
-    elif count > 500:
-        selected_indices = np.random.choice(indices, 500, replace=False)
-    else:
+    if count < 400:  # Si moins de 400 exemples, dupliquer pour avoir 400
+        repeat_factor = (400 + count - 1) // count  # Calcul du facteur de répétition
+        repeated_indices = np.tile(indices, repeat_factor)  # Répéter les indices pour augmenter la classe
+        selected_indices = repeated_indices[:400]  # Sélectionner uniquement les 400 premiers indices
+    elif count > 500:  # Si plus de 500 exemples, réduire à 500 exemples aléatoires
+        selected_indices = np.random.choice(indices, 500, replace=False)  # Sélectionner aléatoirement 500 indices
+    else:  # Si entre 400 et 500 exemples, ne rien changer
         selected_indices = indices
 
+    # Ajouter les exemples sélectionnés dans les listes d'augmentation
     X_augmented.append(X_full[selected_indices])
     Y_augmented.append(Y_full[selected_indices])
 
-# Concaténer toutes les classes
+# Concaténer toutes les classes augmentées
 X = np.vstack(X_augmented)
 Y = np.vstack(Y_augmented)
 
+# Afficher la distribution après équilibrage
 print("Distribution après équilibrage :")
 for i, c in enumerate(label_encoder.classes_):
     print(f"{c}: {(Y[:, i] == 1).sum()}")
