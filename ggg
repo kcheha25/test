@@ -1088,3 +1088,22 @@ Y = np.vstack(Y_augmented)
 print("Distribution après équilibrage :")
 for i, c in enumerate(label_encoder.classes_):
     print(f"{c}: {(Y[:, i] == 1).sum()}")
+import numpy as np
+
+# Observer le nombre d'exemples par classe dans chaque partition
+def print_class_distribution(Y, label_encoder):
+    # Somme des occurrences de chaque classe
+    class_counts = np.sum(Y, axis=0)
+    print("Distribution des classes :")
+    for i, c in enumerate(label_encoder.classes_):
+        print(f"{c}: {class_counts[i]}")
+
+# Distribution dans X_train, X_val, X_test
+print("Distribution dans X_train :")
+print_class_distribution(Y_train, label_encoder)
+
+print("\nDistribution dans X_val :")
+print_class_distribution(Y_val, label_encoder)
+
+print("\nDistribution dans X_test :")
+print_class_distribution(Y_test, label_encoder)
