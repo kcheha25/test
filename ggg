@@ -808,3 +808,19 @@ loss_fn = CustomLoss(n_splits=1, alpha_per_class=alpha_per_class, gamma=2.0)
 model.compile(optimizer=Adam(learning_rate=0.001),
               loss=loss_fn,
               metrics=["accuracy"])
+
+self.masking = Masking(mask_value=0.0)  # Masquer les valeurs égales à 0
+        
+        self.module_35x35 = Module_35x35(32, regularization_factor, seed_value)
+        self.flatten = Flatten()
+        self.dropout = Dropout(rate=dropout_rate)
+        self.classifier = Dense(num_classes, activation="softmax")
+
+    def call(self, x):
+        x = self.masking(x)  # Appliquer le masking sur l'entrée
+        x = tf.expand_dims(x, axis=2)  # (batch, length, 1)
+        x = self.stem(x)
+        x = self.module_35x35(x)
+        x = self.flatten(x)
+        x = self.dropout(x)
+        return self.classifier(x)
