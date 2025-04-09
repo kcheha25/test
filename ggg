@@ -1037,6 +1037,12 @@ from collections import Counter
 import numpy as np
 import pandas as pd
 from sklearn.preprocessing import LabelEncoder, OneHotEncoder
+from sklearn.model_selection import train_test_split
+from sklearn.svm import SVC
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.naive_bayes import CategoricalNB, ComplementNB
+from xgboost import XGBClassifier
+from sklearn.metrics import accuracy_score
 
 # Supposons que tu aies déjà chargé les données et préparé les variables pic_times et component_names
 # Exemple de données : 
@@ -1084,11 +1090,14 @@ for class_idx in range(len(label_encoder.classes_)):
 X = np.vstack(X_augmented)
 Y = np.vstack(Y_augmented)
 
+# Séparer les données en ensembles d'entraînement, validation et test
+X_train, X_temp, Y_train, Y_temp = train_test_split(X, Y, test_size=0.3, random_state=42, stratify=Y)
+X_val, X_test, Y_val, Y_test = train_test_split(X_temp, Y_temp, test_size=0.5, random_state=42, stratify=Y_temp)
+
 # Afficher la distribution après équilibrage
 print("Distribution après équilibrage :")
 for i, c in enumerate(label_encoder.classes_):
     print(f"{c}: {(Y[:, i] == 1).sum()}")
-import numpy as np
 
 # Observer le nombre d'exemples par classe dans chaque partition
 def print_class_distribution(Y, label_encoder):
@@ -1107,3 +1116,33 @@ print_class_distribution(Y_val, label_encoder)
 
 print("\nDistribution dans X_test :")
 print_class_distribution(Y_test, label_encoder)
+
+# Définir une fonction pour entraîner et évaluer un modèle
+def evaluate_model(model, X_train, Y_train, X_val, Y_val, X_test, Y_test):
+    # Entraîner le modèle
+    model.fit(X_train, Y_train)
+    
+    # Prédictions sur les ensembles de validation et de test
+    Y_val_pred = model.predict(X_val)
+    Y_test_pred = model.predict(X_test)
+    
+    # Calculer les scores de précision
+    val_accuracy = accuracy_score(np.argmax(Y_val, axis=1), np.argmax(Y_val_pred, axis=1))
+    test_accuracy = accuracy_score(np.argmax(Y_test, axis=1), np.argmax(Y_test_pred, axis=1))
+    
+    print(f"Validation Accuracy: {val_accuracy * 100:.2f}%")
+    print(f"Test Accuracy: {test_accuracy * 100:.2f}%")
+    
+# Définir les modèles
+models = {
+    "SVM": SVC(kernel='linear'),
+    "XGBoost": XGBClassifier(),
+    "KNN": KNeighborsClassifier(),
+    "Categorical Naive Bayes": CategoricalNB(),
+    "Complement Naive Bayes": ComplementNB()
+}
+
+# Évaluer tous les modèles
+for model_name, model in models.items():
+    print(f"\nÉvaluation de {model_name} :")
+    evaluate_model(model, X_train, Y_train, X_val, Y_val, X_test, Y_test)
