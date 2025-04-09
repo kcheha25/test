@@ -1146,3 +1146,91 @@ models = {
 for model_name, model in models.items():
     print(f"\nÉvaluation de {model_name} :")
     evaluate_model(model, X_train, Y_train, X_val, Y_val, X_test, Y_test)
+
+
+import numpy as np
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.preprocessing import LabelEncoder
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score
+
+# Exemple de données (temps de rétention et classes associées)
+pic_times = [0.1, 0.2, 0.15, 0.25, 0.3, 0.4, 0.35]  # Les temps de rétention des pics
+component_names = ["comp1", "comp2", "comp1", "comp3", "comp1", "comp2", "comp3"]  # Les classes des pics
+
+# Encodage des classes
+label_encoder = LabelEncoder()
+integer_encoded = label_encoder.fit_transform(component_names)
+
+# Reshaping des données pour K-NN (temps de rétention en 2D)
+X = np.array(pic_times).reshape(-1, 1)
+y = integer_encoded
+
+# Séparation des données en jeu d'entraînement et test
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+
+# Initialisation du modèle K-NN
+knn = KNeighborsClassifier(n_neighbors=1)  # Le plus proche voisin (k=1)
+knn.fit(X_train, y_train)
+
+# Prédictions sur l'ensemble de test
+y_pred = knn.predict(X_test)
+
+# Calcul de l'exactitude (accuracy)
+accuracy = accuracy_score(y_test, y_pred)
+print(f"Accuracy: {accuracy * 100:.2f}%")
+
+# Afficher les prédictions et les classes réelles
+print("\nPrédictions sur X_test :")
+for i, time in enumerate(X_test):
+    predicted_class = label_encoder.inverse_transform([y_pred[i]])[0]
+    actual_class = label_encoder.inverse_transform([y_test[i]])[0]
+    print(f"Temps de rétention: {time[0]}, Prédiction: {predicted_class}, Réel: {actual_class}")
+from sklearn.model_selection import GridSearchCV
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.preprocessing import StandardScaler
+
+# Normalisation des temps de rétention
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(np.array(pic_times).reshape(-1, 1))
+
+# Définir les paramètres à tester
+param_grid = {
+    'n_neighbors': [3, 5, 7, 9],
+    'weights': ['uniform', 'distance'],
+    'metric': ['minkowski', 'euclidean', 'manhattan'],
+    'p': [1, 2]  # Manhattan (1) ou Euclidienne (2)
+}
+
+# Initialiser le modèle K-NN
+knn = KNeighborsClassifier()
+
+# Effectuer la recherche sur grille
+grid_search = GridSearchCV(knn, param_grid, cv=5, scoring='accuracy')
+grid_search.fit(X_scaled, Y_full)  # Y_full étant les labels one-hot
+
+# Afficher les meilleurs hyperparamètres trouvés
+print("Meilleurs hyperparamètres : ", grid_search.best_params_)
+from sklearn.neural_network import MLPClassifier
+from sklearn.model_selection import GridSearchCV
+
+# Normalisation des temps de rétention
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(np.array(pic_times).reshape(-1, 1))
+
+# Définir les paramètres à tester
+param_grid = {
+    'hidden_layer_sizes': [(50,), (100,), (50, 50)],
+    'activation': ['relu', 'tanh'],
+    'learning_rate': ['constant', 'adaptive']
+}
+
+# Initialiser le modèle MLP
+mlp = MLPClassifier()
+
+# Effectuer la recherche sur grille
+grid_search = GridSearchCV(mlp, param_grid, cv=5, scoring='accuracy')
+grid_search.fit(X_scaled, Y_full)
+
+# Afficher les meilleurs hyperparamètres trouvés
+print("Meilleurs hyperparamètres : ", grid_search.best_params_)
