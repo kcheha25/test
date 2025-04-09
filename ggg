@@ -1033,53 +1033,39 @@ model = Sequential([
     Dense(num_classes, activation='softmax')
 ])
 
-# Encodage des classes
-label_encoder = LabelEncoder()
-y_labels = label_encoder.fit_transform(component_names)
-classes = label_encoder.classes_
+from collections import Counter
 
-# Construction du dictionnaire classe -> indices
-class_to_indices = defaultdict(list)
-for idx, label in enumerate(y_labels):
-    class_to_indices[label].append(idx)
+# Compter les instances par classe
+integer_encoded = label_encoder.transform(component_names)
+X_full = np.array(pic_times, dtype=np.float32).reshape(-1, 1) / 150.0
+X_full = np.pad(X_full, ((0, 0), (0, 2)), mode='constant') 
+Y_full = onehot_encoder.transform(integer_encoded.reshape(-1, 1))
 
-# Augmentation des données
-augmented_X, augmented_Y = [], []
+class_counts = Counter(integer_encoded)
 
-for class_idx, indices in class_to_indices.items():
-    current_count = len(indices)
-    base_X = np.array([pic_times[i] for i in indices])
-    base_Y = [y_labels[i] for i in indices]
+X_augmented = []
+Y_augmented = []
 
-    # Shifting pour < 50
-    if current_count < 50:
-        shifted_plus = base_X + 0.001
-        shifted_minus = base_X - 0.001
-        base_X = np.concatenate([base_X, shifted_plus, shifted_minus])
-        base_Y = base_Y * 3  # Même label pour chaque shifting
-        current_count = len(base_Y)
+for class_idx in range(len(label_encoder.classes_)):
+    indices = np.where(integer_encoded == class_idx)[0]
+    count = len(indices)
 
-    # Duplication pour < 400
-    while current_count < 400:
-        repeat_X = base_X[:min(400 - current_count, len(base_X))]
-        repeat_Y = base_Y[:min(400 - current_count, len(base_Y))]
-        base_X = np.concatenate([base_X, repeat_X])
-        base_Y = list(base_Y) + list(repeat_Y)
-        current_count = len(base_Y)
+    if count < 400:
+        repeat_factor = (400 + count - 1) // count  # nombre de répétitions nécessaires
+        repeated_indices = np.tile(indices, repeat_factor)
+        selected_indices = repeated_indices[:400]
+    elif count > 500:
+        selected_indices = np.random.choice(indices, 500, replace=False)
+    else:
+        selected_indices = indices
 
-    # Sous-échantillonnage pour > 500
-    if current_count > 500:
-        selected_indices = np.random.choice(len(base_X), size=500, replace=False)
-        base_X = base_X[selected_indices]
-        base_Y = np.array(base_Y)[selected_indices]
+    X_augmented.append(X_full[selected_indices])
+    Y_augmented.append(Y_full[selected_indices])
 
-    augmented_X.extend(base_X)
-    augmented_Y.extend(base_Y)
+# Concaténer toutes les classes
+X = np.vstack(X_augmented)
+Y = np.vstack(Y_augmented)
 
-# Préparation des données finales
-X = np.array(augmented_X, dtype=np.float32).reshape(-1, 1) / 150.0
-X = np.pad(X, ((0, 0), (0, 2)), mode='constant')
-
-# One-hot encoding
-onehot_encoder = OneHotEncoder(sparse=False)
-Y = onehot_encoder.fit_transform(np.array(augmented_Y).reshape(-1, 1))
+print("Distribution après équilibrage :")
+for i, c in enumerate(label_encoder.classes_):
+    print(f"{c}: {(Y[:, i] == 1).sum()}")
