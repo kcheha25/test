@@ -391,7 +391,7 @@ for _, row in df.iterrows():
 # ====================
 
 X = np.array(pic_times, dtype=np.float32).reshape(-1, 1) / 150.0  # Normalisation
-
+X = np.pad(X, ((0, 0), (0, 2)), mode='constant') 
 # Label encoding
 label_encoder = LabelEncoder()
 integer_encoded = label_encoder.fit_transform(component_names)
@@ -836,3 +836,61 @@ print(f"Distribution des classes: \n{counts}")
 # Utilisation des poids de classe dans le modèle Keras (exemple)
 # Par exemple, vous pouvez entraîner votre modèle avec ces poids de classe :
 model.fit(X, Y, epochs=10, batch_size=32, class_weight=class_weight_dict)
+
+import pandas as pd
+import numpy as np
+from sklearn.preprocessing import LabelEncoder, OneHotEncoder
+
+# =========================
+# Chargement et préparation
+# =========================
+
+file_path = "chromatogrammes.json"
+df = pd.read_json(file_path)
+
+df = df.dropna(subset=['pics'])
+
+pic_times = []
+component_names = []
+
+# Collecte des données de pics
+for _, row in df.iterrows():
+    for pic_time_str, data in row["pics"].items():
+        pic_time = float(pic_time_str)
+        if pic_time <= 150:
+            pic_times.append(pic_time)
+            component_names.append(data[0])
+
+# ====================
+# Normalisation et Encodage
+# ====================
+
+X = np.array(pic_times, dtype=np.float32).reshape(-1, 1) / 150.0  # Normalisation
+X = np.pad(X, ((0, 0), (0, 2)), mode='constant')  # Ajout de colonnes de zéros
+
+# Label encoding
+label_encoder = LabelEncoder()
+integer_encoded = label_encoder.fit_transform(component_names)
+
+# One-hot encoding
+onehot_encoder = OneHotEncoder(sparse=False)
+Y = onehot_encoder.fit_transform(integer_encoded.reshape(-1, 1))
+
+# ============================
+# Suppression des classes avec moins de 50 exemplaires
+# ============================
+
+# Calcul du nombre d'exemples par classe
+class_counts = pd.Series(component_names).value_counts()
+
+# Identifier les classes ayant moins de 50 exemples
+classes_to_remove = class_counts[class_counts < 50].index.tolist()
+
+# Trouver les indices des exemples à supprimer dans X et Y
+indices_to_remove = np.where(np.isin(label_encoder.inverse_transform(np.argmax(Y, axis=1)), classes_to_remove))[0]
+
+# Supprimer ces indices des données
+X_cleaned = np.delete(X, indices_to_remove, axis=0)
+Y_cleaned = np.delete(Y, indices_to_remove, axis=0)
+
+# Maintenant, X_cleaned et Y_cleaned contiennent les données sans les classes ayant moins de 50 exemplaires
