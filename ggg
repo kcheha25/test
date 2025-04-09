@@ -824,3 +824,15 @@ self.masking = Masking(mask_value=0.0)  # Masquer les valeurs égales à 0
         x = self.flatten(x)
         x = self.dropout(x)
         return self.classifier(x)
+
+class_weights = compute_class_weight('balanced', classes=np.unique(integer_encoded), y=integer_encoded)
+class_weight_dict = dict(zip(np.unique(integer_encoded), class_weights))
+
+print(f"Class Weights: {class_weight_dict}")
+
+# Optionnel: Si vous voulez voir les tailles des classes
+print(f"Distribution des classes: \n{counts}")
+
+# Utilisation des poids de classe dans le modèle Keras (exemple)
+# Par exemple, vous pouvez entraîner votre modèle avec ces poids de classe :
+model.fit(X, Y, epochs=10, batch_size=32, class_weight=class_weight_dict)
