@@ -1021,3 +1021,14 @@ def predict_component_name(retention_time):
 
 # Exemple
 print("Prédiction :", predict_component_name(73.4))
+model = Sequential([
+    Dense(512, activation='relu', input_shape=(1,)),
+    Dropout(0.3),
+    Dense(256, activation='relu'),
+    Dropout(0.3),
+    Dense(128, activation='relu'),
+    Dropout(0.2),
+    Dense(64, activation='relu'),
+    Dense(32, activation='relu'),
+    Dense(num_classes, activation='softmax')
+])
