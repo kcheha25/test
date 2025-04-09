@@ -865,32 +865,39 @@ for _, row in df.iterrows():
 # Normalisation et Encodage
 # ====================
 
-X = np.array(pic_times, dtype=np.float32).reshape(-1, 1) / 150.0  # Normalisation
+# 1. Compter les occurrences des classes
+class_counts = pd.Series(component_names).value_counts()
+
+# 2. Identifier les classes à garder (au moins 50 exemples)
+valid_classes = class_counts[class_counts >= 50].index.tolist()
+
+# 3. Filtrer les composants et les temps de rétention en fonction des classes valides
+filtered_pic_times = []
+filtered_component_names = []
+
+for pic_time, component in zip(pic_times, component_names):
+    if component in valid_classes:
+        filtered_pic_times.append(pic_time)
+        filtered_component_names.append(component)
+
+# 4. Appliquer l'encodage après filtrage
+X = np.array(filtered_pic_times, dtype=np.float32).reshape(-1, 1) / 150.0  # Normalisation
 X = np.pad(X, ((0, 0), (0, 2)), mode='constant')  # Ajout de colonnes de zéros
 
 # Label encoding
 label_encoder = LabelEncoder()
-integer_encoded = label_encoder.fit_transform(component_names)
+integer_encoded = label_encoder.fit_transform(filtered_component_names)
 
 # One-hot encoding
 onehot_encoder = OneHotEncoder(sparse=False)
 Y = onehot_encoder.fit_transform(integer_encoded.reshape(-1, 1))
 
 # ============================
-# Suppression des classes avec moins de 50 exemplaires
+# Vérification de la suppression
 # ============================
 
-# Calcul du nombre d'exemples par classe
-class_counts = pd.Series(component_names).value_counts()
+# Vérifier la distribution des classes après filtrage
+remaining_classes = label_encoder.inverse_transform(np.argmax(Y, axis=1))
+remaining_class_counts = pd.Series(remaining_classes).value_counts()
 
-# Identifier les classes ayant moins de 50 exemples
-classes_to_remove = class_counts[class_counts < 50].index.tolist()
-
-# Trouver les indices des exemples à supprimer dans X et Y
-indices_to_remove = np.where(np.isin(label_encoder.inverse_transform(np.argmax(Y, axis=1)), classes_to_remove))[0]
-
-# Supprimer ces indices des données
-X_cleaned = np.delete(X, indices_to_remove, axis=0)
-Y_cleaned = np.delete(Y, indices_to_remove, axis=0)
-
-# Maintenant, X_cleaned et Y_cleaned contiennent les données sans les classes ayant moins de 50 exemplaires
+print(f"Classes restantes après filtrage : \n{remaining_class_counts}")
