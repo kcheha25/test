@@ -880,24 +880,39 @@ for pic_time, component in zip(pic_times, component_names):
         filtered_pic_times.append(pic_time)
         filtered_component_names.append(component)
 
-# 4. Appliquer l'encodage après filtrage
-X = np.array(filtered_pic_times, dtype=np.float32).reshape(-1, 1) / 150.0  # Normalisation
+# 4. Limiter à 1000 exemples pour les classes ayant plus de 1000 occurrences
+final_pic_times = []
+final_component_names = []
+
+for component in valid_classes:
+    # Trouver les indices des échantillons de chaque classe
+    indices = [i for i, x in enumerate(filtered_component_names) if x == component]
+    if len(indices) > 1000:
+        # Limiter à 1000 exemples
+        indices = indices[:1000]
+    
+    # Ajouter les échantillons filtrés
+    final_pic_times.extend([filtered_pic_times[i] for i in indices])
+    final_component_names.extend([filtered_component_names[i] for i in indices])
+
+# 5. Appliquer l'encodage après filtrage
+X = np.array(final_pic_times, dtype=np.float32).reshape(-1, 1) / 150.0  # Normalisation
 X = np.pad(X, ((0, 0), (0, 2)), mode='constant')  # Ajout de colonnes de zéros
 
 # Label encoding
 label_encoder = LabelEncoder()
-integer_encoded = label_encoder.fit_transform(filtered_component_names)
+integer_encoded = label_encoder.fit_transform(final_component_names)
 
 # One-hot encoding
 onehot_encoder = OneHotEncoder(sparse=False)
 Y = onehot_encoder.fit_transform(integer_encoded.reshape(-1, 1))
 
 # ============================
-# Vérification de la suppression
+# Vérification de la suppression et du rééchantillonnage
 # ============================
 
 # Vérifier la distribution des classes après filtrage
 remaining_classes = label_encoder.inverse_transform(np.argmax(Y, axis=1))
 remaining_class_counts = pd.Series(remaining_classes).value_counts()
 
-print(f"Classes restantes après filtrage : \n{remaining_class_counts}")
+print(f"Classes restantes après filtrage et rééchantillonnage : \n{remaining_class_counts}")
