@@ -761,3 +761,50 @@ y_pred = model.predict(X_test)
 # Évaluation
 accuracy = accuracy_score(np.argmax(Y_test, axis=1), y_pred)
 print(f"Accuracy : {accuracy}")
+
+
+import tensorflow as tf
+import tensorflow.keras.backend as K
+
+class CustomLoss(tf.keras.losses.Loss):
+    def __init__(self, n_splits, alpha_per_class, weight_prob=1.0, weight_hinge=1.0, gamma=2.0, **kwargs):
+        super().__init__(**kwargs)
+        self.n_splits = n_splits
+        self.weight_prob = weight_prob
+        self.weight_hinge = weight_hinge
+        self.gamma = gamma
+        self.alpha_per_class = tf.constant(alpha_per_class, dtype=tf.float32)  # Tensor de taille (num_classes,)
+
+    def categorical_focal_loss(self, y_true, y_pred):
+        epsilon = K.epsilon()
+        y_pred = K.clip(y_pred, epsilon, 1. - epsilon)
+
+        # Normalisation
+        y_pred /= K.sum(y_pred, axis=-1, keepdims=True)
+
+        # focal_weight shape : (batch, num_classes)
+        cross_entropy = -y_true * K.log(y_pred)
+        alpha_factor = y_true * self.alpha_per_class  # broadcasting (batch, num_classes)
+        focal_weight = K.pow(1 - y_pred, self.gamma)
+
+        loss = alpha_factor * focal_weight * cross_entropy
+        return K.sum(loss, axis=-1)
+
+    def call(self, y_true, y_pred, sample_weight=None):
+        y_true = tf.cast(y_true, tf.float32)
+        y_pred = tf.cast(y_pred, tf.float32)
+
+        prob_loss = self.categorical_focal_loss(y_true, y_pred)
+        return self.weight_prob * tf.reduce_mean(prob_loss)
+from sklearn.utils.class_weight import compute_class_weight
+
+# Encode labels
+integer_encoded = label_encoder.transform(component_names)
+class_weights = compute_class_weight(class_weight='balanced',
+                                     classes=np.unique(integer_encoded),
+                                     y=integer_encoded)
+alpha_per_class = class_weights / np.sum(class_weights)
+loss_fn = CustomLoss(n_splits=1, alpha_per_class=alpha_per_class, gamma=2.0)
+model.compile(optimizer=Adam(learning_rate=0.001),
+              loss=loss_fn,
+              metrics=["accuracy"])
