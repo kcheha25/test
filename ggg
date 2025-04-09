@@ -916,3 +916,108 @@ remaining_classes = label_encoder.inverse_transform(np.argmax(Y, axis=1))
 remaining_class_counts = pd.Series(remaining_classes).value_counts()
 
 print(f"Classes restantes après filtrage et rééchantillonnage : \n{remaining_class_counts}")
+
+
+import pandas as pd
+import numpy as np
+from sklearn.preprocessing import LabelEncoder, OneHotEncoder
+from sklearn.model_selection import train_test_split
+from collections import Counter
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense
+from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.callbacks import EarlyStopping
+from sklearn.utils.class_weight import compute_class_weight
+
+# ========== Chargement ==========
+
+file_path = "chromatogrammes.json"
+df = pd.read_json(file_path)
+df = df.dropna(subset=['pics'])
+
+pic_times = []
+component_names = []
+
+for _, row in df.iterrows():
+    for pic_time_str, data in row["pics"].items():
+        pic_time = float(pic_time_str)
+        if pic_time <= 150:
+            pic_times.append(pic_time)
+            component_names.append(data[0])
+
+# ========== Équilibrage manuel des classes ==========
+
+counts = Counter(component_names)
+min_count = 10
+max_count = 1000
+
+filtered_times = []
+filtered_names = []
+
+temp_class_counter = {}
+
+for time, name in zip(pic_times, component_names):
+    if counts[name] >= min_count:
+        temp_class_counter[name] = temp_class_counter.get(name, 0) + 1
+        if temp_class_counter[name] <= max_count:
+            filtered_times.append(time)
+            filtered_names.append(name)
+
+# ========== Encodage ==========
+
+X = np.array(filtered_times, dtype=np.float32).reshape(-1, 1) / 150.0  # Normalisation entre 0 et 1
+
+label_encoder = LabelEncoder()
+y_int = label_encoder.fit_transform(filtered_names)
+num_classes = len(label_encoder.classes_)
+
+# One-hot encoding
+onehot_encoder = OneHotEncoder(sparse=False)
+Y = onehot_encoder.fit_transform(y_int.reshape(-1, 1))
+
+# ========== Split & Poids de classe ==========
+
+X_train, X_test, Y_train, Y_test, y_train_int, y_test_int = train_test_split(
+    X, Y, y_int, test_size=0.2, stratify=y_int, random_state=42)
+
+# Calcul des poids de classe
+class_weights = compute_class_weight(class_weight='balanced',
+                                     classes=np.unique(y_train_int),
+                                     y=y_train_int)
+class_weight_dict = {i: w for i, w in enumerate(class_weights)}
+
+# ========== Modèle dense simple ==========
+
+model = Sequential([
+    Dense(128, activation='relu', input_shape=(1,)),
+    Dense(64, activation='relu'),
+    Dense(num_classes, activation='softmax')
+])
+
+model.compile(optimizer=Adam(learning_rate=0.001),
+              loss='categorical_crossentropy',
+              metrics=['accuracy'])
+
+# ========== Entraînement ==========
+
+early_stop = EarlyStopping(patience=10, restore_best_weights=True)
+
+model.fit(X_train, Y_train,
+          validation_data=(X_test, Y_test),
+          epochs=100,
+          batch_size=32,
+          callbacks=[early_stop],
+          class_weight=class_weight_dict,
+          verbose=1)
+
+# ========== Prédiction ==========
+
+def predict_component_name(retention_time):
+    norm_time = np.array([[retention_time / 150.0]])
+    prediction = model.predict(norm_time)
+    predicted_index = np.argmax(prediction, axis=1)[0]
+    return label_encoder.inverse_transform([predicted_index])[0]
+
+# Exemple
+print("Prédiction :", predict_component_name(73.4))
