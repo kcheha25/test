@@ -1032,3 +1032,54 @@ model = Sequential([
     Dense(32, activation='relu'),
     Dense(num_classes, activation='softmax')
 ])
+
+# Encodage des classes
+label_encoder = LabelEncoder()
+y_labels = label_encoder.fit_transform(component_names)
+classes = label_encoder.classes_
+
+# Construction du dictionnaire classe -> indices
+class_to_indices = defaultdict(list)
+for idx, label in enumerate(y_labels):
+    class_to_indices[label].append(idx)
+
+# Augmentation des données
+augmented_X, augmented_Y = [], []
+
+for class_idx, indices in class_to_indices.items():
+    current_count = len(indices)
+    base_X = np.array([pic_times[i] for i in indices])
+    base_Y = [y_labels[i] for i in indices]
+
+    # Shifting pour < 50
+    if current_count < 50:
+        shifted_plus = base_X + 0.001
+        shifted_minus = base_X - 0.001
+        base_X = np.concatenate([base_X, shifted_plus, shifted_minus])
+        base_Y = base_Y * 3  # Même label pour chaque shifting
+        current_count = len(base_Y)
+
+    # Duplication pour < 400
+    while current_count < 400:
+        repeat_X = base_X[:min(400 - current_count, len(base_X))]
+        repeat_Y = base_Y[:min(400 - current_count, len(base_Y))]
+        base_X = np.concatenate([base_X, repeat_X])
+        base_Y = list(base_Y) + list(repeat_Y)
+        current_count = len(base_Y)
+
+    # Sous-échantillonnage pour > 500
+    if current_count > 500:
+        selected_indices = np.random.choice(len(base_X), size=500, replace=False)
+        base_X = base_X[selected_indices]
+        base_Y = np.array(base_Y)[selected_indices]
+
+    augmented_X.extend(base_X)
+    augmented_Y.extend(base_Y)
+
+# Préparation des données finales
+X = np.array(augmented_X, dtype=np.float32).reshape(-1, 1) / 150.0
+X = np.pad(X, ((0, 0), (0, 2)), mode='constant')
+
+# One-hot encoding
+onehot_encoder = OneHotEncoder(sparse=False)
+Y = onehot_encoder.fit_transform(np.array(augmented_Y).reshape(-1, 1))
