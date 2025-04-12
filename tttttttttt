@@ -64,3 +64,29 @@ plt.legend()
 plt.grid(True)
 plt.tight_layout()
 plt.show()
+
+segments = []
+x_segments = []
+y_segments = []
+
+for i in range(num_segments):
+    start = i * segment_size
+    end = start + segment_size
+    segment_x = x[start:end]
+    segment_y = y[start:end]
+    segment_input = np.stack([segment_x, segment_y], axis=-1)
+    segments.append(segment_input)
+    x_segments.append(segment_x)
+    y_segments.append(segment_y)
+
+# Étape 4 : Inférence segment par segment
+probs_segments = []
+
+for seg in segments:
+    seg_input = np.expand_dims(seg, axis=0)  # (1, 1000, 2)
+    pred = model.predict(seg_input, verbose=0)  # (1, 1000, 1) ou (1, 1000)
+    if pred.ndim == 3:
+        pred = pred[0, :, 0]
+    else:
+        pred = pred[0]
+    probs_segments.append(pred)
