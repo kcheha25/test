@@ -1,0 +1,22 @@
+image_folder = 'chemin/vers/le/dossier/images'
+image_paths = [os.path.join(image_folder, f) for f in os.listdir(image_folder) if f.lower().endswith(('.jpg', '.png', '.jpeg'))]
+for img_path in image_paths:
+
+
+    def plot_sheets_histogram(feuille_counts, output_path="histogramme_feuillets.png"):
+    plt.figure(figsize=(8, 6))
+    plt.hist(
+        feuille_counts,
+        bins=np.arange(min(feuille_counts), max(feuille_counts) + 1),
+        alpha=0.7,
+        color='blue',
+        edgecolor='black'
+    )
+    plt.xlabel("Nombre de feuillets détectés par ROI")
+    plt.ylabel("Fréquence")
+    plt.title("Histogramme du nombre de feuillets détectés par ROI")
+    
+    # 💾 Sauvegarde dans un fichier
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+
+    output_path = f"histos/hist_{os.path.basename(img_path).split('.')[0]}.png"
