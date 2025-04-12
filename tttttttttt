@@ -94,3 +94,19 @@ for seg in segments:
     x_full = np.concatenate(x_segments)
 y_full = np.concatenate(y_segments)
 probs_full = np.concatenate(probs_segments)
+
+
+while i < len(probs_full) - 3:
+    if probs_full[i] > threshold:
+        window = probs_full[i-3:i+4]
+        if np.any(window > threshold):
+            idx_window = np.arange(i-3, i+4)
+            idx_max_intensity = idx_window[np.argmax(y_full[idx_window])]
+            detected_peaks.append(idx_max_intensity)
+
+            # Avancer jusqu'à la fin de la fenêtre (après le pic et la fenêtre de 7 points)
+            i = i + 4  # Avancer jusqu'au point juste après la fenêtre
+        else:
+            i += 1  # Continuer à l'index suivant si aucun pic n'est détecté dans la fenêtre
+    else:
+        i += 1  # Continuer à l'index suivant si aucun pic n'est détecté
