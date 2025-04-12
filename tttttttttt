@@ -110,3 +110,24 @@ while i < len(probs_full) - 3:
             i += 1  # Continuer à l'index suivant si aucun pic n'est détecté dans la fenêtre
     else:
         i += 1  # Continuer à l'index suivant si aucun pic n'est détecté
+
+plt.figure(figsize=(14, 5))
+plt.plot(x_full, y_full, label='Chromatogramme')
+plt.scatter(x_full[detected_peaks], y_full[detected_peaks], color='red', label='Pics détectés')
+plt.xlabel('Temps de rétention')
+plt.ylabel('Intensité normalisée')
+plt.title('Détection de pics dans le chromatogramme')
+plt.legend()
+
+# Suppression des axes
+plt.axis('off')  # Masquer les axes
+
+# Ajuster les limites des axes pour ne pas avoir de marge
+plt.xlim(min(x_full), max(x_full))  # Limiter l'axe x entre le minimum et le maximum de x_full
+plt.ylim(min(y_full), max(y_full))  # Limiter l'axe y entre le minimum et le maximum de y_full
+
+# Ajuster la disposition pour qu'il n'y ait pas de marge
+plt.tight_layout(pad=0.0)
+
+# Affichage
+plt.show()
