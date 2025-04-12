@@ -256,3 +256,15 @@ while i < len(probs_full) - 3:
 
 # Affichage du dictionnaire avec les temps des pics et les noms des composants
 print(pic_info_dict)
+
+import pandas as pd
+
+# Créer un DataFrame pour stocker les informations des pics
+pic_info_df = pd.DataFrame(columns=["Temps du Pic", "Nom du Composant"])
+
+# Ajouter les informations pour chaque pic détecté
+for pic_time_detected, closest_component in pic_info_dict.items():
+    pic_info_df = pic_info_df.append({"Temps du Pic": pic_time_detected, "Nom du Composant": closest_component}, ignore_index=True)
+
+# Sauvegarder le DataFrame dans un fichier CSV pour une consultation facile
+pic_info_df.to_csv('pic_info.csv', index=False)
