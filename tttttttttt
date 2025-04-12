@@ -131,3 +131,97 @@ plt.tight_layout(pad=0.0)
 
 # Affichage
 plt.show()
+
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.neighbors import NearestNeighbors
+import random
+
+# Charger les données
+file_path = "chromatogrammes.json"
+df = pd.read_json(file_path)
+df = df.dropna(subset=['pics'])
+
+# Extraire les temps de pics et les noms des composants
+pic_times = []
+component_names = []
+
+for _, row in df.iterrows():
+    for pic_time_str, data in row["pics"].items():
+        pic_time = float(pic_time_str)
+        if pic_time <= 150:  # Garder les temps de pics inférieurs ou égaux à 150
+            pic_times.append(pic_time)
+            component_names.append(data[0])
+
+# ===================
+# Normalisation et Label Encoding
+# ===================
+X = np.array(pic_times, dtype=np.float32).reshape(-1, 1) / 150.0  # Normalisation
+
+# Initialisation du modèle NearestNeighbors
+nbrs = NearestNeighbors(n_neighbors=1, radius=0.4)
+
+# Entraînement du modèle sur les données X
+nbrs.fit(X)
+
+# ===================
+# Détection des pics dans le chromatogramme
+# ===================
+detected_peaks = []
+threshold = 0.4
+i = 3  # Démarrer à l'index 3 pour éviter les bords
+
+while i < len(probs_full) - 3:
+    if probs_full[i] > threshold:
+        window = probs_full[i - 3:i + 4]
+        if np.any(window > threshold):
+            idx_window = np.arange(i - 3, i + 4)
+            idx_max_intensity = idx_window[np.argmax(y_full[idx_window])]
+            detected_peaks.append(idx_max_intensity)
+
+            # Trouver l'indice correspondant au temps de pic détecté
+            pic_time_detected = x_full[idx_max_intensity]
+            pic_time_normalized = pic_time_detected / 150.0
+
+            # Trouver l'indice du pic le plus proche dans les données d'entraînement
+            _, indices = nbrs.kneighbors([[pic_time_normalized]])
+            closest_index = indices[0][0]
+            closest_component = component_names[closest_index]
+
+            # Afficher le nom du composant sur le graphique
+            plt.text(x_full[idx_max_intensity], y_full[idx_max_intensity], closest_component,
+                     color='red', fontsize=10, ha='center')
+
+            # Avancer jusqu'à la fin de la fenêtre
+            i = i + 4
+        else:
+            i += 1  # Continuer à l'index suivant si aucun pic n'est détecté
+    else:
+        i += 1  # Continuer à l'index suivant si aucun pic n'est détecté
+
+# ===================
+# Affichage du graphique
+# ===================
+plt.figure(figsize=(14, 5))
+plt.plot(x_full, y_full, label='Chromatogramme')
+plt.scatter(x_full[detected_peaks], y_full[detected_peaks], color='red', label='Pics détectés')
+plt.xlabel('Temps de rétention')
+plt.ylabel('Intensité normalisée')
+plt.title('Détection de pics dans le chromatogramme')
+
+# Masquer les axes
+plt.axis('off')
+
+# Ajuster les limites des axes pour ne pas avoir de marge
+plt.xlim(min(x_full), max(x_full))  # Limiter l'axe x entre le minimum et le maximum de x_full
+plt.ylim(min(y_full), max(y_full))  # Limiter l'axe y entre le minimum et le maximum de y_full
+
+# Ajuster la disposition pour qu'il n'y ait pas de marge
+plt.tight_layout(pad=0.0)
+
+# Affichage du graphique
+plt.legend()
+plt.grid(True)
+plt.show()
