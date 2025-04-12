@@ -1,22 +1,66 @@
-image_folder = 'chemin/vers/le/dossier/images'
-image_paths = [os.path.join(image_folder, f) for f in os.listdir(image_folder) if f.lower().endswith(('.jpg', '.png', '.jpeg'))]
-for img_path in image_paths:
+import numpy as np
+import matplotlib.pyplot as plt
+import random
 
+# Étape 1 : Sélection d’un chromatogramme aléatoire
+random_idx = random.randint(0, len(df) - 1)
+row = truncate(df.iloc[random_idx])
 
-    def plot_sheets_histogram(feuille_counts, output_path="histogramme_feuillets.png"):
-    plt.figure(figsize=(8, 6))
-    plt.hist(
-        feuille_counts,
-        bins=np.arange(min(feuille_counts), max(feuille_counts) + 1),
-        alpha=0.7,
-        color='blue',
-        edgecolor='black'
-    )
-    plt.xlabel("Nombre de feuillets détectés par ROI")
-    plt.ylabel("Fréquence")
-    plt.title("Histogramme du nombre de feuillets détectés par ROI")
-    
-    # 💾 Sauvegarde dans un fichier
-    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+x = np.array(row["x"])
+y = np.array(row["y"])
 
-    output_path = f"histos/hist_{os.path.basename(img_path).split('.')[0]}.png"
+# Étape 2 : Normalisation des intensités
+y = y / np.max(y)
+
+# Étape 3 : Segmentation
+segments = []
+segment_size = 1000
+num_segments = len(x) // segment_size
+
+for i in range(num_segments):
+    start = i * segment_size
+    end = start + segment_size
+    segment_x = x[start:end]
+    segment_y = y[start:end]
+    segment_input = np.stack([segment_x, segment_y], axis=-1)
+    segments.append(segment_input)
+
+segments = np.array(segments)  # (n_segments, 1000, 2)
+
+# Étape 4 : Prédiction par le modèle
+predictions = model.predict(segments)  # shape: (n_segments, 1000, 1) ou (n_segments, 1000)
+
+if predictions.ndim == 3:
+    predictions = predictions[:, :, 0]
+
+# Étape 5 : Reconstruction du signal complet
+x_full = np.concatenate([seg[:, 0] for seg in segments])
+y_full = np.concatenate([seg[:, 1] for seg in segments])
+probs_full = np.concatenate(predictions)
+
+# Étape 6 : Détection des pics
+detected_peaks = []
+threshold = 0.4
+
+for i in range(3, len(probs_full) - 3):
+    if probs_full[i] > threshold:
+        window = probs_full[i-3:i+4]
+        if np.any(window > threshold):
+            idx_window = np.arange(i-3, i+4)
+            idx_max_intensity = idx_window[np.argmax(y_full[idx_window])]
+            detected_peaks.append(idx_max_intensity)
+
+# Supprimer les doublons
+detected_peaks = sorted(set(detected_peaks))
+
+# Étape 7 : Affichage
+plt.figure(figsize=(14, 5))
+plt.plot(x_full, y_full, label='Chromatogramme')
+plt.scatter(x_full[detected_peaks], y_full[detected_peaks], color='red', label='Pics détectés')
+plt.xlabel('Temps de rétention')
+plt.ylabel('Intensité normalisée')
+plt.title('Détection de pics dans le chromatogramme')
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.show()
