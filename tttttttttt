@@ -274,3 +274,11 @@ pic_info_df.to_csv('pic_info.csv', index=False)
 
 # Afficher le DataFrame
 print(pic_info_df)
+
+
+# Évaluation du modèle sur les données de test
+test_loss, test_accuracy, test_auc = model.evaluate(X_test, Y_test, verbose=1)
+
+print(f"Test Loss: {test_loss}")
+print(f"Test Accuracy: {test_accuracy}")
+print(f"Test AUC: {test_auc}")
