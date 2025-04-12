@@ -225,3 +225,34 @@ plt.tight_layout(pad=0.0)
 plt.legend()
 plt.grid(True)
 plt.show()
+pic_info_dict = {}
+
+while i < len(probs_full) - 3:
+    if probs_full[i] > threshold:
+        window = probs_full[i - 3:i + 4]
+        if np.any(window > threshold):
+            idx_window = np.arange(i - 3, i + 4)
+            idx_max_intensity = idx_window[np.argmax(y_full[idx_window])]
+            detected_peaks.append(idx_max_intensity)
+
+            # Trouver l'indice correspondant au temps de pic détecté
+            pic_time_detected = x_full[idx_max_intensity]
+            pic_time_normalized = pic_time_detected / 150.0
+
+            # Trouver l'indice du pic le plus proche dans les données d'entraînement
+            _, indices = nbrs.kneighbors([[pic_time_normalized]])
+            closest_index = indices[0][0]
+            closest_component = component_names[closest_index]
+
+            # Sauvegarder les informations du pic dans le dictionnaire
+            pic_info_dict[pic_time_detected] = closest_component
+
+            # Avancer jusqu'à la fin de la fenêtre
+            i = i + 4
+        else:
+            i += 1  # Continuer à l'index suivant si aucun pic n'est détecté
+    else:
+        i += 1  # Continuer à l'index suivant si aucun pic n'est détecté
+
+# Affichage du dictionnaire avec les temps des pics et les noms des composants
+print(pic_info_dict)
