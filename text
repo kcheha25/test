@@ -4,3 +4,30 @@ Adaptation du modèle IPA pour la localisation des pics dans les chromatogrammes
 
 Attribution des composants via l’algorithme Nearest Neighbors
 
+À ma disposition, j'avais un ensemble de 453 chromatogrammes. Un premier nettoyage des données a été nécessaire : 133 chromatogrammes ne comportaient pas d'annotations de pics et ont donc été supprimés, ce qui a réduit le jeu à 320 chromatogrammes exploitables. Ensuite, le signal de chaque chromatogramme a été tronqué pour ne conserver que les points dont le temps de rétention est inférieur ou égal à 150, ce qui a permis de passer d’environ 71 000 à 45 000 points par chromatogramme. Afin de faciliter l’apprentissage, chaque chromatogramme a été découpé en segments de 1 000 points, donnant ainsi 45 segments par chromatogramme. Les données ont été normalisées en temps, mais non en intensité, car la normalisation des intensités réduisait la visibilité des pics de faible intensité. Au total, 14 400 segments ont été générés pour l'entraînement. Chaque point d’un segment est représenté par deux valeurs (temps, intensité), et pour l’étiquetage, une classification binaire a été mise en place : les points correspondant aux pics sont annotés avec la valeur 1, les autres avec la valeur 0.
+
+🔄 Prétraitement des données
+Jeu initial :
+📊 453 chromatogrammes
+
+Nettoyage :
+❌ Suppression de 133 sans annotations
+✅ 320 chromatogrammes restants
+
+Tronquage du signal :
+⏱️ Garde les points avec temps ≤ 150
+➡️ Réduction de ~71 000 à ~45 000 points
+
+Segmentation :
+✂️ Découpe en segments de 1 000 points
+➡️ 45 segments par chromatogramme
+🧩 Total : 14 400 segments
+
+Normalisation :
+✅ Temps normalisé
+❌ Intensité non normalisée (préservation des pics faibles)
+
+Étiquetage (labels) :
+🟢 1 si le point est un pic
+⚪ 0 sinon
+➡️ Classification binaire point par point
