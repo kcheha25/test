@@ -273,3 +273,4 @@ L’approche NearestNeighbors s’est montrée simple, efficace et robuste pour 
 Perspectives :
 • Valider sur un plus grand ensemble de chromatogrammes.
 • Intégration future dans une WebApp ou dans Plugim! pour un usage pratique et accessible.
+• Implémenter la solution soit dans une WebApp, soit dans Plugim!, pour la rendre facilement testable et utilisable.
