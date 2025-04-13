@@ -261,3 +261,15 @@ Entraîner un NearestNeighbors sur ces temps de rétention
 Recherche avec NearestNeighbors
 Récupérer l’indice du plus proche voisin dans les données d’entraînement.
 Assigner au pic IPA le nom du composant du plus proche voisin.
+
+Intégration de BiLSTM + Attention dans l’architecture IPA a permis une détection précise des pics, même à faible intensité.
+
+L’usage d’une fonction de perte adaptée (focal loss) a renforcé la performance sur les classes déséquilibrées.
+
+Un post-traitement léger a été nécessaire pour affiner la détection finale.
+
+L’approche NearestNeighbors s’est montrée simple, efficace et robuste pour attribuer les noms de composants.
+
+Perspectives :
+• Valider sur un plus grand ensemble de chromatogrammes.
+• Intégration future dans une WebApp ou dans Plugim! pour un usage pratique et accessible.
