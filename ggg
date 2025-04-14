@@ -1234,3 +1234,41 @@ grid_search.fit(X_scaled, Y_full)
 
 # Afficher les meilleurs hyperparamètres trouvés
 print("Meilleurs hyperparamètres : ", grid_search.best_params_)
+
+
+pic_info_dict = {}
+last_assigned_name = None
+
+while i < len(probs_full) - 3:
+    if probs_full[i] > threshold:
+        window = probs_full[i - 3:i + 4]
+        if np.any(window > threshold):
+            idx_window = np.arange(i - 3, i + 4)
+            idx_max_intensity = idx_window[np.argmax(y_full[idx_window])]
+            detected_peaks.append(idx_max_intensity)
+
+            # Temps du pic détecté
+            pic_time_detected = x_full[idx_max_intensity]
+            pic_time_normalized = pic_time_detected / 150.0
+
+            # Trouver les voisins les plus proches
+            _, indices = nbrs.kneighbors([[pic_time_normalized]])
+            candidate_names = [component_names[idx] for idx in indices[0]]
+
+            # Choisir le nom différent du précédent si possible
+            for name in candidate_names:
+                if name != last_assigned_name:
+                    selected_name = name
+                    break
+            else:
+                selected_name = candidate_names[0]  # Si tous les noms sont identiques
+
+            last_assigned_name = selected_name
+            pic_info_dict[pic_time_detected] = selected_name
+
+            # Avancer jusqu'à la fin de la fenêtre
+            i = i + 4
+        else:
+            i += 1
+    else:
+        i += 1
