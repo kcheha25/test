@@ -116,3 +116,69 @@ while i < len(probs_full) - 3:
 
 # Résultat final
 print(pic_info_dict)
+
+
+# Étape 2 : Fusionner les composants dont les intervalles se chevauchent
+merged_components = []
+visited = set()
+
+for comp1 in component_intervals:
+    if comp1 in visited:
+        continue
+    group = {comp1}
+    min1, max1 = component_intervals[comp1]
+    for comp2 in component_intervals:
+        if comp2 != comp1 and comp2 not in visited:
+            min2, max2 = component_intervals[comp2]
+            if max1 >= min2 and max2 >= min1:  # chevauchement
+                group.add(comp2)
+                min1 = min(min1, min2)
+                max1 = max(max1, max2)
+    visited.update(group)
+
+    # Étape 2.5 : Si plus de 4 composants, rediviser le groupe
+    if len(group) > 4:
+        group = list(group)
+        subgroups = []
+        group_remaining = set(group)
+
+        while group_remaining:
+            # Trouver le composant avec le plus grand intervalle
+            max_interval_comp = max(group_remaining, key=lambda c: component_intervals[c][1] - component_intervals[c][0])
+            minA, maxA = component_intervals[max_interval_comp]
+            subgroup = {max_interval_comp}
+
+            for other in group_remaining:
+                if other == max_interval_comp:
+                    continue
+                minB, maxB = component_intervals[other]
+                if maxA >= minB and maxB >= minA:  # chevauchement direct
+                    subgroup.add(other)
+
+            subgroups.append((subgroup, (
+                min(component_intervals[c][0] for c in subgroup),
+                max(component_intervals[c][1] for c in subgroup)
+            )))
+            group_remaining -= subgroup
+
+        merged_components.extend(subgroups)
+    else:
+        merged_components.append((group, (min1, max1)))
+
+# Étape 3 : Créer un mapping temps → nom commun
+pic_time_to_group_name = {}
+for group, (min_time, max_time) in merged_components:
+    group_name = "+".join(sorted(group))
+    for comp in group:
+        for t in component_to_times[comp]:
+            if min_time <= t <= max_time:
+                pic_time_to_group_name[t] = group_name
+
+# Reconstruction des données finales
+filtered_pic_times = []
+filtered_component_names = []
+
+for t in pic_times:
+    if t in pic_time_to_group_name:
+        filtered_pic_times.append(t)
+        filtered_component_names.append(pic_time_to_group_name[t])
