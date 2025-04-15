@@ -198,18 +198,29 @@ for _, row in df.iterrows():
 from collections import defaultdict
 
 group_to_sequences = defaultdict(set)
+group_to_sequences = defaultdict(set)
 
 for group, (min_time, max_time) in merged_components:
-    for chromatogram in all_chromatograms:
-        # Récupérer les composants dans l’intervalle de temps du groupe
-        sequence = [
-            comp for (t, comp) in chromatogram
-            if min_time <= t <= max_time and comp in group
-        ]
-
+    group_name = "+".join(sorted(group))
+    
+    for _, row in df.iterrows():
+        if not isinstance(row['pics'], dict):
+            continue
+        
+        seen = set()
+        sequence = []
+        
+        for pic_time_str, data in row['pics'].items():
+            pic_time = float(pic_time_str)
+            if min_time <= pic_time <= max_time:
+                comp_name = data[0]
+                if comp_name in group and comp_name not in seen:
+                    sequence.append(comp_name)
+                    seen.add(comp_name)
+        
         if sequence:
-            group_name = "+".join(sorted(group))
-            group_to_sequences[group_name].add(tuple(sequence))  # on garde les séquences distinctes
+            group_to_sequences[group_name].add(tuple(sequence))
+
 # Affichage
 for group_name, sequences in group_to_sequences.items():
     print(f"Groupe : {group_name}")
