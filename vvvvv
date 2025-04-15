@@ -1,0 +1,118 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.neighbors import NearestNeighbors
+from collections import defaultdict
+
+# Charger les données
+file_path = "chromatogrammes.json"
+df = pd.read_json(file_path)
+df = df.dropna(subset=['pics'])
+
+# Extraire les temps de pics et les noms des composants
+pic_times = []
+component_names = []
+component_to_times = defaultdict(list)
+
+for _, row in df.iterrows():
+    for pic_time_str, data in row["pics"].items():
+        pic_time = float(pic_time_str)
+        if pic_time <= 150:
+            comp_name = data[0]
+            pic_times.append(pic_time)
+            component_names.append(comp_name)
+            component_to_times[comp_name].append(pic_time)
+
+# Étape 1 : Créer les intervalles min/max pour chaque composant
+component_intervals = {
+    comp: (min(times), max(times)) for comp, times in component_to_times.items()
+}
+
+# Étape 2 : Fusionner les composants dont les intervalles se chevauchent
+merged_components = []
+visited = set()
+
+for comp1 in component_intervals:
+    if comp1 in visited:
+        continue
+    group = {comp1}
+    min1, max1 = component_intervals[comp1]
+    for comp2 in component_intervals:
+        if comp2 != comp1 and comp2 not in visited:
+            min2, max2 = component_intervals[comp2]
+            if max1 >= min2 and max2 >= min1:  # chevauchement
+                group.add(comp2)
+                min1 = min(min1, min2)
+                max1 = max(max1, max2)
+    merged_components.append((group, (min1, max1)))
+    visited.update(group)
+
+# Étape 3 : Créer un mapping temps → nom commun
+pic_time_to_group_name = {}
+for group, (min_time, max_time) in merged_components:
+    group_name = "+".join(sorted(group))
+    for comp in group:
+        for t in component_to_times[comp]:
+            if min_time <= t <= max_time:
+                pic_time_to_group_name[t] = group_name
+
+# Reconstruction des données finales
+filtered_pic_times = []
+filtered_component_names = []
+
+for t in pic_times:
+    if t in pic_time_to_group_name:
+        filtered_pic_times.append(t)
+        filtered_component_names.append(pic_time_to_group_name[t])
+
+# Étape 4 : NearestNeighbors pour attribution des noms
+X = np.array(filtered_pic_times).reshape(-1, 1) / 150.0
+component_names_array = np.array(filtered_component_names)
+nbrs = NearestNeighbors(n_neighbors=5)
+nbrs.fit(X)
+
+# Exemple de prédiction de noms sur des pics détectés
+# Exemple avec un tableau fictif x_full, y_full, probs_full
+# (à remplacer par tes vrais vecteurs)
+
+detected_peaks = []
+pic_info_dict = {}
+previous_name = None
+threshold = 0.4
+i = 3
+
+while i < len(probs_full) - 3:
+    if probs_full[i] > threshold:
+        window = probs_full[i - 3:i + 4]
+        if np.any(window > threshold):
+            idx_window = np.arange(i - 3, i + 4)
+            idx_max_intensity = idx_window[np.argmax(y_full[idx_window])]
+            detected_peaks.append(idx_max_intensity)
+
+            # Temps détecté
+            pic_time_detected = x_full[idx_max_intensity]
+            pic_time_norm = pic_time_detected / 150.0
+
+            # Trouver les k plus proches voisins
+            _, indices = nbrs.kneighbors([[pic_time_norm]])
+            candidate_names = component_names_array[indices[0]]
+
+            # Éviter de réattribuer le même nom que précédemment
+            for name in candidate_names:
+                if name != previous_name:
+                    selected_name = name
+                    break
+            else:
+                selected_name = candidate_names[0]
+
+            previous_name = selected_name
+            pic_info_dict[pic_time_detected] = selected_name
+
+            i += 4
+        else:
+            i += 1
+    else:
+        i += 1
+
+# Résultat final
+print(pic_info_dict)
