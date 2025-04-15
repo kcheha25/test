@@ -183,76 +183,42 @@ for t in pic_times:
         filtered_pic_times.append(t)
         filtered_component_names.append(pic_time_to_group_name[t])
 
-# Étape 2 : Regrouper initialement tous les composants par chevauchement direct
-def initial_grouping(component_intervals):
-    merged_components = []
-    visited = set()
+all_chromatograms = []
 
-    for comp1 in component_intervals:
-        if comp1 in visited:
-            continue
-        group = {comp1}
-        min1, max1 = component_intervals[comp1]
-        for comp2 in component_intervals:
-            if comp2 != comp1 and comp2 not in visited:
-                min2, max2 = component_intervals[comp2]
-                if max1 >= min2 and max2 >= min1:  # chevauchement direct
-                    group.add(comp2)
-                    min1 = min(min1, min2)
-                    max1 = max(max1, max2)
-        visited.update(group)
-        merged_components.append((group, (min1, max1)))
+for _, row in df.iterrows():
+    chromatogram = []
+    for pic_time_str, data in row["pics"].items():
+        pic_time = float(pic_time_str)
+        if pic_time <= 150:
+            comp_name = data[0]
+            chromatogram.append((pic_time, comp_name))
+    chromatogram.sort()  # tri par temps croissant
+    all_chromatograms.append(chromatogram)
 
-    return merged_components
+from collections import defaultdict
 
-# Étape 2.5 : Décomposer récursivement les grands groupes
-def recursively_split_large_groups(merged_components, component_intervals, max_size=4):
-    changed = True
-    while changed:
-        changed = False
-        new_components = []
+group_to_sequences = defaultdict(set)
 
-        for group, _ in merged_components:
-            if len(group) > max_size:
-                changed = True
-                group = list(group)
-                group_remaining = set(group)
+for group, (min_time, max_time) in merged_components:
+    for chromatogram in all_chromatograms:
+        # Récupérer les composants dans l’intervalle de temps du groupe
+        sequence = [
+            comp for (t, comp) in chromatogram
+            if min_time <= t <= max_time and comp in group
+        ]
 
-                while group_remaining:
-                    # Trouver le composant avec le plus grand intervalle
-                    max_interval_comp = max(
-                        group_remaining,
-                        key=lambda c: component_intervals[c][1] - component_intervals[c][0]
-                    )
-                    minA, maxA = component_intervals[max_interval_comp]
-                    subgroup = {max_interval_comp}
+        if sequence:
+            group_name = "+".join(sorted(group))
+            group_to_sequences[group_name].add(tuple(sequence))  # on garde les séquences distinctes
+# Affichage
+for group_name, sequences in group_to_sequences.items():
+    print(f"Groupe : {group_name}")
+    for seq in sequences:
+        print("  →", " → ".join(seq))
+    print()
 
-                    for other in group_remaining:
-                        if other == max_interval_comp:
-                            continue
-                        minB, maxB = component_intervals[other]
-                        if maxA >= minB and maxB >= minA:  # chevauchement direct
-                            subgroup.add(other)
-
-                    new_components.append((
-                        subgroup,
-                        (
-                            min(component_intervals[c][0] for c in subgroup),
-                            max(component_intervals[c][1] for c in subgroup)
-                        )
-                    ))
-                    group_remaining -= subgroup
-            else:
-                min_time = min(component_intervals[c][0] for c in group)
-                max_time = max(component_intervals[c][1] for c in group)
-                new_components.append((group, (min_time, max_time)))
-
-        merged_components = new_components
-
-    return merged_components
-
-# Appliquer l'étape 2
-merged_components = initial_grouping(component_intervals)
-
-# Répéter la décomposition jusqu'à stabilité
-merged_components = recursively_split_large_groups(merged_components, component_intervals, max_size=4)
+# Ou bien, les exporter en texte utilisable :
+group_to_string_sequences = {
+    group_name: ["/".join(seq) for seq in sequences]
+    for group_name, sequences in group_to_sequences.items()
+}
