@@ -5,7 +5,7 @@ from collections import defaultdict
 import pandas as pd
 
 # -------------------------
-# Exemple de dataframe simulé
+# Données simulées
 # -------------------------
 data = {
     "pics": [
@@ -17,7 +17,7 @@ data = {
 df = pd.DataFrame(data)
 
 # -------------------------
-# Extraction des données
+# Préparation des intervalles
 # -------------------------
 pic_times = []
 component_names = []
@@ -37,48 +37,72 @@ component_intervals = {
 }
 
 # -------------------------
-# Fonction de tracé matplotlib
-# -------------------------
-def plot_intervals(ax):
-    ax.clear()
-
-    # Points des pics
-    ax.scatter(pic_times, [0.5]*len(pic_times), label="Pic Times", color="blue", s=30)
-
-    y_rect = 1.0
-    for i, (comp, (min_time, max_time)) in enumerate(component_intervals.items()):
-        color = plt.cm.tab10(i % 10)
-        ax.plot([min_time, max_time], [y_rect, y_rect], color=color, linewidth=2)
-        ax.plot([min_time, min_time], [0, y_rect], color=color, linestyle='--')
-        ax.plot([max_time, max_time], [0, y_rect], color=color, linestyle='--')
-        mid = (min_time + max_time) / 2
-        ax.plot([mid, mid], [y_rect, y_rect + 0.2], color=color)
-        ax.text(mid, y_rect + 0.25, comp, ha='center', fontsize=9, color=color)
-
-    ax.set_ylim(0, 2)
-    ax.set_xlabel("Temps de rétention")
-    ax.set_ylabel("Intensité relative")
-    ax.set_title("Zoom sur les intervalles des composants")
-    ax.grid(True)
-
-# -------------------------
-# Interface Tkinter
+# Tkinter GUI
 # -------------------------
 root = tk.Tk()
-root.title("Visualisation des pics chromatographiques")
+root.title("Visualisation interactive des composants")
 
-# Créer une figure matplotlib
 fig, ax = plt.subplots(figsize=(10, 6))
-plot_intervals(ax)
-
-# Intégrer la figure dans Tkinter
 canvas = FigureCanvasTkAgg(fig, master=root)
-canvas.draw()
 canvas.get_tk_widget().pack(fill=tk.BOTH, expand=1)
-
-# Ajouter la barre d'outils matplotlib
 toolbar = NavigationToolbar2Tk(canvas, root)
 toolbar.update()
 toolbar.pack()
 
+# -------------------------
+# Tracé des intervalles
+# -------------------------
+y_bottom = 0.7
+y_top = 0.9
+rect_patches = []  # Pour stocker les rectangles
+rect_labels = []   # Pour stocker les noms
+
+def plot_intervals():
+    ax.clear()
+    ax.scatter(pic_times, [0.5]*len(pic_times), label="Pic Times", color="blue", s=30)
+
+    for i, (comp, (min_time, max_time)) in enumerate(component_intervals.items()):
+        color = plt.cm.tab10(i % 10)
+        rect = ax.fill_between(
+            [min_time, max_time], y_bottom, y_top, facecolor=color, alpha=0.3
+        )
+        rect_patches.append((min_time, max_time, comp))
+    
+    ax.set_ylim(0, 1.2)
+    ax.set_xlabel("Temps de rétention")
+    ax.set_ylabel("Intensité relative")
+    ax.set_title("Survolez un rectangle pour voir le composant")
+    ax.grid(True)
+
+plot_intervals()
+
+# -------------------------
+# Infobulle (tooltip) sur survol
+# -------------------------
+tooltip = ax.annotate("", xy=(0,0), xytext=(10,10), textcoords="offset points",
+                      bbox=dict(boxstyle="round", fc="w"),
+                      arrowprops=dict(arrowstyle="->"))
+tooltip.set_visible(False)
+
+def on_motion(event):
+    if event.inaxes != ax:
+        tooltip.set_visible(False)
+        canvas.draw_idle()
+        return
+
+    for (x_min, x_max, comp_name) in rect_patches:
+        if x_min <= event.xdata <= x_max and y_bottom <= event.ydata <= y_top:
+            tooltip.xy = (event.xdata, event.ydata)
+            tooltip.set_text(comp_name)
+            tooltip.set_visible(True)
+            canvas.draw_idle()
+            return
+
+    tooltip.set_visible(False)
+    canvas.draw_idle()
+
+# Connecter l'événement
+canvas.mpl_connect("motion_notify_event", on_motion)
+
+canvas.draw()
 root.mainloop()
