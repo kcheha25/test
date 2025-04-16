@@ -37,38 +37,6 @@ component_intervals = {
 }
 
 # -------------------------
-# Fonction de tracé matplotlib
-# -------------------------
-def plot_intervals(ax):
-    ax.clear()
-
-    # Points des pics
-    ax.scatter(pic_times, [0.5]*len(pic_times), label="Pic Times", color="blue", s=30)
-
-    y_bottom = 0.7  # bas du rectangle
-    y_top = 0.9     # haut du rectangle (réduit)
-
-    for i, (comp, (min_time, max_time)) in enumerate(component_intervals.items()):
-        color = plt.cm.tab10(i % 10)
-
-        # Rectangle ouvert par le bas (3 côtés)
-        ax.plot([min_time, max_time], [y_top, y_top], color=color, linewidth=2)  # haut
-        ax.plot([min_time, min_time], [y_bottom, y_top], color=color, linestyle='--')  # gauche
-        ax.plot([max_time, max_time], [y_bottom, y_top], color=color, linestyle='--')  # droite
-
-        # Tiret + nom en vertical
-        mid = (min_time + max_time) / 2
-        ax.plot([mid, mid], [y_top, y_top + 0.05], color=color)
-        ax.text(mid, y_top + 0.1, comp, ha='center', va='bottom', fontsize=9,
-                color=color, rotation=90)
-
-    ax.set_ylim(0, 1.2)
-    ax.set_xlabel("Temps de rétention")
-    ax.set_ylabel("Intensité relative")
-    ax.set_title("Zoom sur les intervalles des composants")
-    ax.grid(True)
-
-# -------------------------
 # Interface Tkinter
 # -------------------------
 root = tk.Tk()
@@ -76,16 +44,61 @@ root.title("Visualisation des pics chromatographiques")
 
 # Créer une figure matplotlib
 fig, ax = plt.subplots(figsize=(10, 6))
-plot_intervals(ax)
-
-# Intégrer la figure dans Tkinter
 canvas = FigureCanvasTkAgg(fig, master=root)
-canvas.draw()
 canvas.get_tk_widget().pack(fill=tk.BOTH, expand=1)
-
-# Ajouter la barre d'outils matplotlib
 toolbar = NavigationToolbar2Tk(canvas, root)
 toolbar.update()
 toolbar.pack()
 
-root.mainloop()
+# -------------------------
+# Tracé + sauvegarde des barres verticales
+# -------------------------
+vertical_bars = []  # x, y_bottom, y_top, component_name
+
+def plot_intervals(ax):
+    ax.clear()
+    vertical_bars.clear()
+
+    # Points des pics
+    ax.scatter(pic_times, [0.5]*len(pic_times), label="Pic Times", color="blue", s=30)
+
+    y_bottom = 0.7
+    y_top = 0.9
+
+    for i, (comp, (min_time, max_time)) in enumerate(component_intervals.items()):
+        color = plt.cm.tab10(i % 10)
+
+        # Rectangle ouvert (3 côtés)
+        ax.plot([min_time, max_time], [y_top, y_top], color=color, linewidth=2)
+        ax.plot([min_time, min_time], [y_bottom, y_top], color=color, linestyle='--')
+        ax.plot([max_time, max_time], [y_bottom, y_top], color=color, linestyle='--')
+
+        # Sauvegarder barres verticales
+        vertical_bars.append((min_time, y_bottom, y_top, comp))
+        vertical_bars.append((max_time, y_bottom, y_top, comp))
+
+    ax.set_ylim(0, 1.2)
+    ax.set_xlabel("Temps de rétention")
+    ax.set_ylabel("Intensité relative")
+    ax.set_title("Survolez une barre verticale pour voir le composant")
+    ax.grid(True)
+
+plot_intervals(ax)
+
+# -------------------------
+# Infobulle (tooltip)
+# -------------------------
+tooltip = ax.annotate("", xy=(0,0), xytext=(10,10), textcoords="offset points",
+                      bbox=dict(boxstyle="round", fc="w"),
+                      arrowprops=dict(arrowstyle="->"))
+tooltip.set_visible(False)
+
+def on_motion(event):
+    if event.inaxes != ax or event.xdata is None or event.ydata is None:
+        tooltip.set_visible(False)
+        canvas.draw_idle()
+        return
+
+    tolerance = 0.5  # tolérance en x
+    for (x, y1, y2, name) in vertical_bars:
+        if abs(event.xdata - x) < tolerance
