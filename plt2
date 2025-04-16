@@ -101,4 +101,16 @@ def on_motion(event):
 
     tolerance = 0.5  # tolérance en x
     for (x, y1, y2, name) in vertical_bars:
-        if abs(event.xdata - x) < tolerance
+        if abs(event.xdata - x) < tolerance and y1 <= event.ydata <= y2:
+            tooltip.xy = (event.xdata, event.ydata)
+            tooltip.set_text(name)
+            tooltip.set_visible(True)
+            canvas.draw_idle()
+            return
+
+    tooltip.set_visible(False)
+    canvas.draw_idle()
+
+canvas.mpl_connect("motion_notify_event", on_motion)
+canvas.draw()
+root.mainloop()
