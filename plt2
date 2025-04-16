@@ -1,0 +1,84 @@
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+import tkinter as tk
+from collections import defaultdict
+import pandas as pd
+
+# -------------------------
+# Exemple de dataframe simulé
+# -------------------------
+data = {
+    "pics": [
+        {"12.4": ["A"], "25.3": ["B"], "55.1": ["A"]},
+        {"22.1": ["B"], "45.2": ["C"], "80.3": ["A"]},
+        {"130.4": ["C"], "140.3": ["B"], "110.0": ["A"]},
+    ]
+}
+df = pd.DataFrame(data)
+
+# -------------------------
+# Extraction des données
+# -------------------------
+pic_times = []
+component_names = []
+component_to_times = defaultdict(list)
+
+for _, row in df.iterrows():
+    for pic_time_str, data in row["pics"].items():
+        pic_time = float(pic_time_str)
+        if pic_time <= 150:
+            comp_name = data[0]
+            pic_times.append(pic_time)
+            component_names.append(comp_name)
+            component_to_times[comp_name].append(pic_time)
+
+component_intervals = {
+    comp: (min(times), max(times)) for comp, times in component_to_times.items()
+}
+
+# -------------------------
+# Fonction de tracé matplotlib
+# -------------------------
+def plot_intervals(ax):
+    ax.clear()
+
+    # Points des pics
+    ax.scatter(pic_times, [0.5]*len(pic_times), label="Pic Times", color="blue", s=30)
+
+    y_rect = 1.0
+    for i, (comp, (min_time, max_time)) in enumerate(component_intervals.items()):
+        color = plt.cm.tab10(i % 10)
+        ax.plot([min_time, max_time], [y_rect, y_rect], color=color, linewidth=2)
+        ax.plot([min_time, min_time], [0, y_rect], color=color, linestyle='--')
+        ax.plot([max_time, max_time], [0, y_rect], color=color, linestyle='--')
+        mid = (min_time + max_time) / 2
+        ax.plot([mid, mid], [y_rect, y_rect + 0.2], color=color)
+        ax.text(mid, y_rect + 0.25, comp, ha='center', fontsize=9, color=color)
+
+    ax.set_ylim(0, 2)
+    ax.set_xlabel("Temps de rétention")
+    ax.set_ylabel("Intensité relative")
+    ax.set_title("Zoom sur les intervalles des composants")
+    ax.grid(True)
+
+# -------------------------
+# Interface Tkinter
+# -------------------------
+root = tk.Tk()
+root.title("Visualisation des pics chromatographiques")
+
+# Créer une figure matplotlib
+fig, ax = plt.subplots(figsize=(10, 6))
+plot_intervals(ax)
+
+# Intégrer la figure dans Tkinter
+canvas = FigureCanvasTkAgg(fig, master=root)
+canvas.draw()
+canvas.get_tk_widget().pack(fill=tk.BOTH, expand=1)
+
+# Ajouter la barre d'outils matplotlib
+toolbar = NavigationToolbar2Tk(canvas, root)
+toolbar.update()
+toolbar.pack()
+
+root.mainloop()
