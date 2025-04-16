@@ -52,10 +52,9 @@ toolbar.pack()
 # -------------------------
 # Tracé des intervalles
 # -------------------------
-y_bottom = 0.7
 y_top = 0.9
-rect_patches = []  # Pour stocker les rectangles
-rect_labels = []   # Pour stocker les noms
+y_bottom = 0.7
+rect_patches = []  # Pour stocker les positions et noms
 
 def plot_intervals():
     ax.clear()
@@ -63,11 +62,14 @@ def plot_intervals():
 
     for i, (comp, (min_time, max_time)) in enumerate(component_intervals.items()):
         color = plt.cm.tab10(i % 10)
-        rect = ax.fill_between(
-            [min_time, max_time], y_bottom, y_top, facecolor=color, alpha=0.3
-        )
-        rect_patches.append((min_time, max_time, comp))
-    
+
+        # Tracer en pointillés
+        ax.plot([min_time, min_time], [y_bottom, y_top], color=color, linestyle='--')  # gauche
+        ax.plot([max_time, max_time], [y_bottom, y_top], color=color, linestyle='--')  # droite
+        ax.plot([min_time, max_time], [y_top, y_top], color=color, linestyle='--')    # haut
+
+        rect_patches.append((min_time, max_time, y_bottom, y_top, comp))
+
     ax.set_ylim(0, 1.2)
     ax.set_xlabel("Temps de rétention")
     ax.set_ylabel("Intensité relative")
@@ -77,7 +79,7 @@ def plot_intervals():
 plot_intervals()
 
 # -------------------------
-# Infobulle (tooltip) sur survol
+# Infobulle (tooltip)
 # -------------------------
 tooltip = ax.annotate("", xy=(0,0), xytext=(10,10), textcoords="offset points",
                       bbox=dict(boxstyle="round", fc="w"),
@@ -85,13 +87,13 @@ tooltip = ax.annotate("", xy=(0,0), xytext=(10,10), textcoords="offset points",
 tooltip.set_visible(False)
 
 def on_motion(event):
-    if event.inaxes != ax:
+    if event.inaxes != ax or event.xdata is None or event.ydata is None:
         tooltip.set_visible(False)
         canvas.draw_idle()
         return
 
-    for (x_min, x_max, comp_name) in rect_patches:
-        if x_min <= event.xdata <= x_max and y_bottom <= event.ydata <= y_top:
+    for (x_min, x_max, y_min, y_max, comp_name) in rect_patches:
+        if x_min <= event.xdata <= x_max and y_min <= event.ydata <= y_max:
             tooltip.xy = (event.xdata, event.ydata)
             tooltip.set_text(comp_name)
             tooltip.set_visible(True)
