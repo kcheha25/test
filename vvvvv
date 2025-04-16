@@ -233,3 +233,426 @@ group_to_string_sequences = {
     group_name: ["/".join(seq) for seq in sequences]
     for group_name, sequences in group_to_sequences.items()
 }
+
+
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn_crfsuite import CRF, metrics
+from collections import defaultdict
+import json
+
+# Charger les données
+file_path = "chromatogrammes.json"
+df = pd.read_json(file_path)
+df = df.dropna(subset=['pics'])
+
+# Fonction de génération des features pour chaque pic dans un chromatogramme
+def extract_features_for_sequence(pic_times):
+    pic_times = sorted(pic_times)
+    features = []
+    n = len(pic_times)
+    for i, t in enumerate(pic_times):
+        feat = {
+            'retention_time': t,
+            'index': i,
+            'index_norm': i / n,
+            'prev_time': pic_times[i - 1] if i > 0 else -1,
+            'next_time': pic_times[i + 1] if i < n - 1 else -1,
+            'diff_prev': t - pic_times[i - 1] if i > 0 else 0,
+            'diff_next': pic_times[i + 1] - t if i < n - 1 else 0,
+            'local_density': sum(1 for x in pic_times if abs(x - t) < 3)  # nombre de pics dans un voisinage de 3s
+        }
+        features.append(feat)
+    return features
+
+# Fonction pour transformer les features en format CRF
+def transform_features_for_crf(features):
+    return [
+        {
+            'time': f['retention_time'],
+            'index_norm': f['index_norm'],
+            'diff_prev': f['diff_prev'],
+            'diff_next': f['diff_next'],
+            'local_density': f['local_density']
+        }
+        for f in features
+    ]
+
+# Extraction des séquences
+X = []
+Y = []
+component_to_times = defaultdict(list)
+
+for _, row in df.iterrows():
+    chromatogram_pics = row['pics']
+    sequence = []
+    labels = []
+    for t_str, data in chromatogram_pics.items():
+        t = float(t_str)
+        if t <= 150:
+            sequence.append(t)
+            labels.append(data[0])
+            component_to_times[data[0]].append(t)
+
+    if len(sequence) > 1:
+        feats = extract_features_for_sequence(sequence)
+        X.append(transform_features_for_crf(feats))
+        Y.append(labels)
+
+# Séparation en train/test
+X_train, X_test, y_train, y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
+
+# Entraînement du CRF
+crf = CRF(algorithm='lbfgs', max_iterations=100, all_possible_transitions=True)
+crf.fit(X_train, y_train)
+
+# Évaluation
+y_pred = crf.predict(X_test)
+print("F1-score pondéré :", metrics.flat_f1_score(y_test, y_pred, average='weighted'))
+print("Rapport de classification :\n", metrics.flat_classification_report(y_test, y_pred))
+
+
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split
+import xgboost as xgb
+from collections import defaultdict
+from sklearn.metrics import accuracy_score, classification_report
+
+# Charger les données
+file_path = "chromatogrammes.json"
+df = pd.read_json(file_path)
+df = df.dropna(subset=['pics'])
+
+# Fonction de génération des features pour chaque pic dans un chromatogramme
+def extract_features_for_sequence(pic_times):
+    pic_times = sorted(pic_times)
+    features = []
+    n = len(pic_times)
+    for i, t in enumerate(pic_times):
+        feat = {
+            'retention_time': t,
+            'index': i,
+            'index_norm': i / n,
+            'prev_time': pic_times[i - 1] if i > 0 else -1,
+            'next_time': pic_times[i + 1] if i < n - 1 else -1,
+            'diff_prev': t - pic_times[i - 1] if i > 0 else 0,
+            'diff_next': pic_times[i + 1] - t if i < n - 1 else 0,
+            'local_density': sum(1 for x in pic_times if abs(x - t) < 3)  # nombre de pics dans un voisinage de 3s
+        }
+        features.append(feat)
+    return features
+
+# Extraction des séquences et des labels
+X = []
+Y = []
+component_to_times = defaultdict(list)
+
+for _, row in df.iterrows():
+    chromatogram_pics = row['pics']
+    sequence = []
+    labels = []
+    for t_str, data in chromatogram_pics.items():
+        t = float(t_str)
+        if t <= 150:
+            sequence.append(t)
+            labels.append(data[0])
+            component_to_times[data[0]].append(t)
+
+    if len(sequence) > 1:
+        feats = extract_features_for_sequence(sequence)
+        # Convertir les features en un format plat pour XGBoost
+        X.append([f['retention_time'] for f in feats] +
+                 [f['index_norm'] for f in feats] +
+                 [f['diff_prev'] for f in feats] +
+                 [f['diff_next'] for f in feats] +
+                 [f['local_density'] for f in feats])
+        Y.append(labels)
+
+# Convertir les labels en indices
+from sklearn.preprocessing import LabelEncoder
+label_encoder = LabelEncoder()
+Y_flat = [item for sublist in Y for item in sublist]
+label_encoder.fit(Y_flat)
+Y_encoded = [label_encoder.transform(y) for y in Y]
+
+# Aplatir X et Y pour correspondre au format de XGBoost
+X_flat = [item for sublist in X for item in sublist]
+
+# Séparer en train/test
+X_train, X_test, y_train, y_test = train_test_split(X_flat, Y_encoded, test_size=0.2, random_state=42)
+
+# Convertir les données en matrices DMatrix XGBoost
+X_train = xgb.DMatrix(X_train, label=y_train)
+X_test = xgb.DMatrix(X_test, label=y_test)
+
+# Entraînement du modèle XGBoost
+params = {
+    'objective': 'multi:softmax',  # Classification multi-classes
+    'num_class': len(label_encoder.classes_),  # Nombre de classes
+    'eval_metric': 'merror'  # Erreur de classification
+}
+model = xgb.train(params, X_train, num_boost_round=100)
+
+# Prédictions sur les données de test
+y_pred = model.predict(X_test)
+
+# Conversion des prédictions en labels
+y_pred_labels = label_encoder.inverse_transform(y_pred.astype(int))
+
+# Évaluation
+print("Accuracy:", accuracy_score(y_test, y_pred_labels))
+print("Classification Report:\n", classification_report(y_test, y_pred_labels))
+
+
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.metrics import accuracy_score, classification_report
+from sklearn.preprocessing import LabelEncoder
+from collections import defaultdict
+
+# Charger les données
+file_path = "chromatogrammes.json"
+df = pd.read_json(file_path)
+df = df.dropna(subset=['pics'])
+
+# Fonction de génération des features pour chaque pic dans un chromatogramme
+def extract_features_for_sequence(pic_times):
+    pic_times = sorted(pic_times)
+    features = []
+    n = len(pic_times)
+    for i, t in enumerate(pic_times):
+        feat = {
+            'retention_time': t,
+            'index': i,
+            'index_norm': i / n,
+            'prev_time': pic_times[i - 1] if i > 0 else -1,
+            'next_time': pic_times[i + 1] if i < n - 1 else -1,
+            'diff_prev': t - pic_times[i - 1] if i > 0 else 0,
+            'diff_next': pic_times[i + 1] - t if i < n - 1 else 0,
+            'local_density': sum(1 for x in pic_times if abs(x - t) < 3)  # nombre de pics dans un voisinage de 3s
+        }
+        features.append(feat)
+    return features
+
+# Extraction des séquences et des labels
+X = []
+Y = []
+component_to_times = defaultdict(list)
+
+for _, row in df.iterrows():
+    chromatogram_pics = row['pics']
+    sequence = []
+    labels = []
+    for t_str, data in chromatogram_pics.items():
+        t = float(t_str)
+        if t <= 150:
+            sequence.append(t)
+            labels.append(data[0])
+            component_to_times[data[0]].append(t)
+
+    if len(sequence) > 1:
+        feats = extract_features_for_sequence(sequence)
+        # Convertir les features en un format plat pour KNN
+        X.append([f['retention_time'] for f in feats] +
+                 [f['index_norm'] for f in feats] +
+                 [f['diff_prev'] for f in feats] +
+                 [f['diff_next'] for f in feats] +
+                 [f['local_density'] for f in feats])
+        Y.append(labels)
+
+# Convertir les labels en indices
+label_encoder = LabelEncoder()
+Y_flat = [item for sublist in Y for item in sublist]
+label_encoder.fit(Y_flat)
+Y_encoded = [label_encoder.transform(y) for y in Y]
+
+# Aplatir X et Y pour correspondre au format de KNN
+X_flat = [item for sublist in X for item in sublist]
+Y_flat = [item for sublist in Y_encoded for item in sublist]
+
+# Séparer en train/test
+X_train, X_test, y_train, y_test = train_test_split(X_flat, Y_flat, test_size=0.2, random_state=42)
+
+# Entraînement du modèle KNN
+knn = KNeighborsClassifier(n_neighbors=5)  # Choisis un nombre approprié de voisins (k)
+knn.fit(X_train, y_train)
+
+# Prédictions sur les données de test
+y_pred = knn.predict(X_test)
+
+# Conversion des prédictions en labels
+y_pred_labels = label_encoder.inverse_transform(y_pred)
+
+# Évaluation
+print("Accuracy:", accuracy_score(y_test, y_pred_labels))
+print("Classification Report:\n", classification_report(y_test, y_pred_labels))
+import torch
+from torch.utils.data import Dataset, DataLoader
+from transformers import BertTokenizer, BertForSequenceClassification, AdamW
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder
+from sklearn.metrics import accuracy_score, classification_report
+import pandas as pd
+import numpy as np
+from collections import defaultdict
+
+# Charger les données
+file_path = "chromatogrammes.json"
+df = pd.read_json(file_path)
+df = df.dropna(subset=['pics'])
+
+# Fonction de génération des features pour chaque pic dans un chromatogramme
+def extract_features_for_sequence(pic_times):
+    pic_times = sorted(pic_times)
+    features = []
+    n = len(pic_times)
+    for i, t in enumerate(pic_times):
+        feat = {
+            'retention_time': t,
+            'index': i,
+            'index_norm': i / n,
+            'prev_time': pic_times[i - 1] if i > 0 else -1,
+            'next_time': pic_times[i + 1] if i < n - 1 else -1,
+            'diff_prev': t - pic_times[i - 1] if i > 0 else 0,
+            'diff_next': pic_times[i + 1] - t if i < n - 1 else 0,
+            'local_density': sum(1 for x in pic_times if abs(x - t) < 3)  # nombre de pics dans un voisinage de 3s
+        }
+        features.append(feat)
+    return features
+
+# Extraction des séquences et des labels
+X = []
+Y = []
+component_to_times = defaultdict(list)
+
+for _, row in df.iterrows():
+    chromatogram_pics = row['pics']
+    sequence = []
+    labels = []
+    for t_str, data in chromatogram_pics.items():
+        t = float(t_str)
+        if t <= 150:
+            sequence.append(t)
+            labels.append(data[0])
+            component_to_times[data[0]].append(t)
+
+    if len(sequence) > 1:
+        feats = extract_features_for_sequence(sequence)
+        # Convertir les features en un format adapté pour BERT
+        X.append([f['retention_time'] for f in feats] +
+                 [f['index_norm'] for f in feats] +
+                 [f['diff_prev'] for f in feats] +
+                 [f['diff_next'] for f in feats] +
+                 [f['local_density'] for f in feats])
+        Y.append(labels)
+
+# Convertir les labels en indices
+label_encoder = LabelEncoder()
+Y_flat = [item for sublist in Y for item in sublist]
+label_encoder.fit(Y_flat)
+Y_encoded = [label_encoder.transform(y) for y in Y]
+
+# Aplatir X et Y pour correspondre au format
+X_flat = [item for sublist in X for item in sublist]
+Y_flat = [item for sublist in Y_encoded for item in sublist]
+
+# Séparer en train/test
+X_train, X_test, y_train, y_test = train_test_split(X_flat, Y_flat, test_size=0.2, random_state=42)
+
+# Transformer les séquences pour qu'elles soient compatibles avec BERT
+class ChromatogramDataset(Dataset):
+    def __init__(self, X, Y, tokenizer, max_len=512):
+        self.X = X
+        self.Y = Y
+        self.tokenizer = tokenizer
+        self.max_len = max_len
+    
+    def __len__(self):
+        return len(self.X)
+    
+    def __getitem__(self, item):
+        seq = self.X[item]
+        label = self.Y[item]
+        
+        # Tokenization avec padding et truncation pour BERT
+        inputs = self.tokenizer(
+            seq, 
+            max_length=self.max_len,
+            padding='max_length', 
+            truncation=True,
+            return_tensors='pt'
+        )
+        return {
+            'input_ids': inputs['input_ids'].flatten(),
+            'attention_mask': inputs['attention_mask'].flatten(),
+            'labels': torch.tensor(label, dtype=torch.long)
+        }
+
+# Initialiser le tokenizer BERT
+tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+
+# Créer les datasets
+train_dataset = ChromatogramDataset(X_train, y_train, tokenizer)
+test_dataset = ChromatogramDataset(X_test, y_test, tokenizer)
+
+# Créer les DataLoader
+train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True)
+test_loader = DataLoader(test_dataset, batch_size=16)
+
+# Initialiser le modèle BERT pour la classification
+model = BertForSequenceClassification.from_pretrained('bert-base-uncased', num_labels=len(label_encoder.classes_))
+
+# Définir l'optimiseur
+optimizer = AdamW(model.parameters(), lr=2e-5)
+
+# Entraînement du modèle
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model = model.to(device)
+
+num_epochs = 3
+
+for epoch in range(num_epochs):
+    model.train()
+    for batch in train_loader:
+        optimizer.zero_grad()
+        
+        input_ids = batch['input_ids'].to(device)
+        attention_mask = batch['attention_mask'].to(device)
+        labels = batch['labels'].to(device)
+        
+        # Forward pass
+        outputs = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
+        loss = outputs.loss
+        loss.backward()
+        optimizer.step()
+    
+    print(f"Epoch {epoch+1}/{num_epochs}, Loss: {loss.item()}")
+
+# Évaluation du modèle
+model.eval()
+y_pred = []
+y_true = []
+
+for batch in test_loader:
+    input_ids = batch['input_ids'].to(device)
+    attention_mask = batch['attention_mask'].to(device)
+    labels = batch['labels'].to(device)
+    
+    with torch.no_grad():
+        outputs = model(input_ids=input_ids, attention_mask=attention_mask)
+        _, preds = torch.max(outputs.logits, dim=1)
+    
+    y_pred.extend(preds.cpu().numpy())
+    y_true.extend(labels.cpu().numpy())
+
+# Conversion des prédictions en labels
+y_pred_labels = label_encoder.inverse_transform(y_pred)
+y_true_labels = label_encoder.inverse_transform(y_true)
+
+# Évaluation
+print("Accuracy:", accuracy_score(y_true_labels, y_pred_labels))
+print("Classification Report:\n", classification_report(y_true_labels, y_pred_labels))
