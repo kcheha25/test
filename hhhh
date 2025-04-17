@@ -3,6 +3,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 import tkinter as tk
 from collections import defaultdict
 import pandas as pd
+import numpy as np
 
 # -------------------------
 # Exemple de dataframe simulé
@@ -33,7 +34,6 @@ chromatograms = [extract_chrom_data(row) for _, row in df.iterrows()]
 root = tk.Tk()
 root.title("Visualisation des pics chromatographiques")
 
-# Création d'une figure principale
 fig, ax = plt.subplots(figsize=(10, 6))
 canvas = FigureCanvasTkAgg(fig, master=root)
 canvas.draw()
@@ -59,14 +59,16 @@ def plot_all_chromatograms():
     ax.set_yticklabels([f"Chrom {i}" for i in range(len(chromatograms))])
     ax.set_xlabel("Temps de rétention")
     ax.set_title("Cliquez sur deux chromatogrammes pour comparer")
-    ax.legend()
+    ax.legend(loc='upper left', bbox_to_anchor=(1, 1))
     ax.grid(True)
     canvas.draw()
 
 def onclick(event):
     if event.inaxes != ax:
         return
-    y_click = round(event.ydata)
+    if event.ydata is None:
+        return
+    y_click = int(round(event.ydata))
     if 1 <= y_click <= len(chromatograms):
         if len(selected) < 2:
             selected.append(y_click - 1)
@@ -88,6 +90,10 @@ def compare_chromatograms(idx1, idx2):
                 y.append(t2)
                 labels.append(comp)
 
+    if not x:
+        print("Aucun composant commun trouvé.")
+        return
+
     fig2, ax2 = plt.subplots()
     ax2.scatter(x, y, c='green')
     for i, label in enumerate(labels):
@@ -99,7 +105,7 @@ def compare_chromatograms(idx1, idx2):
     plt.show()
 
 # -------------------------
-# Bind clic et plot initial
+# Lancer le tracé initial et écoute du clic
 # -------------------------
 canvas.mpl_connect("button_press_event", onclick)
 plot_all_chromatograms()
