@@ -1,0 +1,107 @@
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+import tkinter as tk
+from collections import defaultdict
+import pandas as pd
+
+# -------------------------
+# Exemple de dataframe simulé
+# -------------------------
+data = {
+    "pics": [
+        {"12.4": ["A"], "25.3": ["B"], "55.1": ["A"]},
+        {"22.1": ["B"], "45.2": ["C"], "80.3": ["A"]},
+        {"130.4": ["C"], "140.3": ["B"], "110.0": ["A"]},
+    ]
+}
+df = pd.DataFrame(data)
+
+# -------------------------
+# Extraction par chromatogramme
+# -------------------------
+def extract_chrom_data(row):
+    chrom_data = defaultdict(list)
+    for pic_time_str, comp_names in row["pics"].items():
+        chrom_data[comp_names[0]].append(float(pic_time_str))
+    return chrom_data
+
+chromatograms = [extract_chrom_data(row) for _, row in df.iterrows()]
+
+# -------------------------
+# Interface Tkinter
+# -------------------------
+root = tk.Tk()
+root.title("Visualisation des pics chromatographiques")
+
+# Création d'une figure principale
+fig, ax = plt.subplots(figsize=(10, 6))
+canvas = FigureCanvasTkAgg(fig, master=root)
+canvas.draw()
+canvas.get_tk_widget().pack(fill=tk.BOTH, expand=1)
+
+toolbar = NavigationToolbar2Tk(canvas, root)
+toolbar.update()
+toolbar.pack()
+
+selected = []
+
+# -------------------------
+# Fonctions
+# -------------------------
+def plot_all_chromatograms():
+    ax.clear()
+    colors = plt.cm.tab10.colors
+    for idx, chrom in enumerate(chromatograms):
+        for comp, times in chrom.items():
+            y_vals = [idx + 1] * len(times)
+            ax.scatter(times, y_vals, label=f"Chrom {idx} - {comp}", color=colors[idx % 10])
+    ax.set_yticks(range(1, len(chromatograms)+1))
+    ax.set_yticklabels([f"Chrom {i}" for i in range(len(chromatograms))])
+    ax.set_xlabel("Temps de rétention")
+    ax.set_title("Cliquez sur deux chromatogrammes pour comparer")
+    ax.legend()
+    ax.grid(True)
+    canvas.draw()
+
+def onclick(event):
+    if event.inaxes != ax:
+        return
+    y_click = round(event.ydata)
+    if 1 <= y_click <= len(chromatograms):
+        if len(selected) < 2:
+            selected.append(y_click - 1)
+            print(f"Chromatogramme sélectionné: {y_click - 1}")
+        if len(selected) == 2:
+            compare_chromatograms(*selected)
+            selected.clear()
+
+def compare_chromatograms(idx1, idx2):
+    chrom1 = chromatograms[idx1]
+    chrom2 = chromatograms[idx2]
+
+    common_components = set(chrom1.keys()) & set(chrom2.keys())
+    x, y, labels = [], [], []
+    for comp in common_components:
+        for t1 in chrom1[comp]:
+            for t2 in chrom2[comp]:
+                x.append(t1)
+                y.append(t2)
+                labels.append(comp)
+
+    fig2, ax2 = plt.subplots()
+    ax2.scatter(x, y, c='green')
+    for i, label in enumerate(labels):
+        ax2.text(x[i], y[i], label)
+    ax2.set_xlabel(f"Temps - Chrom {idx1}")
+    ax2.set_ylabel(f"Temps - Chrom {idx2}")
+    ax2.set_title("Nuage de points des pics communs")
+    ax2.grid(True)
+    plt.show()
+
+# -------------------------
+# Bind clic et plot initial
+# -------------------------
+canvas.mpl_connect("button_press_event", onclick)
+plot_all_chromatograms()
+
+root.mainloop()
