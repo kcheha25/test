@@ -30,6 +30,8 @@ print("Groupes de chromatogrammes avec même séquence ordonnée de noms de comp
 for seq, indices in sequence_to_indices.items():
     if len(indices) > 1:
         print(f"Séquence {seq} → Chromatogrammes {indices}")
+
+
 import pandas as pd
 from collections import defaultdict
 import matplotlib.pyplot as plt
@@ -39,56 +41,60 @@ import itertools
 data = {
     "pics": [
         {"12.4": ["A"], "25.3": ["B"], "55.1": ["C"]},     # Chrom 0
-        {"11.1": ["A"], "26.8": ["B"], "57.7": ["C"]},     # Chrom 1 (même séquence)
-        {"10.0": ["B"], "22.0": ["C"], "33.0": ["A"]},     # Chrom 2 (ordre différent)
-        {"8.0": ["A"], "30.0": ["B"]},                     # Chrom 3 (différent)
-        {"15.0": ["A"], "25.0": ["B"], "55.0": ["C"]},     # Chrom 4 (même séquence)
+        {"11.1": ["A"], "26.8": ["B"], "57.7": ["C"]},     # Chrom 1 → même séquence
+        {"10.0": ["B"], "22.0": ["C"], "33.0": ["A"]},     # Chrom 2 → même longueur mais ordre différent
+        {"8.0": ["A"], "30.0": ["B"]},                     # Chrom 3 → 2 pics
+        {"15.0": ["A"], "25.0": ["B"], "55.0": ["C"]},     # Chrom 4 → même séquence
     ]
 }
 df = pd.DataFrame(data)
 
-# 1. Extraire les séquences triées et regrouper
-def extract_sequence(row):
+# 1. Extraire les séquences ordonnées et les temps correspondants
+def extract_sequence_and_times(row):
     sorted_items = sorted(row["pics"].items(), key=lambda x: float(x[0]))
-    return tuple([v[0] for _, v in sorted_items if float(_) <= 150])
+    names = []
+    times = []
+    for time_str, val in sorted_items:
+        time = float(time_str)
+        if time <= 150:
+            names.append(val[0])
+            times.append(time)
+    return tuple(names), times
 
-# Stocker l'ordre et les temps pour chaque chromatogramme
+# Stockage
 sequence_to_chroms = defaultdict(list)
-chrom_to_times = []
+chrom_to_times = {}
 
 for idx, row in df.iterrows():
-    sorted_items = sorted(row["pics"].items(), key=lambda x: float(x[0]))
-    comp_names = []
-    comp_times = []
-    for time_str, val in sorted_items:
-        t = float(time_str)
-        if t <= 150:
-            comp_names.append(val[0])
-            comp_times.append(t)
-    sequence = tuple(comp_names)
-    sequence_to_chroms[sequence].append(idx)
-    chrom_to_times.append(comp_times)
+    sequence, times = extract_sequence_and_times(row)
+    if len(sequence) == len(times):  # sécurité
+        sequence_to_chroms[sequence].append(idx)
+        chrom_to_times[idx] = times
 
-# 2. Pour chaque groupe ayant au moins 2 chromatogrammes
-for sequence, indices in sequence_to_chroms.items():
-    if len(indices) < 2:
+# 2. Comparer uniquement les chromatogrammes avec EXACTEMENT la même séquence (ordre et nombre)
+for sequence, chrom_indices in sequence_to_chroms.items():
+    if len(chrom_indices) < 2:
         continue
 
-    print(f"\nSéquence : {sequence} → Chromatogrammes : {indices}")
+    print(f"\nSéquence {sequence} : {chrom_indices}")
 
-    # 3. Pour chaque couple possible
-    for i, j in itertools.combinations(indices, 2):
+    # 3. Tracer pour chaque couple
+    for i, j in itertools.combinations(chrom_indices, 2):
         x = chrom_to_times[i]
         y = chrom_to_times[j]
 
+        if len(x) != len(y):
+            continue  # on saute les tailles différentes par sécurité
+
         plt.figure(figsize=(5, 5))
-        plt.scatter(x, y, c='blue')
+        plt.scatter(x, y, color='blue')
         for xi, yi, label in zip(x, y, sequence):
             plt.text(xi, yi, label, fontsize=9, ha='right', va='bottom')
 
         plt.title(f"Nuage de points : Chrom {i} vs Chrom {j}")
-        plt.xlabel(f"Temps de rétention Chrom {i}")
-        plt.ylabel(f"Temps de rétention Chrom {j}")
+        plt.xlabel(f"Temps rétention Chrom {i}")
+        plt.ylabel(f"Temps rétention Chrom {j}")
         plt.grid(True)
         plt.axis("equal")
         plt.show()
+
