@@ -91,7 +91,7 @@ for seg in segments:
         pred = pred[0]
     probs_segments.append(pred)
 
-    x_full = np.concatenate(x_segments)
+x_full = np.concatenate(x_segments)
 y_full = np.concatenate(y_segments)
 probs_full = np.concatenate(probs_segments)
 

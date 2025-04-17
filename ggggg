@@ -321,10 +321,9 @@ def truncate(row):
 
 df = df.apply(truncate, axis=1)
 
-sequence_length = 512  # Nouvelle longueur des segments
+sequence_length = 1000  # Nouvelle longueur des segments
 
-# Découper les données en segments de 512 points
-def segment_data(x, y, pics, segment_size=512):
+def segment_data(x, y, pics, segment_size=1000):
     segments_X, segments_Y = [], []
     num_segments = len(x) // segment_size  # Nombre de segments complets
 
@@ -454,7 +453,7 @@ def truncate(row):
 
 df = df.apply(truncate, axis=1)
 
-sequence_length = 512  # Taille du segment
+sequence_length = 1000  # Taille du segment
 stride = 256  # Chevauchement
 
 # Fonction de segmentation avec padding du dernier segment
@@ -830,17 +829,12 @@ class CustomLoss(tf.keras.losses.Loss):
         y_true = tf.cast(y_true, tf.float32)
         y_pred = tf.cast(y_pred, tf.float32)
 
-        # Binary Crossentropy Loss
+
         prob_loss = tf.keras.losses.BinaryCrossentropy()(y_true, y_pred)
 
-        # Convert {0,1} labels to {-1,1} for Hinge Loss
-        y_true_hinge = 2 * y_true - 1  
-
-        # Hinge Loss
-        hinge_loss = tf.keras.losses.Hinge()(y_true_hinge, y_pred)
 
         # Weighted sum of both losses
-        total_loss = self.weight_prob * prob_loss + self.weight_hinge * hinge_loss
+        total_loss = self.weight_prob * prob_loss 
         return total_loss
 import tensorflow as tf
 

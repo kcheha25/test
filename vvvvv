@@ -656,3 +656,283 @@ y_true_labels = label_encoder.inverse_transform(y_true)
 # Évaluation
 print("Accuracy:", accuracy_score(y_true_labels, y_pred_labels))
 print("Classification Report:\n", classification_report(y_true_labels, y_pred_labels))
+
+
+merged_components = []
+visited = set()
+
+for comp1 in component_intervals:
+    if comp1 in visited:
+        continue
+    group = {comp1}
+    min1, max1 = component_intervals[comp1]
+    for comp2 in component_intervals:
+        if comp2 != comp1 and comp2 not in visited:
+            min2, max2 = component_intervals[comp2]
+            if max1 >= min2 and max2 >= min1:  # chevauchement
+                group.add(comp2)
+                min1 = min(min1, min2)
+                max1 = max(max1, max2)
+    visited.update(group)
+
+    # Si le groupe contient plus de 4 composants, le rediviser selon chevauchement dans une fenêtre de 1s
+    if len(group) > 4:
+        group = list(group)
+        subgroups = []
+        used = set()
+
+        for i, compA in enumerate(group):
+            if compA in used:
+                continue
+            subgroup = {compA}
+            used.add(compA)
+            minA, maxA = component_intervals[compA]
+
+            for compB in group:
+                if compB in used:
+                    continue
+                minB, maxB = component_intervals[compB]
+
+                # Vérifie chevauchement direct et proximité (écart max 1s entre les intervalles)
+                if maxA >= minB and maxB >= minA and abs(minA - minB) <= 1 and abs(maxA - maxB) <= 1:
+                    subgroup.add(compB)
+                    used.add(compB)
+
+            sub_min = min(component_intervals[c][0] for c in subgroup)
+            sub_max = max(component_intervals[c][1] for c in subgroup)
+            subgroups.append((subgroup, (sub_min, sub_max)))
+
+        merged_components.extend(subgroups)
+    else:
+        merged_components.append((group, (min1, max1)))
+
+# Étape 3 : Créer un mapping temps → nom commun
+pic_time_to_group_name = {}
+for group, (min_time, max_time) in merged_components:
+    group_name = "+".join(sorted(group))
+    for comp in group:
+        for t in component_to_times[comp]:
+            if min_time <= t <= max_time:
+                pic_time_to_group_name[t] = group_name
+
+# Reconstruction des données finales
+filtered_pic_times = []
+filtered_component_names = []
+
+for t in pic_times:
+    if t in pic_time_to_group_name:
+        filtered_pic_times.append(t)
+        filtered_component_names.append(pic_time_to_group_name[t])
+
+
+def subdivide_group(group, component_intervals):
+    group = list(group)
+    subgroups = []
+    used = set()
+
+    for i, compA in enumerate(group):
+        if compA in used:
+            continue
+        subgroup = {compA}
+        used.add(compA)
+        minA, maxA = component_intervals[compA]
+
+        for compB in group:
+            if compB in used:
+                continue
+            minB, maxB = component_intervals[compB]
+
+            # Vérifie chevauchement direct et proximité (écart max 1s entre les intervalles)
+            if maxA >= minB and maxB >= minA and abs(minA - minB) <= 1 and abs(maxA - maxB) <= 1:
+                subgroup.add(compB)
+                used.add(compB)
+
+        sub_min = min(component_intervals[c][0] for c in subgroup)
+        sub_max = max(component_intervals[c][1] for c in subgroup)
+        subgroups.append((subgroup, (sub_min, sub_max)))
+    
+    return subgroups
+
+
+merged_components = []
+visited = set()
+
+# Première fusion des composants par chevauchement
+for comp1 in component_intervals:
+    if comp1 in visited:
+        continue
+    group = {comp1}
+    min1, max1 = component_intervals[comp1]
+    for comp2 in component_intervals:
+        if comp2 != comp1 and comp2 not in visited:
+            min2, max2 = component_intervals[comp2]
+            if max1 >= min2 and max2 >= min1:
+                group.add(comp2)
+                min1 = min(min1, min2)
+                max1 = max(max1, max2)
+    visited.update(group)
+
+    merged_components.append((group, (min1, max1)))
+
+# Répéter la subdivision 4 fois
+for _ in range(4):
+    new_merged_components = []
+    for group, (min_time, max_time) in merged_components:
+        if len(group) > 4:
+            subgroups = subdivide_group(group, component_intervals)
+            new_merged_components.extend(subgroups)
+        else:
+            new_merged_components.append((group, (min_time, max_time)))
+    merged_components = new_merged_components
+
+# Création du mapping temps → nom de groupe
+pic_time_to_group_name = {}
+for group, (min_time, max_time) in merged_components:
+    group_name = "+".join(sorted(group))
+    for comp in group:
+        for t in component_to_times[comp]:
+            if min_time <= t <= max_time:
+                pic_time_to_group_name[t] = group_name
+
+# Reconstruction des données finales
+filtered_pic_times = []
+filtered_component_names = []
+
+for t in pic_times:
+    if t in pic_time_to_group_name:
+        filtered_pic_times.append(t)
+        filtered_component_names.append(pic_time_to_group_name[t])
+
+import pandas as pd
+import numpy as np
+from sklearn.neighbors import NearestNeighbors
+from collections import defaultdict, Counter
+import random
+
+# Charger les données
+file_path = "chromatogrammes.json"
+df = pd.read_json(file_path)
+df = df.dropna(subset=['pics'])
+
+# Charger ton modèle ici (ajuste cette ligne selon ton framework)
+from tensorflow.keras.models import load_model
+model = load_model("chemin_vers_ton_modele.h5")  # à adapter
+
+# Fonction de détection de pics par le modèle
+def detect_peaks(row):
+    x = np.array(row["x"])
+    y = np.array(row["y"])
+    y = y / np.max(y)
+
+    segment_size = 1000
+    num_segments = len(x) // segment_size
+    x_segments, y_segments, segments = [], [], []
+
+    for i in range(num_segments):
+        start = i * segment_size
+        end = start + segment_size
+        segment_x = x[start:end]
+        segment_y = y[start:end]
+        segment_input = np.stack([segment_x, segment_y], axis=-1)
+        x_segments.append(segment_x)
+        y_segments.append(segment_y)
+        segments.append(segment_input)
+
+    probs_segments = []
+    for seg in segments:
+        seg_input = np.expand_dims(seg, axis=0)
+        pred = model.predict(seg_input, verbose=0)
+        pred = pred[0, :, 0] if pred.ndim == 3 else pred[0]
+        probs_segments.append(pred)
+
+    x_full = np.concatenate(x_segments)
+    y_full = np.concatenate(y_segments)
+    probs_full = np.concatenate(probs_segments)
+
+    return x_full, y_full, probs_full
+
+# Préparation des données pour Nearest Neighbors
+pic_times = []
+component_names = []
+
+for _, row in df.iterrows():
+    for pic_time_str, data in row["pics"].items():
+        pic_time = float(pic_time_str)
+        if pic_time <= 150:
+            pic_times.append(pic_time)
+            component_names.append(data[0])
+
+X_train = np.array(pic_times, dtype=np.float32).reshape(-1, 1) / 150.0
+nbrs = NearestNeighbors(n_neighbors=1, radius=0.4).fit(X_train)
+
+# Dictionnaire pour collecter les confusions
+confusions = defaultdict(list)
+
+# Analyse de tous les chromatogrammes
+for _, row in df.iterrows():
+    x_full, y_full, probs_full = detect_peaks(row)
+
+    detected_peaks = []
+    threshold = 0.4
+    i = 3
+    pred_info = {}
+
+    while i < len(probs_full) - 3:
+        if probs_full[i] > threshold:
+            window = probs_full[i - 3:i + 4]
+            if np.any(window > threshold):
+                idx_window = np.arange(i - 3, i + 4)
+                idx_max_intensity = idx_window[np.argmax(y_full[idx_window])]
+                detected_peaks.append(idx_max_intensity)
+
+                pic_time_detected = x_full[idx_max_intensity]
+                pic_time_normalized = pic_time_detected / 150.0
+
+                _, indices = nbrs.kneighbors([[pic_time_normalized]])
+                closest_index = indices[0][0]
+                closest_component = component_names[closest_index]
+
+                pred_info[pic_time_detected] = closest_component
+                i += 4
+            else:
+                i += 1
+        else:
+            i += 1
+
+    # Comparaison avec la vérité terrain
+    true_peaks = {
+        float(k): v[0] for k, v in row["pics"].items() if float(k) <= 150
+    }
+
+    for pred_time, pred_name in pred_info.items():
+        if not true_peaks:
+            continue
+        closest_true_time = min(true_peaks.keys(), key=lambda t: abs(t - pred_time))
+        true_name = true_peaks[closest_true_time]
+
+        if pred_name != true_name:
+            confusions[(true_name, pred_name)].append((closest_true_time, pred_time))
+
+# Analyser les confusions fréquentes
+confusion_counter = Counter((min(k), max(k)) for k in confusions.keys())
+groups = defaultdict(set)
+
+for (a, b), count in confusion_counter.items():
+    if count > 2:  # Ajuste ce seuil selon tes données
+        groups[a].add(a)
+        groups[a].add(b)
+        groups[b] = groups[a]
+
+# Fusionner les groupes
+final_groups = []
+seen = set()
+
+for k, members in groups.items():
+    if not members & seen:
+        final_groups.append(members)
+        seen.update(members)
+
+# Affichage
+print("Groupes de composants confondus :")
+for i, group in enumerate(final_groups, 1):
+    print(f"Groupe {i}: {', '.join(sorted(group))}")
