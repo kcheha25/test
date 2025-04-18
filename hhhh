@@ -287,3 +287,54 @@ for comp1 in present_in_all:
 
 print("\n✅ Composants présents dans tous les chromatogrammes SANS chevauchement avec d'autres :")
 print(sorted(non_overlapping))
+
+import pandas as pd
+from collections import defaultdict
+
+# Exemple : df = pd.read_json("ton_fichier.json")
+
+# Étape 1 : Recenser les composants par chromatogramme
+component_to_chroms = defaultdict(set)
+component_to_times = defaultdict(list)
+
+for idx, row in df.iterrows():
+    for time_str, data in row["pics"].items():
+        time = float(time_str)
+        if time <= 150:
+            comp_name = data[0]
+            component_to_chroms[comp_name].add(idx)
+            component_to_times[comp_name].append(time)
+
+# Étape 2 : Composants présents dans TOUS les chromatogrammes
+total_chroms = len(df)
+present_in_all = {
+    comp for comp, chrom_idxs in component_to_chroms.items()
+    if len(chrom_idxs) == total_chroms
+}
+
+# Étape 3 : Intervalles des composants
+component_intervals = {
+    comp: (min(times), max(times)) for comp, times in component_to_times.items()
+}
+
+# Fonction de chevauchement
+def overlaps(a, b):
+    return not (a[1] < b[0] or b[1] < a[0])
+
+# Étape 4 : Afficher pour chaque composant son intervalle et les chevauchements
+print(f"\n🧪 Composants présents dans TOUS les {total_chroms} chromatogrammes :\n")
+
+for comp in sorted(present_in_all):
+    interval = component_intervals[comp]
+    print(f"🔹 Composant : {comp}, Intervalle : {interval}")
+    
+    overlap_found = False
+    for other_comp, other_interval in component_intervals.items():
+        if comp == other_comp:
+            continue
+        if overlaps(interval, other_interval):
+            print(f"    ⚠️ Chevauche avec : {other_comp}, Intervalle : {other_interval}")
+            overlap_found = True
+
+    if not overlap_found:
+        print("    ✅ Aucun chevauchement détecté.")
