@@ -98,3 +98,53 @@ for sequence, chrom_indices in sequence_to_chroms.items():
         plt.axis("equal")
         plt.show()
 
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# Supposons que df est déjà chargé avec tes données réelles
+# Exemple : df = pd.read_json("mon_fichier.json")
+
+# --- Étape 1 : Extraire les temps par nom de composant ---
+def get_component_to_time(row):
+    component_to_time = {}
+    for time_str, data in row["pics"].items():
+        time = float(time_str)
+        if time <= 150:
+            name = data[0]
+            component_to_time[name] = time
+    return component_to_time
+
+# Choisir les indices des deux chromatogrammes à comparer
+i, j = 81, 89
+
+# Sécurité : vérifier les indices
+if i not in df.index or j not in df.index:
+    print(f"Les indices {i} ou {j} ne sont pas valides dans le DataFrame.")
+else:
+    comp_time_i = get_component_to_time(df.loc[i])
+    comp_time_j = get_component_to_time(df.loc[j])
+
+    # Intersection des noms de composants présents dans les deux chromatogrammes
+    common_names = set(comp_time_i.keys()) & set(comp_time_j.keys())
+
+    if not common_names:
+        print(f"Aucun pic en commun entre les chromatogrammes {i} et {j}.")
+    else:
+        # Créer les listes x et y à partir des noms communs
+        x = [comp_time_i[name] for name in common_names]
+        y = [comp_time_j[name] for name in common_names]
+
+        # Affichage du nuage de points
+        plt.figure(figsize=(6, 6))
+        plt.scatter(x, y, color='green')
+
+        for xi, yi, label in zip(x, y, common_names):
+            plt.text(xi, yi, label, fontsize=9, ha='right', va='bottom')
+
+        plt.title(f"Nuage de points : Chrom {i} vs Chrom {j}")
+        plt.xlabel(f"Temps de rétention Chrom {i}")
+        plt.ylabel(f"Temps de rétention Chrom {j}")
+        plt.grid(True)
+        plt.axis("equal")
+        plt.show()
+
