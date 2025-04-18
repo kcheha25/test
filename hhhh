@@ -147,4 +147,89 @@ else:
         plt.grid(True)
         plt.axis("equal")
         plt.show()
+import matplotlib.pyplot as plt 
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+import tkinter as tk
+import pandas as pd
+import numpy as np
+
+data = {
+    "pics": [
+        {"12.4": ["A"], "25.3": ["B"], "55.1": ["A"]},
+        {"22.1": ["B"], "45.2": ["C"], "80.3": ["A"]},
+        {"130.4": ["C"], "140.3": ["B"], "110.0": ["A"]},
+    ],
+    "x": [np.linspace(0, 150, 300)] * 3,
+    "y": [
+        np.sin(np.linspace(0, 15, 300)) + np.random.normal(0, 0.05, 300),
+        np.cos(np.linspace(0, 10, 300)) + np.random.normal(0, 0.05, 300),
+        np.sin(np.linspace(0, 7, 300)) + np.random.normal(0, 0.05, 300),
+    ]
+}
+for i in range(3, 300):
+    data["x"].append(np.linspace(0, 150, 300))
+    data["y"].append(np.sin(np.linspace(0, 15 + i*0.05, 300)) + np.random.normal(0, 0.05, 300))
+
+df = pd.DataFrame(data)
+
+root = tk.Tk()
+root.title("Visualisation des chromatogrammes")
+
+fig, ax = plt.subplots(figsize=(10, 6))
+canvas = FigureCanvasTkAgg(fig, master=root)
+canvas_widget = canvas.get_tk_widget()
+canvas_widget.pack(fill=tk.BOTH, expand=1)
+toolbar = NavigationToolbar2Tk(canvas, root)
+toolbar.update()
+toolbar.pack()
+
+cmap = plt.cm.viridis
+norm = plt.Normalize(vmin=0, vmax=len(df)-1)
+lines = []
+
+for i, row in df.iterrows():
+    x = row["x"]
+    y = row["y"]
+    color = cmap(norm(i))
+    line, = ax.plot(x, y, color=color, linewidth=1, picker=5)
+    line.chrom_index = i + 1
+    lines.append(line)
+
+text_annotation = ax.annotate("", xy=(0,0), xytext=(15,15),
+    textcoords="offset points", bbox=dict(boxstyle="round", fc="w"),
+    arrowprops=dict(arrowstyle="->"))
+text_annotation.set_visible(False)
+
+def on_motion(event):
+    if not event.inaxes:
+        text_annotation.set_visible(False)
+        canvas.draw_idle()
+        return
+
+    x_mouse, y_mouse = event.xdata, event.ydata
+    tolerance = 0.1
+
+    for line in lines:
+        xdata, ydata = line.get_xdata(), line.get_ydata()
+        distances = np.hypot(xdata - x_mouse, ydata - y_mouse)
+        if np.min(distances) < tolerance:
+            idx = np.argmin(distances)
+            text_annotation.xy = (xdata[idx], ydata[idx])
+            text_annotation.set_text(f"Chromatogramme {line.chrom_index}")
+            text_annotation.set_visible(True)
+            canvas.draw_idle()
+            return
+
+    text_annotation.set_visible(False)
+    canvas.draw_idle()
+
+canvas.mpl_connect("motion_notify_event", on_motion)
+
+ax.set_xlabel("Temps de rétention")
+ax.set_ylabel("Intensité")
+ax.set_title("Superposition des chromatogrammes")
+ax.grid(True)
+
+canvas.draw()
+root.mainloop()
 
