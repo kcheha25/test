@@ -233,3 +233,57 @@ ax.grid(True)
 canvas.draw()
 root.mainloop()
 
+
+
+import pandas as pd
+from collections import defaultdict
+
+# Exemple : df = pd.read_json("ton_fichier.json")
+
+# Étape 1 : Recenser les composants par chromatogramme
+component_to_chroms = defaultdict(set)
+component_to_times = defaultdict(list)
+
+for idx, row in df.iterrows():
+    for time_str, data in row["pics"].items():
+        time = float(time_str)
+        if time <= 150:
+            comp_name = data[0]
+            component_to_chroms[comp_name].add(idx)
+            component_to_times[comp_name].append(time)
+
+# Étape 2 : Conserver uniquement les composants présents dans TOUS les chromatogrammes
+total_chroms = len(df)
+present_in_all = {
+    comp for comp, chrom_idxs in component_to_chroms.items()
+    if len(chrom_idxs) == total_chroms
+}
+
+print(f"\n🧪 Composants présents dans TOUS les {total_chroms} chromatogrammes :")
+print(sorted(present_in_all))
+
+# Étape 3 : Construire les intervalles [min, max] pour chaque composant
+component_intervals = {
+    comp: (min(times), max(times)) for comp, times in component_to_times.items()
+}
+
+# Étape 4 : Vérifier les chevauchements d'intervalles
+def overlaps(a, b):
+    return not (a[1] < b[0] or b[1] < a[0])
+
+non_overlapping = []
+
+for comp1 in present_in_all:
+    interval1 = component_intervals[comp1]
+    has_overlap = False
+    for comp2, interval2 in component_intervals.items():
+        if comp1 == comp2:
+            continue
+        if overlaps(interval1, interval2):
+            has_overlap = True
+            break
+    if not has_overlap:
+        non_overlapping.append(comp1)
+
+print("\n✅ Composants présents dans tous les chromatogrammes SANS chevauchement avec d'autres :")
+print(sorted(non_overlapping))
