@@ -407,39 +407,48 @@ for _, row in df.iterrows():
             comp_name = f"{base_name}_{seen_counts[base_name]}"
             component_to_times[comp_name].append(pic_time)
 
-
 import pandas as pd
+import numpy as np
+from collections import defaultdict
 
-# Charger le fichier JSON
+# Charger les données
 file_path = "chromatogrammes.json"
 df = pd.read_json(file_path)
 df = df.dropna(subset=['pics'])
 
-# Étape 1 : Obtenir tous les noms de composants uniques (pics <= 150)
-all_component_names = set()
+# Dictionnaire global : distances par composant
+component_distances_to_toluene = defaultdict(list)
+
 for _, row in df.iterrows():
-    for pic_time_str, data in row["pics"].items():
-        if float(pic_time_str) <= 150:
-            all_component_names.add(data[0])
+    seen_counts = defaultdict(int)
+    comp_times = {}
+    tol_time = None
 
-# Étape 2 : Calculer le nombre de pics valides pour chaque chromatogramme
-df["num_pics"] = df["pics"].apply(lambda x: sum(1 for k in x if float(k) <= 150))
-max_pics_index = df["num_pics"].idxmax()
-row_max = df.loc[max_pics_index]
+    current_row_pics = list(row["pics"].items())
+    current_row_pics.sort(key=lambda x: float(x[0]))
 
-# Étape 3 : Extraire les noms de composants dans ce chromatogramme
-components_in_max = set()
-for pic_time_str, data in row_max["pics"].items():
-    if float(pic_time_str) <= 150:
-        components_in_max.add(data[0])
+    for pic_time_str, data in current_row_pics:
+        pic_time = float(pic_time_str)
+        if pic_time > 150:
+            continue
 
-# Étape 4 : Vérifier inclusion des composants
-contains_all = all_component_names.issubset(components_in_max)
+        base_name = data[0]
+        seen_counts[base_name] += 1
+        comp_name = f"{base_name}_{seen_counts[base_name]}"
+        comp_times[comp_name] = pic_time
 
-# Résultat
-print(f"Chromatogramme avec le plus de pics (index {max_pics_index}) contient tous les composants uniques : {contains_all}")
-print(f"Nombre de pics dans ce chromatogramme : {df.loc[max_pics_index, 'num_pics']}")
+        # On prend le premier TOLUENE comme référence
+        if base_name == "TOLUENE" and tol_time is None:
+            tol_time = pic_time
 
-if not contains_all:
-    missing = all_component_names - components_in_max
-    print("Composants manquants :", missing)
+    if tol_time is None:
+        continue  # Aucun TOLUENE, on saute ce chromatogramme
+
+    for comp, time in comp_times.items():
+        if not comp.startswith("TOLUENE"):
+            distance = abs(time - tol_time)
+            component_distances_to_toluene[comp].append(distance)
+
+# ✅ Exemple : affichage des 5 premiers composants avec leurs distances
+for comp, distances in list(component_distances_to_toluene.items())[:5]:
+    print(f"{comp} → {distances}")
