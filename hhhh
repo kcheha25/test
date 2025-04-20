@@ -406,3 +406,39 @@ for _, row in df.iterrows():
             seen_counts[base_name] += 1
             comp_name = f"{base_name}_{seen_counts[base_name]}"
             component_to_times[comp_name].append(pic_time)
+
+
+import pandas as pd
+from collections import defaultdict
+
+# Charger les données
+file_path = "chromatogrammes.json"
+df = pd.read_json(file_path)
+df = df.dropna(subset=['pics'])
+
+# Liste de tous les composants présents dans tous les chromatogrammes
+all_components = set()
+
+# Pour suivre les composants par chromatogramme
+row_to_components = []
+
+for _, row in df.iterrows():
+    components_in_row = set()
+    for pic_time_str, data in row["pics"].items():
+        pic_time = float(pic_time_str)
+        if pic_time <= 150:
+            comp_name = data[0]
+            components_in_row.add(comp_name)
+            all_components.add(comp_name)
+    row_to_components.append(components_in_row)
+
+# Trouver l'indice du chromatogramme ayant le plus de pics
+max_pics_index = df['pics'].apply(lambda x: len(x)).idxmax()
+
+# Composants présents dans ce chromatogramme
+components_max_chromato = row_to_components[max_pics_index]
+
+# Vérifier si ce chromatogramme contient tous les composants
+contains_all = all_components.issubset(components_max_chromato)
+
+print(f"Chromatogramme avec le plus de pics contient tous les composants : {contains_all}")
