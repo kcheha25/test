@@ -452,3 +452,28 @@ for _, row in df.iterrows():
 # ✅ Exemple : affichage des 5 premiers composants avec leurs distances
 for comp, distances in list(component_distances_to_toluene.items())[:5]:
     print(f"{comp} → {distances}")
+
+
+import pandas as pd
+
+# Charger le fichier JSON
+file_path = "chromatogrammes.json"
+df = pd.read_json(file_path)
+df = df.dropna(subset=['pics'])
+
+# Étape 1 : Extraire tous les noms de composants uniques (sans suffixes)
+all_unique_components = set()
+
+for _, row in df.iterrows():
+    for data in row["pics"].values():
+        name = data[0]
+        all_unique_components.add(name)
+
+# Étape 2 : Trouver le chromatogramme qui contient tous ces noms
+for idx, row in df.iterrows():
+    row_components = {data[0] for data in row["pics"].values()}
+    if all_unique_components.issubset(row_components):
+        print(f"✅ Chromatogramme à l'indice {idx} contient tous les composants uniques.")
+        break
+else:
+    print("❌ Aucun chromatogramme ne contient tous les composants.")
