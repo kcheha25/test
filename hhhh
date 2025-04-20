@@ -346,3 +346,51 @@ unique_per_chrom = {
     comp for comp in present_in_all
     if all(count == 1 for count in component_counts_per_chrom[comp].values())
 }
+
+
+import pandas as pd
+import numpy as np
+from collections import defaultdict
+from sklearn.neighbors import NearestNeighbors
+
+# Charger les données
+file_path = "chromatogrammes.json"
+df = pd.read_json(file_path)
+df = df.dropna(subset=['pics'])
+
+# Étape 1 : extraire les temps de pics pour chaque composant
+component_to_times = defaultdict(list)
+
+for _, row in df.iterrows():
+    for pic_time_str, data in row["pics"].items():
+        pic_time = float(pic_time_str)
+        if pic_time <= 150:
+            comp_name = data[0]
+            component_to_times[comp_name].append(pic_time)
+
+# Étape 2 : calcul des moyennes de temps de pic pour chaque composant
+component_mean_times = {
+    comp: np.mean(times) for comp, times in component_to_times.items()
+}
+
+# 🔧 Étape 3 : ajustement des moyennes selon une valeur mesurée pour TOLUENE
+tol_value = 85.0  # <- valeur mesurée pour TOLUENE, à modifier selon ton cas
+
+if "TOLUENE" in component_mean_times:
+    toluene_mean = component_mean_times["TOLUENE"]
+    delta = tol_value - toluene_mean
+
+    # Appliquer le delta à tous les composants
+    adjusted_mean_times = {
+        comp: mean + delta for comp, mean in component_mean_times.items()
+    }
+else:
+    raise ValueError("TOLUENE n'existe pas dans les composants !")
+
+# Étape 4 : préparation pour NearestNeighbors
+component_names = list(adjusted_mean_times.keys())
+X = np.array([adjusted_mean_times[comp] for comp in component_names]).reshape(-1, 1) / 150.0
+
+# Entraînement
+nbrs = NearestNeighbors(n_neighbors=5)
+nbrs.fit(X)
