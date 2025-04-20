@@ -338,3 +338,9 @@ for comp in sorted(present_in_all):
 
     if not overlap_found:
         print("    ✅ Aucun chevauchement détecté.")
+
+
+unique_per_chrom = {
+    comp for comp in present_in_all
+    if all(count == 1 for count in component_counts_per_chrom[comp].values())
+}
