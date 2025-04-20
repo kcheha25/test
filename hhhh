@@ -416,10 +416,10 @@ file_path = "chromatogrammes.json"
 df = pd.read_json(file_path)
 df = df.dropna(subset=['pics'])
 
-# Liste de tous les composants présents dans tous les chromatogrammes
-all_components = set()
+# Ensemble de tous les noms de composants présents dans tous les chromatogrammes
+all_component_names = set()
 
-# Pour suivre les composants par chromatogramme
+# Liste pour suivre les ensembles de composants par chromatogramme
 row_to_components = []
 
 for _, row in df.iterrows():
@@ -429,16 +429,16 @@ for _, row in df.iterrows():
         if pic_time <= 150:
             comp_name = data[0]
             components_in_row.add(comp_name)
-            all_components.add(comp_name)
+            all_component_names.add(comp_name)
     row_to_components.append(components_in_row)
 
-# Trouver l'indice du chromatogramme ayant le plus de pics
+# Trouver l’indice du chromatogramme avec le plus de pics
 max_pics_index = df['pics'].apply(lambda x: len(x)).idxmax()
 
-# Composants présents dans ce chromatogramme
-components_max_chromato = row_to_components[max_pics_index]
+# Récupérer les composants uniques de ce chromatogramme
+components_in_max = row_to_components[max_pics_index]
 
-# Vérifier si ce chromatogramme contient tous les composants
-contains_all = all_components.issubset(components_max_chromato)
+# Vérifier s’il contient tous les noms de composants uniques
+contains_all_names = all_component_names.issubset(components_in_max)
 
-print(f"Chromatogramme avec le plus de pics contient tous les composants : {contains_all}")
+print(f"Le chromatogramme avec le plus de pics contient tous les noms de composants uniques : {contains_all_names}")
