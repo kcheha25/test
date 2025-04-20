@@ -409,36 +409,37 @@ for _, row in df.iterrows():
 
 
 import pandas as pd
-from collections import defaultdict
 
-# Charger les données
+# Charger le fichier JSON
 file_path = "chromatogrammes.json"
 df = pd.read_json(file_path)
 df = df.dropna(subset=['pics'])
 
-# Ensemble de tous les noms de composants présents dans tous les chromatogrammes
+# Étape 1 : Obtenir tous les noms de composants uniques (pics <= 150)
 all_component_names = set()
-
-# Liste pour suivre les ensembles de composants par chromatogramme
-row_to_components = []
-
 for _, row in df.iterrows():
-    components_in_row = set()
     for pic_time_str, data in row["pics"].items():
-        pic_time = float(pic_time_str)
-        if pic_time <= 150:
-            comp_name = data[0]
-            components_in_row.add(comp_name)
-            all_component_names.add(comp_name)
-    row_to_components.append(components_in_row)
+        if float(pic_time_str) <= 150:
+            all_component_names.add(data[0])
 
-# Trouver l’indice du chromatogramme avec le plus de pics
-max_pics_index = df['pics'].apply(lambda x: len(x)).idxmax()
+# Étape 2 : Calculer le nombre de pics valides pour chaque chromatogramme
+df["num_pics"] = df["pics"].apply(lambda x: sum(1 for k in x if float(k) <= 150))
+max_pics_index = df["num_pics"].idxmax()
+row_max = df.loc[max_pics_index]
 
-# Récupérer les composants uniques de ce chromatogramme
-components_in_max = row_to_components[max_pics_index]
+# Étape 3 : Extraire les noms de composants dans ce chromatogramme
+components_in_max = set()
+for pic_time_str, data in row_max["pics"].items():
+    if float(pic_time_str) <= 150:
+        components_in_max.add(data[0])
 
-# Vérifier s’il contient tous les noms de composants uniques
-contains_all_names = all_component_names.issubset(components_in_max)
+# Étape 4 : Vérifier inclusion des composants
+contains_all = all_component_names.issubset(components_in_max)
 
-print(f"Le chromatogramme avec le plus de pics contient tous les noms de composants uniques : {contains_all_names}")
+# Résultat
+print(f"Chromatogramme avec le plus de pics (index {max_pics_index}) contient tous les composants uniques : {contains_all}")
+print(f"Nombre de pics dans ce chromatogramme : {df.loc[max_pics_index, 'num_pics']}")
+
+if not contains_all:
+    missing = all_component_names - components_in_max
+    print("Composants manquants :", missing)
