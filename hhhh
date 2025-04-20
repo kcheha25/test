@@ -362,10 +362,16 @@ df = df.dropna(subset=['pics'])
 component_to_times = defaultdict(list)
 
 for _, row in df.iterrows():
-    for pic_time_str, data in row["pics"].items():
+    seen_counts = defaultdict(int)  # Compteur par composant pour ce chromatogramme
+    current_row_pics = list(row["pics"].items())
+    current_row_pics.sort(key=lambda x: float(x[0]))  # trier par temps croissant
+
+    for pic_time_str, data in current_row_pics:
         pic_time = float(pic_time_str)
         if pic_time <= 150:
-            comp_name = data[0]
+            base_name = data[0]
+            seen_counts[base_name] += 1
+            comp_name = f"{base_name}_{seen_counts[base_name]}"
             component_to_times[comp_name].append(pic_time)
 
 # Étape 2 : calcul des moyennes de temps de pic pour chaque composant
@@ -406,6 +412,14 @@ for _, row in df.iterrows():
             seen_counts[base_name] += 1
             comp_name = f"{base_name}_{seen_counts[base_name]}"
             component_to_times[comp_name].append(pic_time)
+filtered_component_to_times = {}
+for comp, times in component_to_times.items():
+    times = np.array(times)
+    min_val = np.min(times)
+    filtered_times = times[np.abs(times - min_val) <= 1.0]
+    if len(filtered_times) > 0:
+        filtered_component_to_times[comp] = filtered_times.tolist()
+
 
 import pandas as pd
 import numpy as np
