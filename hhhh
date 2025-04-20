@@ -394,3 +394,15 @@ X = np.array([adjusted_mean_times[comp] for comp in component_names]).reshape(-1
 # Entraînement
 nbrs = NearestNeighbors(n_neighbors=5)
 nbrs.fit(X)
+for _, row in df.iterrows():
+    seen_counts = defaultdict(int)  # Compteur par composant pour ce chromatogramme
+    current_row_pics = list(row["pics"].items())
+    current_row_pics.sort(key=lambda x: float(x[0]))  # trier par temps croissant
+
+    for pic_time_str, data in current_row_pics:
+        pic_time = float(pic_time_str)
+        if pic_time <= 150:
+            base_name = data[0]
+            seen_counts[base_name] += 1
+            comp_name = f"{base_name}_{seen_counts[base_name]}"
+            component_to_times[comp_name].append(pic_time)
