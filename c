@@ -1,0 +1,174 @@
+// Remplissage de la matrice I et tabtime
+for (u = 0; u < T; u++) {
+    line = sr->Readline();             // Lecture d'une ligne
+    tab = line->Split('\t');           // Découpe sur les tabulations
+
+    double jd = (double)u / period;
+    j = (int)floor(jd);                // Ligne dans la matrice (axe j)
+
+    double id = (double)u - (double)j * period;
+    i = (int)floor(id);                // Colonne dans la matrice (axe i)
+
+    if (j < H && i < W && i >= 0 && j >= 0) {
+        tabtime(W - i - 1, j) = getdoublefromstr(tab[0]);
+
+        for (k = 1; k <= Z; k++) {
+            if (k < tab->length) {
+                I(k - 1, W - i - 1, j) = getdoublefromstr(tab[k]);
+            }
+        }
+    }
+}
+
+// Interpolation des zéros dans I par moyenne verticale de voisins
+for (j = 0; j < H; j++) {
+    for (i = 0; i < W; i++) {
+        for (k = 0; k < Z; k++) {
+            if (I(k, i, j) == 0) {
+                double sum = 0;
+                int count = 0;
+
+                // Pixel au-dessus
+                if (j > 0 && I(k, i, j - 1) != 0) {
+                    sum += I(k, i, j - 1);
+                    count++;
+                }
+
+                // Pixel en dessous
+                if (j < H - 1 && I(k, i, j + 1) != 0) {
+                    sum += I(k, i, j + 1);
+                    count++;
+                }
+
+                // On applique la moyenne si on a trouvé au moins un voisin
+                if (count > 0) {
+                    I(k, i, j) = sum / count;
+                }
+            }
+        }
+    }
+}
+
+
+
+for (j = 0; j < H; j++) {
+    for (i = 0; i < W; i++) {
+        for (k = 0; k < Z; k++) {
+            if (I(k, i, j) == 0) {
+                double sum = 0;
+                int count = 0;
+
+                // Parcours des voisins 3D dans une fenêtre de 3x3x3 autour du point (k,i,j)
+                for (int dj = -1; dj <= 1; dj++) {
+                    for (int di = -1; di <= 1; di++) {
+                        for (int dk = -1; dk <= 1; dk++) {
+                            // Ne pas prendre le point lui-même
+                            if (dk == 0 && di == 0 && dj == 0) continue;
+
+                            int nk = k + dk;
+                            int ni = i + di;
+                            int nj = j + dj;
+
+                            // Vérification que le voisin est dans les bornes
+                            if (nk >= 0 && nk < Z &&
+                                ni >= 0 && ni < W &&
+                                nj >= 0 && nj < H) {
+
+                                double val = I(nk, ni, nj);
+                                if (val != 0) {
+                                    sum += val;
+                                    count++;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // On applique la moyenne si on a trouvé des voisins valides
+                if (count > 0) {
+                    I(k, i, j) = sum / count;
+                }
+            }
+        }
+    }
+}
+
+
+
+F2D I;
+int T = 0;
+
+// Compter le nombre total de lignes
+while (sr->Readline()) {
+    T++;
+}
+
+W = period;
+H = T / W;
+int TT = H * W;
+
+Resize(I, H, W);
+
+// Initialiser à 0
+for (u = 0; u < TT; u++) {
+    I(u) = 0;
+}
+
+// Réinitialiser le lecteur
+sr->Reset();
+
+// Lire la première ligne
+line = sr->Readline();
+tab = line->Split('\t');
+
+int nbC = tab->length - 1;
+int column = /* colonne à utiliser */;
+if (column > nbC) column = nbC;
+if (column <= 0) column = 1;
+
+int pos;
+
+for (u = 0; u < T; u++) {
+    line = sr->Readline();
+    tab = line->Split('\t');
+
+    pos = u + offset;
+    j = pos / W;
+    i = pos - j * W;
+
+    if (j >= 0 && j < H && i >= 0 && i < W) {
+        I(W - i - 1, j) = getdoublefromstr(tab[column]);
+    }
+}
+
+// Interpolation des zéros avec moyenne des voisins 8-connectés
+for (j = 0; j < H; j++) {
+    for (i = 0; i < W; i++) {
+        if (I(i, j) == 0) {
+            double sum = 0;
+            int count = 0;
+
+            // Balayage des voisins autour de (i, j)
+            for (int dj = -1; dj <= 1; dj++) {
+                for (int di = -1; di <= 1; di++) {
+                    if (di == 0 && dj == 0) continue; // Ne pas prendre le centre
+
+                    int ni = i + di;
+                    int nj = j + dj;
+
+                    if (ni >= 0 && ni < W && nj >= 0 && nj < H) {
+                        double val = I(ni, nj);
+                        if (val != 0) {
+                            sum += val;
+                            count++;
+                        }
+                    }
+                }
+            }
+
+            if (count > 0) {
+                I(i, j) = sum / count;
+            }
+        }
+    }
+}
