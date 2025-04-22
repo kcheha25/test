@@ -202,3 +202,28 @@ for (j = 0; j < H; j++) {
             }
         }
     }
+        // Appliquer le shift horizontal selon le sens du offset
+    int abs_offset = offset > 0 ? offset : -offset;
+
+    // Si offset > 0, shift les premières lignes
+    if (offset > 0) {
+        for (int j = 0; j < abs_offset; j++) {
+            // Décalage horizontal des lignes wrapées
+            float tmp = R(k, j, W - 1);
+            for (int i = W - 1; i > 0; i--) {
+                R(k, j, i) = R(k, j, i - 1);
+            }
+            R(k, j, 0) = tmp;
+        }
+    }
+    // Si offset < 0, shift les dernières lignes
+    else if (offset < 0) {
+        for (int j = H - abs_offset; j < H; j++) {
+            // Décalage horizontal des lignes wrapées
+            float tmp = R(k, j, W - 1);
+            for (int i = W - 1; i > 0; i--) {
+                R(k, j, i) = R(k, j, i - 1);
+            }
+            R(k, j, 0) = tmp;
+        }
+    }
