@@ -236,3 +236,21 @@ for (j = 0; j < H; j++) {
     }
 }
 
+for (i = 0; i < W; i++) {
+    for (j = 0; j < H; j++) {
+        int jj = j + offset;
+
+        while (jj < 0) jj += H;
+        while (jj >= H) jj -= H;
+
+        float val = IM(j, i);
+
+        // Si la ligne a été wrapée (i.e. vient du bas), on décale la colonne d’un cran à droite
+        int ii = i;
+        if (j + offset < 0 || j + offset >= H) {
+            ii = (i + 1) % W; // décale la colonne d’un cran à droite avec wrap
+        }
+
+        RR(jj, ii) = val;
+    }
+}
