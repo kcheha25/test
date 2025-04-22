@@ -203,33 +203,36 @@ for (j = 0; j < H; j++) {
         }
     }
 
+// Applique le wrap vertical pour décaler les lignes
 for (i = 0; i < W; i++) {
     for (j = 0; j < H; j++) {
         int jj = j + offset;
 
-        // Gestion du décalage des lignes (avec wrap-around)
+        // Gestion du wrap vertical
         while (jj < 0) jj += H;
         while (jj >= H) jj -= H;
 
-        // Si l'offset est positif, décaler les premières 'offset' lignes vers la droite
-        if (offset > 0) {
-            // Décaler horizontalement les colonnes pour les 'offset' premières lignes
-            if (j < offset) {
-                int new_i = (i + offset) % W;  // Décalage horizontal des colonnes
-                RR(j, new_i) = IM(j, i);
-            } else {
-                RR(j, i) = IM(j, i);
-            }
+        RR(jj, i) = IM(j, i); 
+    }
+}
+
+// Applique le décalage horizontal sur les colonnes après le wrap
+for (j = 0; j < H; j++) {
+    int new_offset = offset % W;  // Calcul du décalage horizontal modulo largeur
+
+    // Si l'offset est positif, on déplace vers la droite
+    if (new_offset > 0) {
+        for (i = 0; i < W; i++) {
+            int new_i = (i + new_offset) % W;  // Calcul du nouvel indice de colonne
+            RR(j, new_i) = IM(j, i);
         }
-        // Si l'offset est négatif, décaler les dernières 'offset' lignes vers la gauche
-        else if (offset < 0) {
-            // Décaler horizontalement les colonnes pour les 'offset' dernières lignes
-            if (j >= H + offset) {
-                int new_i = (i + offset) % W;  // Décalage horizontal des colonnes
-                RR(j, new_i) = IM(j, i);
-            } else {
-                RR(j, i) = IM(j, i);
-            }
+    }
+    // Si l'offset est négatif, on déplace vers la gauche
+    else if (new_offset < 0) {
+        for (i = 0; i < W; i++) {
+            int new_i = (i + new_offset + W) % W;  // Calcul du nouvel indice de colonne pour le décalage à gauche
+            RR(j, new_i) = IM(j, i);
         }
     }
 }
+
