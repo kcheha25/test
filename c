@@ -275,6 +275,10 @@ for (i = 0; i < W; i++) {
     }
 }
 
+// Poids : direct = 1.0, diagonal = 0.707 (1/sqrt(2))
+const double w_direct = 1.0;
+const double w_diag = 0.707;
+
 for (int iter = 0; iter < iterations; iter++) {
     auto I_copy = I;
 
@@ -283,7 +287,7 @@ for (int iter = 0; iter < iterations; iter++) {
             for (int k = 0; k < Z; k++) {
                 if (I(k, i, j) == 0) {
                     double sum = 0;
-                    int count = 0;
+                    double weight_sum = 0;
 
                     // Coordonnées des voisins périodiques
                     int j_up    = (j - 1 + H) % H;
@@ -291,44 +295,44 @@ for (int iter = 0; iter < iterations; iter++) {
                     int i_left  = (i - 1 + W) % W;
                     int i_right = (i + 1) % W;
 
-                    // Voisins directs
+                    // Voisins directs (haut, bas, gauche, droite)
                     if (I(k, i, j_up) != 0) {
-                        sum += I(k, i, j_up);
-                        count++;
+                        sum += w_direct * I(k, i, j_up);
+                        weight_sum += w_direct;
                     }
                     if (I(k, i, j_down) != 0) {
-                        sum += I(k, i, j_down);
-                        count++;
+                        sum += w_direct * I(k, i, j_down);
+                        weight_sum += w_direct;
                     }
                     if (I(k, i_left, j) != 0) {
-                        sum += I(k, i_left, j);
-                        count++;
+                        sum += w_direct * I(k, i_left, j);
+                        weight_sum += w_direct;
                     }
                     if (I(k, i_right, j) != 0) {
-                        sum += I(k, i_right, j);
-                        count++;
+                        sum += w_direct * I(k, i_right, j);
+                        weight_sum += w_direct;
                     }
 
                     // Voisins diagonaux
                     if (I(k, i_left, j_up) != 0) {
-                        sum += I(k, i_left, j_up);
-                        count++;
+                        sum += w_diag * I(k, i_left, j_up);
+                        weight_sum += w_diag;
                     }
                     if (I(k, i_right, j_up) != 0) {
-                        sum += I(k, i_right, j_up);
-                        count++;
+                        sum += w_diag * I(k, i_right, j_up);
+                        weight_sum += w_diag;
                     }
                     if (I(k, i_left, j_down) != 0) {
-                        sum += I(k, i_left, j_down);
-                        count++;
+                        sum += w_diag * I(k, i_left, j_down);
+                        weight_sum += w_diag;
                     }
                     if (I(k, i_right, j_down) != 0) {
-                        sum += I(k, i_right, j_down);
-                        count++;
+                        sum += w_diag * I(k, i_right, j_down);
+                        weight_sum += w_diag;
                     }
 
-                    if (count > 0) {
-                        I_copy(k, i, j) = sum / count;
+                    if (weight_sum > 0) {
+                        I_copy(k, i, j) = sum / weight_sum;
                     }
                 }
             }
@@ -338,3 +342,4 @@ for (int iter = 0; iter < iterations; iter++) {
     // Mettre à jour I pour la prochaine itération
     I = I_copy;
 }
+
