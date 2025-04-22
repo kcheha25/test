@@ -285,33 +285,45 @@ for (int iter = 0; iter < iterations; iter++) {
                     double sum = 0;
                     int count = 0;
 
-                    // Coordonnées des voisins en mode périodique
+                    // Coordonnées des voisins périodiques
                     int j_up    = (j - 1 + H) % H;
                     int j_down  = (j + 1) % H;
                     int i_left  = (i - 1 + W) % W;
                     int i_right = (i + 1) % W;
 
-                    // Haut
+                    // Voisins directs
                     if (I(k, i, j_up) != 0) {
                         sum += I(k, i, j_up);
                         count++;
                     }
-
-                    // Bas
                     if (I(k, i, j_down) != 0) {
                         sum += I(k, i, j_down);
                         count++;
                     }
-
-                    // Gauche
                     if (I(k, i_left, j) != 0) {
                         sum += I(k, i_left, j);
                         count++;
                     }
-
-                    // Droite
                     if (I(k, i_right, j) != 0) {
                         sum += I(k, i_right, j);
+                        count++;
+                    }
+
+                    // Voisins diagonaux
+                    if (I(k, i_left, j_up) != 0) {
+                        sum += I(k, i_left, j_up);
+                        count++;
+                    }
+                    if (I(k, i_right, j_up) != 0) {
+                        sum += I(k, i_right, j_up);
+                        count++;
+                    }
+                    if (I(k, i_left, j_down) != 0) {
+                        sum += I(k, i_left, j_down);
+                        count++;
+                    }
+                    if (I(k, i_right, j_down) != 0) {
+                        sum += I(k, i_right, j_down);
                         count++;
                     }
 
@@ -326,4 +338,3 @@ for (int iter = 0; iter < iterations; iter++) {
     // Mettre à jour I pour la prochaine itération
     I = I_copy;
 }
-
