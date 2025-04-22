@@ -359,4 +359,37 @@ for (int iter = 0; iter < iterations; iter++) {
 
     I = I_copy;
 }
+for (int iter = 0; iter < iterations; iter++) {
+    auto I_copy = I;
+
+    for (int j = 0; j < H; j++) {
+        for (int i = 0; i < W; i++) {
+            for (int k = 0; k < Z; k++) {
+                if (I(k, i, j) == 0) {
+                    double sum = 0;
+                    int count = 0;
+
+                    int j_up   = (j - 1 + H) % H;
+                    int j_down = (j + 1) % H;
+
+                    if (I(k, i, j_up) != 0) {
+                        sum += I(k, i, j_up);
+                        count++;
+                    }
+                    if (I(k, i, j_down) != 0) {
+                        sum += I(k, i, j_down);
+                        count++;
+                    }
+
+                    if (count > 0) {
+                        I_copy(k, i, j) = sum / count;
+                    }
+                }
+            }
+        }
+    }
+
+    // Mettre à jour I pour la prochaine itération (les nouvelles valeurs peuvent servir ensuite)
+    I = I_copy;
+}
 
