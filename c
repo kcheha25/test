@@ -174,21 +174,31 @@ for (j = 0; j < H; j++) {
 }
 
 
-for (int i = 0; i < W; i++) {
-    // On récupère les dernières valeurs de la dernière colonne (colonne W-1)
-    float injected[offset];
-    for (int j = 0; j < offset; j++) {
-        injected[j] = IM(H - offset + j, W - 1);
-    }
+    for (int i = 0; i < W; i++) {
+        for (int j = 0; j < H; j++) {
+            int jj = j + offset;
+            while (jj < 0) jj += H;
+            while (jj >= H) jj -= H;
 
-    // Décaler chaque colonne vers le bas
-    for (int j = H - 1; j >= offset; j--) {
-        RR(j, i) = IM(j - offset, i);
-    }
+            // ligne wrapée ?
+            if (jj != j + offset) {
+                // appliquer un shift vers la droite sur les colonnes de cette ligne
+                // récupérer la ligne dans un buffer temporaire
+                std::vector<float> row(W);
+                for (int ii = 0; ii < W; ii++) {
+                    row[ii] = IM(k, j, ii);
+                }
 
-    // Injecter les valeurs prises dans la dernière colonne au début de chaque colonne
-    for (int j = 0; j < offset; j++) {
-        RR(j, i) = injected[j];
+                // faire le shift à droite
+                std::rotate(row.rbegin(), row.rbegin() + 1, row.rend());
+
+                // écrire dans la ligne cible jj
+                for (int ii = 0; ii < W; ii++) {
+                    R(k, jj, ii) = row[ii];
+                }
+            } else {
+                // pas wrapée → copie directe
+                R(k, jj, i) = IM(k, j, i);
+            }
+        }
     }
-}
-std::vector<float> injected(offset);
