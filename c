@@ -191,3 +191,4 @@ for (int i = 0; i < W; i++) {
         RR(j, i) = injected[j];
     }
 }
+std::vector<float> injected(offset);
