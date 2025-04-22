@@ -202,28 +202,34 @@ for (j = 0; j < H; j++) {
             }
         }
     }
-        // Appliquer le shift horizontal selon le sens du offset
-    int abs_offset = offset > 0 ? offset : -offset;
 
-    // Si offset > 0, shift les premières lignes
-    if (offset > 0) {
-        for (int j = 0; j < abs_offset; j++) {
-            // Décalage horizontal des lignes wrapées
-            float tmp = R(k, j, W - 1);
-            for (int i = W - 1; i > 0; i--) {
-                R(k, j, i) = R(k, j, i - 1);
+for (i = 0; i < W; i++) {
+    for (j = 0; j < H; j++) {
+        int jj = j + offset;
+
+        // Gestion du décalage des lignes (avec wrap-around)
+        while (jj < 0) jj += H;
+        while (jj >= H) jj -= H;
+
+        // Si l'offset est positif, décaler les premières 'offset' lignes vers la droite
+        if (offset > 0) {
+            // Décaler horizontalement les colonnes pour les 'offset' premières lignes
+            if (j < offset) {
+                int new_i = (i + offset) % W;  // Décalage horizontal des colonnes
+                RR(j, new_i) = IM(j, i);
+            } else {
+                RR(j, i) = IM(j, i);
             }
-            R(k, j, 0) = tmp;
+        }
+        // Si l'offset est négatif, décaler les dernières 'offset' lignes vers la gauche
+        else if (offset < 0) {
+            // Décaler horizontalement les colonnes pour les 'offset' dernières lignes
+            if (j >= H + offset) {
+                int new_i = (i + offset) % W;  // Décalage horizontal des colonnes
+                RR(j, new_i) = IM(j, i);
+            } else {
+                RR(j, i) = IM(j, i);
+            }
         }
     }
-    // Si offset < 0, shift les dernières lignes
-    else if (offset < 0) {
-        for (int j = H - abs_offset; j < H; j++) {
-            // Décalage horizontal des lignes wrapées
-            float tmp = R(k, j, W - 1);
-            for (int i = W - 1; i > 0; i--) {
-                R(k, j, i) = R(k, j, i - 1);
-            }
-            R(k, j, 0) = tmp;
-        }
-    }
+}
