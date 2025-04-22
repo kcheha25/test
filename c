@@ -394,3 +394,31 @@ for (int iter = 0; iter < iterations; iter++) {
     // Mettre à jour I pour la prochaine itération
     I = I_copy;
 }
+
+for (int j = 0; j < H; j++) {
+    for (int i = 0; i < W; i++) {
+        for (int k = 0; k < Z; k++) {
+            if (I(k, i, j) == 0) {
+                double sum = 0;
+                int count = 0;
+
+                // Fenêtre 3x3 : voisins dans une zone autour du pixel
+                for (int dy = -1; dy <= 1; dy++) {
+                    for (int dx = -1; dx <= 1; dx++) {
+                        int ni = i + dx;
+                        int nj = j + dy;
+                        if (ni >= 0 && ni < W && nj >= 0 && nj < H && I(k, ni, nj) != 0) {
+                            sum += I(k, ni, nj);
+                            count++;
+                        }
+                    }
+                }
+
+                // Appliquer la moyenne si des voisins sont trouvés
+                if (count > 0) {
+                    I(k, i, j) = sum / count;
+                }
+            }
+        }
+    }
+}
