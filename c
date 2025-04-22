@@ -367,29 +367,30 @@ for (int iter = 0; iter < iterations; iter++) {
             for (int k = 0; k < Z; k++) {
                 if (I(k, i, j) == 0) {
                     double sum = 0;
-                    int count = 0;
+                    double weight_sum = 0;
 
                     int j_up   = (j - 1 + H) % H;
                     int j_down = (j + 1) % H;
 
+                    // Filtrage Gaussien (voisins haut/bas)
                     if (I(k, i, j_up) != 0) {
                         sum += I(k, i, j_up);
-                        count++;
+                        weight_sum += exp(-0.5); // poids de diffusion
                     }
                     if (I(k, i, j_down) != 0) {
                         sum += I(k, i, j_down);
-                        count++;
+                        weight_sum += exp(-0.5);
                     }
 
-                    if (count > 0) {
-                        I_copy(k, i, j) = sum / count;
+                    // Appliquer le lissage avec poids
+                    if (weight_sum > 0) {
+                        I_copy(k, i, j) = sum / weight_sum;
                     }
                 }
             }
         }
     }
 
-    // Mettre à jour I pour la prochaine itération (les nouvelles valeurs peuvent servir ensuite)
+    // Mettre à jour I pour la prochaine itération
     I = I_copy;
 }
-
