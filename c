@@ -275,7 +275,7 @@ for (i = 0; i < W; i++) {
     }
 }
 
-const double w_direct = 1.0;
+const double alpha = 0.5; // poids pour lisser : 0.0 = pas de lissage, 1.0 = uniquement voisinage
 
 for (int iter = 0; iter < iterations; iter++) {
     auto I_copy = I;
@@ -285,32 +285,78 @@ for (int iter = 0; iter < iterations; iter++) {
             for (int k = 0; k < Z; k++) {
                 if (I(k, i, j) == 0) {
                     double sum = 0;
-                    double weight_sum = 0;
+                    int count = 0;
 
-                    // Coordonnées des voisins périodiques haut et bas
+                    // Coordonnées des voisins périodiques
                     int j_up    = (j - 1 + H) % H;
                     int j_down  = (j + 1) % H;
+                    int i_left  = (i - 1 + W) % W;
+                    int i_right = (i + 1) % W;
 
-                    // Haut
+                    // Voisins directs
                     if (I(k, i, j_up) != 0) {
-                        sum += w_direct * I(k, i, j_up);
-                        weight_sum += w_direct;
+                        sum += I(k, i, j_up);
+                        count++;
                     }
-
-                    // Bas
                     if (I(k, i, j_down) != 0) {
-                        sum += w_direct * I(k, i, j_down);
-                        weight_sum += w_direct;
+                        sum += I(k, i, j_down);
+                        count++;
+                    }
+                    if (I(k, i_left, j) != 0) {
+                        sum += I(k, i_left, j);
+                        count++;
+                    }
+                    if (I(k, i_right, j) != 0) {
+                        sum += I(k, i_right, j);
+                        count++;
                     }
 
-                    if (weight_sum > 0) {
-                        I_copy(k, i, j) = sum / weight_sum;
+                    // Voisins diagonaux
+                    if (I(k, i_left, j_up) != 0) {
+                        sum += I(k, i_left, j_up);
+                        count++;
+                    }
+                    if (I(k, i_right, j_up) != 0) {
+                        sum += I(k, i_right, j_up);
+                        count++;
+                    }
+                    if (I(k, i_left, j_down) != 0) {
+                        sum += I(k, i_left, j_down);
+                        count++;
+                    }
+                    if (I(k, i_right, j_down) != 0) {
+                        sum += I(k, i_right, j_down);
+                        count++;
+                    }
+
+                    if (count > 0) {
+                        double interpolated = sum / count;
+
+                        // Lissage : moyenne pondérée avec les voisins existants (haut + bas uniquement)
+                        double smooth_sum = 0;
+                        int smooth_count = 0;
+
+                        if (I_copy(k, i, j_up) != 0) {
+                            smooth_sum += I_copy(k, i, j_up);
+                            smooth_count++;
+                        }
+                        if (I_copy(k, i, j_down) != 0) {
+                            smooth_sum += I_copy(k, i, j_down);
+                            smooth_count++;
+                        }
+
+                        if (smooth_count > 0) {
+                            double neighborhood_avg = smooth_sum / smooth_count;
+                            interpolated = (1 - alpha) * interpolated + alpha * neighborhood_avg;
+                        }
+
+                        I_copy(k, i, j) = interpolated;
                     }
                 }
             }
         }
     }
 
-    // Mettre à jour I pour la prochaine itération
     I = I_copy;
 }
+
