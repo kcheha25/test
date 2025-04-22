@@ -172,3 +172,22 @@ for (j = 0; j < H; j++) {
         }
     }
 }
+
+
+for (int i = 0; i < W; i++) {
+    // On récupère les dernières valeurs de la dernière colonne (colonne W-1)
+    float injected[offset];
+    for (int j = 0; j < offset; j++) {
+        injected[j] = IM(H - offset + j, W - 1);
+    }
+
+    // Décaler chaque colonne vers le bas
+    for (int j = H - 1; j >= offset; j--) {
+        RR(j, i) = IM(j - offset, i);
+    }
+
+    // Injecter les valeurs prises dans la dernière colonne au début de chaque colonne
+    for (int j = 0; j < offset; j++) {
+        RR(j, i) = injected[j];
+    }
+}
