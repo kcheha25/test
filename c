@@ -254,3 +254,23 @@ for (i = 0; i < W; i++) {
         RR(jj, ii) = val;
     }
 }
+
+for (i = 0; i < W; i++) {
+    for (j = 0; j < H; j++) {
+        int jj = j + offset;
+
+        while (jj < 0) jj += H;
+        while (jj >= H) jj -= H;
+
+        // Vérifie si la ligne vient du bas (i.e. a été wrapée)
+        bool is_wrapped = (j + offset < 0 || j + offset >= H);
+
+        // On récupère la valeur
+        float val = IM(j, i);
+
+        // Si ligne wrapée → on décale les colonnes vers la droite d’un cran
+        int ii = is_wrapped ? (i + W - 1) % W : i;
+
+        RR(jj, ii) = val;
+    }
+}
