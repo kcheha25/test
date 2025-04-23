@@ -422,3 +422,137 @@ for (int j = 0; j < H; j++) {
         }
     }
 }
+
+std::vector<std::pair<int, int>> zero_coords;
+
+// Première passe : interpolation et enregistrement des (i, j)
+for (j = 0; j < H; j++) {
+    for (i = 0; i < W; i++) {
+        for (k = 0; k < Z; k++) {
+            if (I(k, i, j) == 0) {
+                double sum = 0;
+                int count = 0;
+
+                // Voisinage 4-connecté
+                if (j > 0 && I(k, i, j - 1) != 0) { sum += I(k, i, j - 1); count++; }
+                if (j < H - 1 && I(k, i, j + 1) != 0) { sum += I(k, i, j + 1); count++; }
+                if (i > 0 && I(k, i - 1, j) != 0) { sum += I(k, i - 1, j); count++; }
+                if (i < W - 1 && I(k, i + 1, j) != 0) { sum += I(k, i + 1, j); count++; }
+
+                if (count > 0) {
+                    I(k, i, j) = sum / count;
+                }
+
+                // Sauvegarde des coordonnées initialement nulles
+                zero_coords.push_back({i, j});
+            }
+        }
+    }
+}
+
+// Deuxième et troisième passe : interpolation uniquement sur les pixels sauvegardés
+for (int pass = 0; pass < 2; pass++) {
+    for (auto [i, j] : zero_coords) {
+        for (k = 0; k < Z; k++) {
+            if (I(k, i, j) == 0) { // Toujours 0 ? Réessaie
+                double sum = 0;
+                int count = 0;
+
+                if (j > 0 && I(k, i, j - 1) != 0) { sum += I(k, i, j - 1); count++; }
+                if (j < H - 1 && I(k, i, j + 1) != 0) { sum += I(k, i, j + 1); count++; }
+                if (i > 0 && I(k, i - 1, j) != 0) { sum += I(k, i - 1, j); count++; }
+                if (i < W - 1 && I(k, i + 1, j) != 0) { sum += I(k, i + 1, j); count++; }
+
+                if (count > 0) {
+                    I(k, i, j) = sum / count;
+                }
+            }
+        }
+    }
+}
+std::vector<std::pair<int, int>> zero_coords;
+
+// Fonction pour accès périodique
+auto get_wrapped = [&](int k, int i, int j) -> double {
+    int ii = (i + W) % W;
+    int jj = (j + H) % H;
+    return I(k, ii, jj);
+};
+
+// Première passe : interpolation + sauvegarde des (i,j)
+for (j = 0; j < H; j++) {
+    for (i = 0; i < W; i++) {
+        for (k = 0; k < Z; k++) {
+            if (I(k, i, j) == 0) {
+                double sum = 0;
+                int count = 0;
+
+                // Haut
+                if (get_wrapped(k, i, j - 1) != 0) {
+                    sum += get_wrapped(k, i, j - 1);
+                    count++;
+                }
+
+                // Bas
+                if (get_wrapped(k, i, j + 1) != 0) {
+                    sum += get_wrapped(k, i, j + 1);
+                    count++;
+                }
+
+                // Gauche
+                if (get_wrapped(k, i - 1, j) != 0) {
+                    sum += get_wrapped(k, i - 1, j);
+                    count++;
+                }
+
+                // Droite
+                if (get_wrapped(k, i + 1, j) != 0) {
+                    sum += get_wrapped(k, i + 1, j);
+                    count++;
+                }
+
+                if (count > 0) {
+                    I(k, i, j) = sum / count;
+                }
+
+                zero_coords.push_back({i, j});
+            }
+        }
+    }
+}
+
+// Deux autres passes sur les mêmes (i,j)
+for (int pass = 0; pass < 2; pass++) {
+    for (auto [i, j] : zero_coords) {
+        for (k = 0; k < Z; k++) {
+            if (I(k, i, j) == 0) {
+                double sum = 0;
+                int count = 0;
+
+                if (get_wrapped(k, i, j - 1) != 0) {
+                    sum += get_wrapped(k, i, j - 1);
+                    count++;
+                }
+
+                if (get_wrapped(k, i, j + 1) != 0) {
+                    sum += get_wrapped(k, i, j + 1);
+                    count++;
+                }
+
+                if (get_wrapped(k, i - 1, j) != 0) {
+                    sum += get_wrapped(k, i - 1, j);
+                    count++;
+                }
+
+                if (get_wrapped(k, i + 1, j) != 0) {
+                    sum += get_wrapped(k, i + 1, j);
+                    count++;
+                }
+
+                if (count > 0) {
+                    I(k, i, j) = sum / count;
+                }
+            }
+        }
+    }
+}
