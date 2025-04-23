@@ -762,3 +762,34 @@ distances, indices = nn_model.kneighbors([mean_values[query_index]])
 print(f"Composant de référence : {component_names[query_index]}")
 for i, idx in enumerate(indices[0]):
     print(f"  Voisin {i+1} : {component_names[idx]} (distance = {distances[0][i]:.3f})")
+
+
+
+
+from sklearn.neighbors import NearestCentroid
+import numpy as np
+
+X = []
+y = []
+
+for comp, values in final_grouped_components.items():
+    if values:  # Vérifie qu'il y a bien des valeurs
+        mean_val = np.mean(values)
+        X.append([mean_val])
+        y.append(comp)
+
+X = np.array(X)
+y = np.array(y)
+
+# Fit du classificateur
+clf = NearestCentroid()
+clf.fit(X, y)
+
+
+new_distance = 0.75
+
+# Prédiction de la classe du nouveau point (le groupe auquel appartient la distance)
+predicted_group = clf.predict([[new_distance]])
+
+# Afficher le groupe prédit
+print(f"La distance {new_distance} appartient au groupe : {predicted_group[0]}")
