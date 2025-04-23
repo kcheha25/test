@@ -648,3 +648,117 @@ for prefix, subgroups in intermediate_groups.items():
         final_grouped_components[new_name] = group
 
 # `final_grouped_components` contient les groupes fusionnés avec suffixes
+import pandas as pd
+import numpy as np
+from collections import defaultdict
+
+# Charger les données
+file_path = "chromatogrammes.json"
+df = pd.read_json(file_path)
+df = df.dropna(subset=['pics'])
+
+# Dictionnaire global : distances par composant
+component_distances_to_toluene = defaultdict(list)
+
+for _, row in df.iterrows():
+    seen_counts = defaultdict(int)
+    comp_times = {}
+    tol_time = None
+
+    current_row_pics = list(row["pics"].items())
+    current_row_pics.sort(key=lambda x: float(x[0]))
+
+    for pic_time_str, data in current_row_pics:
+        pic_time = float(pic_time_str)
+        if pic_time > 150:
+            continue
+
+        base_name = data[0]
+        seen_counts[base_name] += 1
+        comp_name = f"{base_name}_{seen_counts[base_name]}"
+        comp_times[comp_name] = pic_time
+
+        # On prend le premier TOLUENE comme référence
+        if base_name == "TOLUENE" and tol_time is None:
+            tol_time = pic_time
+
+    if tol_time is None:
+        continue  # Aucun TOLUENE, on saute ce chromatogramme
+
+    for comp, time in comp_times.items():
+        if not comp.startswith("TOLUENE"):
+            distance = time - tol_time  # Conserver le signe
+            component_distances_to_toluene[comp].append(distance)
+
+# Étape 1 : sous-groupes basés sur les valeurs proches
+intermediate_groups = defaultdict(list)
+
+for comp, distances in component_distances_to_toluene.items():
+    if len(distances) <= 1:
+        intermediate_groups[comp].append(distances)
+        continue
+
+    distances_sorted = sorted(distances)
+    subgroups = [[distances_sorted[0]]]
+
+    for d in distances_sorted[1:]:
+        if abs(d - subgroups[-1][-1]) <= 0.2:
+            subgroups[-1].append(d)
+        else:
+            subgroups.append([d])
+
+    base_prefix = "_".join(comp.split("_")[:-1])  # ex: "BENZENE"
+    for subgroup in subgroups:
+        intermediate_groups[base_prefix].append(subgroup)
+
+# Étape 2 : regroupement des sous-groupes ayant le même préfixe et proches entre eux
+final_grouped_components = defaultdict(list)
+
+for prefix, subgroups in intermediate_groups.items():
+    # Trier chaque sous-groupe par moyenne pour comparaison
+    subgroups.sort(key=lambda g: np.mean(g))
+    merged = []
+
+    for group in subgroups:
+        if not merged:
+            merged.append(group)
+        else:
+            last_group = merged[-1]
+            if abs(np.mean(group) - np.mean(last_group)) <= 0.2:
+                merged[-1].extend(group)
+            else:
+                merged.append(group)
+
+    # Renommage final avec suffixes A, B, ...
+    for idx, group in enumerate(merged):
+        suffix = chr(ord('A') + idx)
+        new_name = f"{prefix}_{suffix}"
+        final_grouped_components[new_name] = group
+
+# Calcul des moyennes pour chaque groupe
+group_means = {name: np.mean(values) for name, values in final_grouped_components.items()}
+
+# Affichage des résultats
+for name, mean_value in group_means.items():
+    print(f"{name} → Moyenne des distances : {mean_value:.3f}")
+from sklearn.neighbors import NearestNeighbors
+import numpy as np
+
+# On suppose que group_means est déjà défini comme :
+# group_means = {name: np.mean(values) for name, values in final_grouped_components.items()}
+
+# Étape 1 : préparation des données
+component_names = list(group_means.keys())
+mean_values = np.array([[v] for v in group_means.values()])  # Shape (n, 1) pour sklearn
+
+# Étape 2 : entraînement du modèle NearestNeighbors
+nn_model = NearestNeighbors(n_neighbors=3, algorithm='auto')  # Par exemple, 3 plus proches voisins
+nn_model.fit(mean_values)
+
+# Étape 3 : exemple d’utilisation : trouver les plus proches composants d’un donné
+query_index = 0  # Exemple : premier composant
+distances, indices = nn_model.kneighbors([mean_values[query_index]])
+
+print(f"Composant de référence : {component_names[query_index]}")
+for i, idx in enumerate(indices[0]):
+    print(f"  Voisin {i+1} : {component_names[idx]} (distance = {distances[0][i]:.3f})")
