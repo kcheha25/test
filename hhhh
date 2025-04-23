@@ -491,3 +491,72 @@ for idx, row in df.iterrows():
         break
 else:
     print("❌ Aucun chromatogramme ne contient tous les composants.")
+
+import pandas as pd
+import numpy as np
+from collections import defaultdict
+
+# Charger les données
+file_path = "chromatogrammes.json"
+df = pd.read_json(file_path)
+df = df.dropna(subset=['pics'])
+
+# Dictionnaire global : distances par composant
+component_distances_to_toluene = defaultdict(list)
+
+for _, row in df.iterrows():
+    seen_counts = defaultdict(int)
+    comp_times = {}
+    tol_time = None
+
+    current_row_pics = list(row["pics"].items())
+    current_row_pics.sort(key=lambda x: float(x[0]))
+
+    for pic_time_str, data in current_row_pics:
+        pic_time = float(pic_time_str)
+        if pic_time > 150:
+            continue
+
+        base_name = data[0]
+        seen_counts[base_name] += 1
+        comp_name = f"{base_name}_{seen_counts[base_name]}"
+        comp_times[comp_name] = pic_time
+
+        # On prend le premier TOLUENE comme référence
+        if base_name == "TOLUENE" and tol_time is None:
+            tol_time = pic_time
+
+    if tol_time is None:
+        continue  # Aucun TOLUENE, on saute ce chromatogramme
+
+    for comp, time in comp_times.items():
+        if not comp.startswith("TOLUENE"):
+            distance = time - tol_time  # Conserver le signe
+            component_distances_to_toluene[comp].append(distance)
+
+# Division des composants en sous-groupes si nécessaire
+grouped_components = defaultdict(list)
+
+for comp, distances in component_distances_to_toluene.items():
+    if len(distances) <= 1:
+        grouped_components[comp] = distances
+        continue
+
+    distances_sorted = sorted(distances)
+    subgroups = [[distances_sorted[0]]]
+
+    for d in distances_sorted[1:]:
+        if abs(d - subgroups[-1][-1]) <= 0.2:
+            subgroups[-1].append(d)
+        else:
+            subgroups.append([d])
+
+    if len(subgroups) == 1:
+        grouped_components[comp] = subgroups[0]
+    else:
+        for idx, group in enumerate(subgroups):
+            suffix = chr(ord('A') + idx)  # 'A', 'B', 'C'...
+            new_comp = f"{comp}_{suffix}"
+            grouped_components[new_comp] = group
+
+# `grouped_components` contient les distances regroupées par sous-groupes avec noms modifiés
