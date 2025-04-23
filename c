@@ -556,3 +556,72 @@ for (int pass = 0; pass < 2; pass++) {
         }
     }
 }
+
+std::ofstream outfile("coords_zeros.txt");
+std::vector<std::pair<int, int>> zero_coords;
+
+for (int j = 0; j < H; j++) {
+    for (int i = 0; i < W; i++) {
+        for (int k = 0; k < Z; k++) {
+            if (I(k, i, j) == 0) {
+                zero_coords.push_back({i, j});
+                outfile << i << " " << j << "\n";
+            }
+        }
+    }
+}
+outfile.close();
+
+std::ifstream infile("coords_zeros.txt");
+std::vector<std::pair<int, int>> shifted_coords;
+
+int i, j;
+while (infile >> i >> j) {
+    int jj = j + offset;
+
+    while (jj < 0) jj += H;
+    while (jj >= H) jj -= H;
+
+    bool is_wrapped = (j + offset < 0 || j + offset >= H);
+    int ii = is_wrapped ? (i + W - 1) % W : i;
+
+    shifted_coords.push_back({ii, jj});
+}
+infile.close();
+
+for (auto [i, j] : shifted_coords) {
+    for (int k = 0; k < Z; k++) {
+        if (RR(k, i, j) == 0) {
+            double sum = 0;
+            int count = 0;
+
+            // Haut
+            if (RR(k, i, (j - 1 + H) % H) != 0) {
+                sum += RR(k, i, (j - 1 + H) % H);
+                count++;
+            }
+
+            // Bas
+            if (RR(k, i, (j + 1) % H) != 0) {
+                sum += RR(k, i, (j + 1) % H);
+                count++;
+            }
+
+            // Gauche
+            if (RR(k, (i - 1 + W) % W, j) != 0) {
+                sum += RR(k, (i - 1 + W) % W, j);
+                count++;
+            }
+
+            // Droite
+            if (RR(k, (i + 1) % W, j) != 0) {
+                sum += RR(k, (i + 1) % W, j);
+                count++;
+            }
+
+            if (count > 0) {
+                RR(k, i, j) = sum / count;
+            }
+        }
+    }
+}
