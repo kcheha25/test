@@ -1,4 +1,4 @@
-Salut,
-J'espère que tu vas bien.
-Je voulais te prévenir que j'ai parlé avec Virgile concernant la possibilité de travailler sur le projet que tu m'avais demandé. Il m'a indiqué que je devais d'abord commencer à travailler sur un autre projet. Éventuellement, si nous avons du temps par la suite et si ton sujet est toujours d'actualité, je pourrai m'y consacrer.
-Je suis désolé pour cela et je te souhaite une bonne journée !
+Bonjour,
+Je souhaitais vous informer que le motif de mon télétravail sur les 3 jours (du 5 au 7 mai) est lié à la grève SNCF, qui se déroulera du 5 au 11 mai. Initialement, j'avais réservé pour le 9 mai, mais en raison de la grève, je suis obligé de revenir à Brest le 2 mai, car je dois y être pour le 12 mai.
+J'espère que cela vous convient. Merci pour votre compréhension !
+
