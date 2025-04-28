@@ -793,3 +793,59 @@ predicted_group = clf.predict([[new_distance]])
 
 # Afficher le groupe prédit
 print(f"La distance {new_distance} appartient au groupe : {predicted_group[0]}")
+
+
+detected_peaks = []
+pic_info_dict = {}
+
+i = 3  # pour éviter problèmes de début de fenêtre
+while i < len(probs_full) - 3:
+    if probs_full[i] > threshold:
+        window = probs_full[i - 3:i + 4]
+        if np.any(window > threshold):
+            idx_window = np.arange(i - 3, i + 4)
+            idx_max_intensity = idx_window[np.argmax(y_full[idx_window])]
+            detected_peaks.append(idx_max_intensity)
+            i += 4
+        else:
+            i += 1
+    else:
+        i += 1
+
+# Convertir en temps
+detected_times = np.array(x_full[detected_peaks]) * 150.0
+
+# 1. Trouver le pic le plus proche de tol_value
+tol_differences = np.abs(detected_times - tol_value)
+idx_tol_peak = np.argmin(tol_differences)
+
+# Temps du Toluène détecté
+detected_tol_time = detected_times[idx_tol_peak]
+
+# Associer ce temps au composant Toluène
+pic_info_dict[detected_tol_time] = 'TOLUENE'
+
+# 2. Pour les autres pics, calculer les distances par rapport au Toluène détecté
+remaining_times = np.delete(detected_times, idx_tol_peak)
+
+# Nouveau Toluène de référence pour les distances
+previous_name = "TOLUENE"
+
+for time in remaining_times:
+    diff = time - detected_tol_time  # distance par rapport à Toluène détecté
+    _, indices = nbrs.kneighbors([[diff]])
+    candidate_names = component_names_array[indices[0]]
+
+    # Choisir un nom différent du précédent
+    for name in candidate_names:
+        if name != previous_name:
+            selected_name = name
+            break
+    else:
+        selected_name = candidate_names[0]
+
+    previous_name = selected_name
+    pic_info_dict[time] = selected_name
+
+# Résultat final
+print(pic_info_dict)
