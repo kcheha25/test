@@ -849,3 +849,111 @@ for time in remaining_times:
 
 # Résultat final
 print(pic_info_dict)
+
+
+import numpy as np
+import matplotlib.pyplot as plt
+import tkinter as tk
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+
+# -------- Ton code de détection des pics --------
+
+detected_peaks = []
+pic_info_dict = {}
+
+i = 3  # pour éviter problèmes de début de fenêtre
+while i < len(probs_full) - 3:
+    if probs_full[i] > threshold:
+        window = probs_full[i - 3:i + 4]
+        if np.any(window > threshold):
+            idx_window = np.arange(i - 3, i + 4)
+            idx_max_intensity = idx_window[np.argmax(y_full[idx_window])]
+            detected_peaks.append(idx_max_intensity)
+            i += 4
+        else:
+            i += 1
+    else:
+        i += 1
+
+# Convertir en temps
+detected_peaks = sorted(set(detected_peaks))
+detected_times = np.array(x_full[detected_peaks]) * 150.0
+
+# Trouver le pic du Toluène
+tol_differences = np.abs(detected_times - tol_value)
+idx_tol_peak = np.argmin(tol_differences)
+detected_tol_time = detected_times[idx_tol_peak]
+
+# Associer le Toluène
+pic_info_dict[detected_tol_time] = 'TOLUENE'
+
+# Pour les autres pics
+remaining_times = np.delete(detected_times, idx_tol_peak)
+
+previous_name = "TOLUENE"
+
+for time in remaining_times:
+    diff = time - detected_tol_time
+    _, indices = nbrs.kneighbors([[diff]])
+    candidate_names = component_names_array[indices[0]]
+
+    for name in candidate_names:
+        if name != previous_name:
+            selected_name = name
+            break
+    else:
+        selected_name = candidate_names[0]
+
+    previous_name = selected_name
+    pic_info_dict[time] = selected_name
+
+# ------- Fin de la détection / Attribution --------
+
+# Tri final des temps et noms associés
+sorted_times = sorted(pic_info_dict.keys())
+sorted_names = [pic_info_dict[time] for time in sorted_times]
+
+# -------- Création interface Tkinter + Matplotlib --------
+
+# Création de la fenêtre Tkinter
+root = tk.Tk()
+root.title("Affichage Chromatogramme avec pics détectés")
+
+# Création de la figure matplotlib
+fig, ax = plt.subplots(figsize=(14, 6))
+
+# Afficher le chromatogramme
+ax.plot(np.array(x_full) * 150.0, y_full, label='Chromatogramme', color='blue')
+
+# Marquer les pics détectés
+peak_times_plot = np.array(x_full)[detected_peaks] * 150.0
+peak_intensities_plot = np.array(y_full)[detected_peaks]
+
+ax.scatter(peak_times_plot, peak_intensities_plot, color='red', label='Pics détectés')
+
+# Ajouter le nom de chaque pic au-dessus du pic détecté
+for time, intensity, name in zip(sorted_times, peak_intensities_plot, sorted_names):
+    ax.text(time, intensity + 0.02, name, rotation=90, verticalalignment='bottom', horizontalalignment='center', fontsize=8)
+
+# Personnalisation du graphique
+ax.set_xlabel('Temps de rétention (s)')
+ax.set_ylabel('Intensité normalisée')
+ax.set_title('Détection de pics dans le chromatogramme')
+ax.grid(True)
+ax.legend()
+fig.tight_layout()
+
+# Ajouter la figure dans Tkinter avec zoom possible
+canvas = FigureCanvasTkAgg(fig, master=root)
+canvas.draw()
+canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+# Activer les outils de zoom et déplacement
+toolbar = tk.Frame(root)
+toolbar.pack()
+from matplotlib.backends.backend_tkagg import NavigationToolbar2Tk
+nav_toolbar = NavigationToolbar2Tk(canvas, toolbar)
+nav_toolbar.update()
+
+# Lancer la fenêtre Tkinter
+root.mainloop()
