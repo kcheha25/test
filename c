@@ -346,3 +346,111 @@ custom_cmap = ListedColormap(colors(np.arange(n_clusters)))
 n_clusters = 3
 spectral = SpectralClustering(n_clusters=n_clusters, affinity='nearest_neighbors', n_neighbors=10, assign_labels='kmeans', random_state=42)
 labels = spectral.fit_predict(X).reshape(gray.shape)
+
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.colors import ListedColormap
+from sklearn.cluster import KMeans
+from scipy.ndimage import sobel
+from skimage.segmentation import find_boundaries
+import networkx as nx
+
+# --------- Étape 1 : Chargement et prétraitement ---------
+image = cv2.imread('image.jpg')
+gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+# --------- Étape 2 : Clustering KMeans ---------
+n_clusters = 5
+kmeans = KMeans(n_clusters=n_clusters, random_state=42)
+kmeans.fit(gray.flatten().reshape(-1, 1))
+labels = kmeans.labels_.reshape(gray.shape)
+
+# --------- Étape 3 : Calcul du gradient pour la pondération ---------
+gradient = np.hypot(sobel(gray, axis=0), sobel(gray, axis=1))
+
+# --------- Étape 4 : Construction du graphe ---------
+G = nx.Graph()
+
+# Initialiser chaque cluster comme nœud
+for cluster_id in range(n_clusters):
+    G.add_node(cluster_id)
+
+# Trouver les frontières
+boundaries = find_boundaries(labels, mode='outer')
+
+# Analyser les paires de labels voisins
+for y in range(1, labels.shape[0]-1):
+    for x in range(1, labels.shape[1]-1):
+        if boundaries[y, x]:
+            label = labels[y, x]
+            neighbors = np.unique(labels[y-1:y+2, x-1:x+2])
+            for neighbor in neighbors:
+                if neighbor != label:
+                    edge = tuple(sorted((label, neighbor)))
+                    weight = gradient[y, x]
+                    if G.has_edge(*edge):
+                        G[edge[0]][edge[1]]['weights'].append(weight)
+                    else:
+                        G.add_edge(edge[0], edge[1], weights=[weight])
+
+# Moyenne des poids (gradient) pour chaque arête
+for u, v, data in G.edges(data=True):
+    data['weight'] = np.mean(data['weights'])
+
+# --------- Étape 5 : Fusion via Graph-Cut (simple seuil) ---------
+threshold = 15  # à ajuster selon le contraste
+to_merge = [(u, v) for u, v, d in G.edges(data=True) if d['weight'] < threshold]
+
+# Fusion des clusters avec Union-Find
+parent = list(range(n_clusters))
+
+def find(x):
+    while parent[x] != x:
+        parent[x] = parent[parent[x]]
+        x = parent[x]
+    return x
+
+def union(x, y):
+    root_x = find(x)
+    root_y = find(y)
+    if root_x != root_y:
+        parent[root_y] = root_x
+
+for u, v in to_merge:
+    union(u, v)
+
+# Regrouper les clusters fusionnés
+new_labels = np.zeros_like(labels)
+label_map = {}
+new_id = 0
+for y in range(labels.shape[0]):
+    for x in range(labels.shape[1]):
+        root = find(labels[y, x])
+        if root not in label_map:
+            label_map[root] = new_id
+            new_id += 1
+        new_labels[y, x] = label_map[root]
+
+# --------- Étape 6 : Affichage ---------
+colors = plt.cm.get_cmap('tab20', new_id)
+custom_cmap = ListedColormap(colors(np.arange(new_id)))
+
+plt.figure(figsize=(15, 5))
+plt.subplot(1, 3, 1)
+plt.imshow(gray, cmap='gray')
+plt.title('Image Grayscale')
+plt.axis('off')
+
+plt.subplot(1, 3, 2)
+plt.imshow(labels, cmap=ListedColormap(plt.cm.get_cmap('tab20', n_clusters)(np.arange(n_clusters))))
+plt.title('KMeans Initial')
+plt.axis('off')
+
+plt.subplot(1, 3, 3)
+plt.imshow(new_labels, cmap=custom_cmap)
+plt.title('Clusters Fusionnés (Graph-Cut)')
+plt.axis('off')
+
+plt.tight_layout()
+plt.show()
