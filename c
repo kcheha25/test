@@ -349,59 +349,45 @@ import matplotlib.pyplot as plt
 from sklearn.cluster import KMeans
 from matplotlib.colors import ListedColormap
 
-from tensorflow.keras.applications import DenseNet121
-from tensorflow.keras.applications.densenet import preprocess_input
-from tensorflow.keras.models import Model
-from tensorflow.keras.preprocessing.image import img_to_array
-
-# --------- 1. Charger l'image ---------
+# Charger l'image et convertir en niveaux de gris
 image = cv2.imread('image.jpg')
-image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-h, w = image_gray.shape
+gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-# --------- 2. Charger DenseNet de Keras sans la tête ---------
-base_model = DenseNet121(weights='imagenet', include_top=False, input_shape=(224, 224, 3))
-model = Model(inputs=base_model.input, outputs=base_model.output)
+# Appliquer un flou gaussien pour lisser les variations
+gray_blurred = cv2.GaussianBlur(gray, (5, 5), sigmaX=0)
 
-# --------- 3. Prétraitement et extraction des features ---------
-resized_rgb = cv2.resize(image_rgb, (224, 224))
-x = img_to_array(resized_rgb)
-x = np.expand_dims(x, axis=0)
-x = preprocess_input(x)
+# Normaliser l'intensité
+gray_norm = gray_blurred / 255.0
 
-features = model.predict(x)[0]  # shape: (7, 7, 1024)
+# Intégrer les coordonnées spatiales (x, y) + intensité
+rows, cols = gray.shape
+X = np.zeros((rows * cols, 3), dtype=np.float32)
 
-# --------- 4. Redimensionner les features à (h, w) ---------
-features_resized = np.zeros((h, w, features.shape[2]))
-for i in range(features.shape[2]):
-    channel = cv2.resize(features[:, :, i], (w, h), interpolation=cv2.INTER_LINEAR)
-    features_resized[:, :, i] = channel
+for i in range(rows):
+    for j in range(cols):
+        index = i * cols + j
+        X[index] = [i / rows, j / cols, gray_norm[i, j]]  # (x, y, intensity) normalisés
 
-# --------- 5. Combiner avec l'intensité ---------
-intensity = image_gray.reshape(h, w, 1) / 255.0
-combined_features = np.concatenate([intensity, features_resized], axis=2)
-flattened_features = combined_features.reshape(-1, combined_features.shape[2])
-
-# --------- 6. Clustering KMeans ---------
+# Appliquer KMeans
 n_clusters = 3
 kmeans = KMeans(n_clusters=n_clusters, random_state=42)
-kmeans.fit(flattened_features)
-labels = kmeans.labels_.reshape(h, w)
+kmeans.fit(X)
+labels = kmeans.labels_.reshape((rows, cols))
 
-# --------- 7. Affichage ---------
+# Créer une colormap personnalisée
 colors = plt.cm.get_cmap('tab20', n_clusters)
 custom_cmap = ListedColormap(colors(np.arange(n_clusters)))
 
-plt.figure(figsize=(12, 6))
+# Affichage
+plt.figure(figsize=(10, 5))
 plt.subplot(1, 2, 1)
-plt.imshow(image_rgb)
-plt.title('Image originale')
+plt.imshow(gray, cmap='gray')
+plt.title('Image Grayscale')
 plt.axis('off')
 
 plt.subplot(1, 2, 2)
 plt.imshow(labels, cmap=custom_cmap)
-plt.title(f'Segmentation DenseNet + KMeans ({n_clusters} clusters)')
+plt.title(f'Segmentation KMeans avec coordonnées spatiales')
 plt.axis('off')
 
 plt.tight_layout()
