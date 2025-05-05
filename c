@@ -348,9 +348,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.cluster import KMeans
 from matplotlib.colors import ListedColormap
-import torch
-import torchvision.models as models
-import torchvision.transforms as transforms
+
+from tensorflow.keras.applications import DenseNet121
+from tensorflow.keras.applications.densenet import preprocess_input
+from tensorflow.keras.models import Model
+from tensorflow.keras.preprocessing.image import img_to_array
 
 # --------- 1. Charger l'image ---------
 image = cv2.imread('image.jpg')
@@ -358,41 +360,36 @@ image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 h, w = image_gray.shape
 
-# --------- 2. Prétraitement pour DenseNet ---------
-transform = transforms.Compose([
-    transforms.ToPILImage(),
-    transforms.Resize((224, 224)),
-    transforms.ToTensor(),
-    transforms.Normalize([0.485, 0.456, 0.406],  # mean
-                         [0.229, 0.224, 0.225])  # std
-])
-input_tensor = transform(image_rgb).unsqueeze(0)  # (1, 3, 224, 224)
+# --------- 2. Charger DenseNet de Keras sans la tête ---------
+base_model = DenseNet121(weights='imagenet', include_top=False, input_shape=(224, 224, 3))
+model = Model(inputs=base_model.input, outputs=base_model.output)
 
-# --------- 3. Extraire les features avec DenseNet ---------
-with torch.no_grad():
-    densenet = models.densenet121(pretrained=True).features.eval()
-    features = densenet(input_tensor)[0]  # shape: (1024, 7, 7)
+# --------- 3. Prétraitement et extraction des features ---------
+resized_rgb = cv2.resize(image_rgb, (224, 224))
+x = img_to_array(resized_rgb)
+x = np.expand_dims(x, axis=0)
+x = preprocess_input(x)
 
-# Redimensionner les features à la taille de l'image originale
-features_np = features.cpu().numpy()
-features_resized = np.zeros((h, w, features_np.shape[0]))
+features = model.predict(x)[0]  # shape: (7, 7, 1024)
 
-for i in range(features_np.shape[0]):
-    f_map = cv2.resize(features_np[i], (w, h), interpolation=cv2.INTER_LINEAR)
-    features_resized[:, :, i] = f_map
+# --------- 4. Redimensionner les features à (h, w) ---------
+features_resized = np.zeros((h, w, features.shape[2]))
+for i in range(features.shape[2]):
+    channel = cv2.resize(features[:, :, i], (w, h), interpolation=cv2.INTER_LINEAR)
+    features_resized[:, :, i] = channel
 
-# --------- 4. Combiner les features + intensité ---------
-intensity = image_gray.reshape(h, w, 1) / 255.0  # Normalisé
+# --------- 5. Combiner avec l'intensité ---------
+intensity = image_gray.reshape(h, w, 1) / 255.0
 combined_features = np.concatenate([intensity, features_resized], axis=2)
 flattened_features = combined_features.reshape(-1, combined_features.shape[2])
 
-# --------- 5. Clustering KMeans ---------
+# --------- 6. Clustering KMeans ---------
 n_clusters = 3
 kmeans = KMeans(n_clusters=n_clusters, random_state=42)
 kmeans.fit(flattened_features)
 labels = kmeans.labels_.reshape(h, w)
 
-# --------- 6. Affichage ---------
+# --------- 7. Affichage ---------
 colors = plt.cm.get_cmap('tab20', n_clusters)
 custom_cmap = ListedColormap(colors(np.arange(n_clusters)))
 
