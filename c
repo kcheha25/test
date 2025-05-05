@@ -337,3 +337,8 @@ segmented_image = labels.reshape(image.shape[0], image.shape[1])
 # Afficher l'image segmentée
 plt.imshow(segmented_image)
 plt.show()
+
+from matplotlib.colors import ListedColormap
+
+colors = plt.cm.get_cmap('tab20', n_clusters)
+custom_cmap = ListedColormap(colors(np.arange(n_clusters)))
