@@ -544,7 +544,8 @@ from matplotlib.colors import ListedColormap
 import pydensecrf.densecrf as dcrf
 from pydensecrf.utils import unary_from_labels
 from scipy.ndimage import binary_fill_holes
-from skimage.morphology import closing, disk
+from skimage.feature import peak_local_max
+from scipy import ndimage as ndi
 
 # Charger l'image
 image = cv2.imread('image.jpg')
@@ -558,7 +559,7 @@ kmeans = KMeans(n_clusters=n_clusters, random_state=42)
 kmeans.fit(gray.flatten().reshape(-1, 1))
 labels_kmeans = kmeans.labels_.reshape(h, w)
 
-# --------- CRF sur KMeans (3 classes) ---------
+# --------- CRF sur KMeans ---------
 def apply_crf(image_rgb, labels, n_classes, gt_prob=0.7, iter=5):
     d = dcrf.DenseCRF2D(image_rgb.shape[1], image_rgb.shape[0], n_classes)
     unary = unary_from_labels(labels.astype(np.int32), n_classes, gt_prob=gt_prob)
@@ -569,63 +570,48 @@ def apply_crf(image_rgb, labels, n_classes, gt_prob=0.7, iter=5):
     refined = np.argmax(Q, axis=0).reshape(labels.shape)
     return refined
 
-labels_crf_before_fusion = apply_crf(image_rgb, labels_kmeans, n_classes=3)
+labels_crf = apply_crf(image_rgb, labels_kmeans, n_classes=3)
 
-# --------- Fusion des classes 0 et 1 ---------
-labels_fused = labels_kmeans.copy()
-labels_fused[labels_kmeans == 1] = 0  # fusionne classe 1 avec 0
-labels_fused[labels_kmeans == 2] = 1  # remappe classe 2 → 1
+# --------- Fusion des classes ---------
+labels_fused = labels_crf.copy()
+labels_fused[labels_crf == 2] = 0  # fusionne classe 2 avec 0
+labels_fused[labels_crf == 1] = 1  # remappe classe 1 en 1
 
-# --------- Suppression d'un label et fermeture morphologique ---------
-# Supposons qu’on supprime les pixels de classe 1 avant fermeture
-mask_class_0 = (labels_fused == 0).astype(np.uint8)
+# --------- Préparation pour Watershed sur la classe 1 ---------
+binary_mask = (labels_fused == 1).astype(np.uint8)
 
-# Appliquer une fermeture morphologique pour combler les trous
-kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-closed_mask = cv2.morphologyEx(mask_class_0, cv2.MORPH_CLOSE, kernel)
+# Remplissage de trous uniquement (pas de fermeture)
+binary_mask = binary_fill_holes(binary_mask).astype(np.uint8)
 
-# Optionnel : remplissage des trous internes
-filled_mask = binary_fill_holes(closed_mask).astype(np.uint8)
+# Calcul de la distance au fond
+distance = cv2.distanceTransform(binary_mask, cv2.DIST_L2, 5)
 
-# Reconstruire le label_fused après nettoyage
-labels_fused_clean = np.zeros_like(labels_fused)
-labels_fused_clean[filled_mask == 1] = 0
-labels_fused_clean[(labels_fused == 1) & (filled_mask == 0)] = 1
+# Détection des maxima locaux comme marqueurs
+local_maxi = peak_local_max(distance, indices=False, labels=binary_mask)
+markers = ndi.label(local_maxi)[0]
 
-# --------- CRF après fusion et fermeture ---------
-labels_crf_after_fusion = apply_crf(image_rgb, labels_fused_clean, n_classes=2)
+# Appliquer Watershed
+labels_ws = cv2.watershed(image_rgb, markers.astype(np.int32))
+
+# Les objets sont marqués par des entiers > 1, on les affiche
+watershed_mask = (labels_ws > 1).astype(np.uint8)
 
 # --------- Affichage ---------
 plt.figure(figsize=(18, 10))
 
-# Image originale
-plt.subplot(2, 3, 1)
-plt.imshow(image_rgb)
-plt.title('Image originale')
+plt.subplot(1, 3, 1)
+plt.imshow(labels_fused, cmap=ListedColormap(plt.cm.tab10.colors[:2]))
+plt.title('Labels fusionnés (0/1)')
 plt.axis('off')
 
-# KMeans (3 classes)
-plt.subplot(2, 3, 2)
-plt.imshow(labels_kmeans, cmap=ListedColormap(plt.cm.tab10.colors[:3]))
-plt.title('KMeans (3 classes)')
+plt.subplot(1, 3, 2)
+plt.imshow(distance, cmap='jet')
+plt.title('Distance Transform')
 plt.axis('off')
 
-# CRF sur KMeans (avant fusion)
-plt.subplot(2, 3, 3)
-plt.imshow(labels_crf_before_fusion, cmap=ListedColormap(plt.cm.tab10.colors[:3]))
-plt.title('CRF avant fusion (3 classes)')
-plt.axis('off')
-
-# Labels fusionnés + fermeture
-plt.subplot(2, 3, 4)
-plt.imshow(labels_fused_clean, cmap=ListedColormap(plt.cm.tab10.colors[:2]))
-plt.title('Labels fusionnés + fermeture')
-plt.axis('off')
-
-# CRF après fusion et nettoyage
-plt.subplot(2, 3, 5)
-plt.imshow(labels_crf_after_fusion, cmap=ListedColormap(plt.cm.tab10.colors[:2]))
-plt.title('CRF après fusion + fermeture')
+plt.subplot(1, 3, 3)
+plt.imshow(watershed_mask, cmap='gray')
+plt.title('Segmentation par Watershed')
 plt.axis('off')
 
 plt.tight_layout()
