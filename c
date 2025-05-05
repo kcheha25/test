@@ -454,3 +454,4 @@ plt.axis('off')
 
 plt.tight_layout()
 plt.show()
+Oui, merci, le trajet s’est très bien passé ! J’espère que tu vas bien. Et bien sûr, je suis disponible pour faire un point dès que tu as un moment.
