@@ -346,35 +346,25 @@ custom_cmap = ListedColormap(colors(np.arange(n_clusters)))
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.cluster import KMeans
+from sklearn.cluster import AgglomerativeClustering
 from matplotlib.colors import ListedColormap
 
 # Charger l'image et convertir en niveaux de gris
 image = cv2.imread('image.jpg')
 gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-# Appliquer un flou gaussien pour lisser les variations
-gray_blurred = cv2.GaussianBlur(gray, (5, 5), sigmaX=0)
+# Redimensionner (optionnel) si l'image est trop grande pour la CAH
+# gray = cv2.resize(gray, (100, 100))  # à adapter si nécessaire
 
-# Normaliser l'intensité
-gray_norm = gray_blurred / 255.0
-
-# Intégrer les coordonnées spatiales (x, y) + intensité
-rows, cols = gray.shape
-X = np.zeros((rows * cols, 3), dtype=np.float32)
-
-for i in range(rows):
-    for j in range(cols):
-        index = i * cols + j
-        X[index] = [i / rows, j / cols, gray_norm[i, j]]  # (x, y, intensity) normalisés
-
-# Appliquer KMeans
+# --------- Clustering CAH (Agglomerative Clustering) sur les intensités ---------
 n_clusters = 3
-kmeans = KMeans(n_clusters=n_clusters, random_state=42)
-kmeans.fit(X)
-labels = kmeans.labels_.reshape((rows, cols))
+X = gray.flatten().reshape(-1, 1)
 
-# Créer une colormap personnalisée
+# CAH
+cah = AgglomerativeClustering(n_clusters=n_clusters, linkage='ward')
+labels = cah.fit_predict(X).reshape(gray.shape)
+
+# Créer une colormap avec exactement n_clusters couleurs
 colors = plt.cm.get_cmap('tab20', n_clusters)
 custom_cmap = ListedColormap(colors(np.arange(n_clusters)))
 
@@ -387,7 +377,7 @@ plt.axis('off')
 
 plt.subplot(1, 2, 2)
 plt.imshow(labels, cmap=custom_cmap)
-plt.title(f'Segmentation KMeans avec coordonnées spatiales')
+plt.title(f'Segmentation CAH ({n_clusters} clusters)')
 plt.axis('off')
 
 plt.tight_layout()
