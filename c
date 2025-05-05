@@ -542,61 +542,71 @@ import matplotlib.pyplot as plt
 from sklearn.cluster import KMeans
 from matplotlib.colors import ListedColormap
 import pydensecrf.densecrf as dcrf
-from pydensecrf.utils import unary_from_labels, create_pairwise_bilateral, create_pairwise_gaussian
+from pydensecrf.utils import unary_from_labels
 
-# Lecture de l'image
+# Charger l'image
 image = cv2.imread('image.jpg')
 image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+h, w = gray.shape
 
-# --------- Clustering KMeans ---------
+# --------- KMeans (3 classes) ---------
 n_clusters = 3
 kmeans = KMeans(n_clusters=n_clusters, random_state=42)
 kmeans.fit(gray.flatten().reshape(-1, 1))
-labels_raw = kmeans.labels_.reshape(gray.shape)
+labels_kmeans = kmeans.labels_.reshape(h, w)
+
+# --------- CRF sur KMeans (3 classes) ---------
+def apply_crf(image_rgb, labels, n_classes, gt_prob=0.7, iter=5):
+    d = dcrf.DenseCRF2D(image_rgb.shape[1], image_rgb.shape[0], n_classes)
+    unary = unary_from_labels(labels.astype(np.int32), n_classes, gt_prob=gt_prob)
+    d.setUnaryEnergy(unary)
+    d.addPairwiseGaussian(sxy=3, compat=3)
+    d.addPairwiseBilateral(sxy=80, srgb=13, rgbim=image_rgb, compat=10)
+    Q = d.inference(iter)
+    refined = np.argmax(Q, axis=0).reshape(labels.shape)
+    return refined
+
+labels_crf_before_fusion = apply_crf(image_rgb, labels_kmeans, n_classes=3)
 
 # --------- Fusion des classes 0 et 1 ---------
-labels_merged = labels_raw.copy()
-labels_merged[labels_raw == 1] = 0  # fusionne 1 dans 0
-labels_merged[labels_raw == 2] = 1  # remappe 2 -> 1
+labels_fused = labels_kmeans.copy()
+labels_fused[labels_kmeans == 1] = 0  # fusionne classe 1 avec 0
+labels_fused[labels_kmeans == 2] = 1  # remappe classe 2 → 1
 
-# --------- CRF ---------
-h, w = labels_merged.shape
-n_classes = 2  # Après fusion, il ne reste que 2 classes
-
-d = dcrf.DenseCRF2D(w, h, n_classes)
-
-# Unary energy
-unary = unary_from_labels(labels_merged.astype(np.int32), n_classes, gt_prob=0.7)
-d.setUnaryEnergy(unary)
-
-# Pairwise energies
-d.addPairwiseGaussian(sxy=3, compat=3)
-d.addPairwiseBilateral(sxy=80, srgb=13, rgbim=image_rgb, compat=10)
-
-# Inference
-Q = d.inference(5)
-refined_labels = np.argmax(Q, axis=0).reshape(h, w)
+labels_crf_after_fusion = apply_crf(image_rgb, labels_fused, n_classes=2)
 
 # --------- Affichage ---------
-colors = plt.cm.get_cmap('tab10', n_classes)
-custom_cmap = ListedColormap(colors(np.arange(n_classes)))
+plt.figure(figsize=(18, 10))
 
-plt.figure(figsize=(15, 5))
-
-plt.subplot(1, 3, 1)
-plt.imshow(gray, cmap='gray')
-plt.title('Image Grayscale')
+# Image originale
+plt.subplot(2, 3, 1)
+plt.imshow(image_rgb)
+plt.title('Image originale')
 plt.axis('off')
 
-plt.subplot(1, 3, 2)
-plt.imshow(labels_merged, cmap=custom_cmap)
-plt.title('Labels Fusionnés (0+1 → 0, 2 → 1)')
+# KMeans (3 classes)
+plt.subplot(2, 3, 2)
+plt.imshow(labels_kmeans, cmap=ListedColormap(plt.cm.tab10.colors[:3]))
+plt.title('KMeans (3 classes)')
 plt.axis('off')
 
-plt.subplot(1, 3, 3)
-plt.imshow(refined_labels, cmap=custom_cmap)
-plt.title('Labels Affinés avec CRF')
+# CRF sur KMeans (avant fusion)
+plt.subplot(2, 3, 3)
+plt.imshow(labels_crf_before_fusion, cmap=ListedColormap(plt.cm.tab10.colors[:3]))
+plt.title('CRF avant fusion (3 classes)')
+plt.axis('off')
+
+# Labels fusionnés (0+1 -> 0, 2 -> 1)
+plt.subplot(2, 3, 4)
+plt.imshow(labels_fused, cmap=ListedColormap(plt.cm.tab10.colors[:2]))
+plt.title('Labels fusionnés')
+plt.axis('off')
+
+# CRF après fusion
+plt.subplot(2, 3, 5)
+plt.imshow(labels_crf_after_fusion, cmap=ListedColormap(plt.cm.tab10.colors[:2]))
+plt.title('CRF après fusion (2 classes)')
 plt.axis('off')
 
 plt.tight_layout()
