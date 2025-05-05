@@ -538,81 +538,58 @@ plt.show()
 
 import cv2
 import numpy as np
-import torch
-import torchvision.transforms as T
 import matplotlib.pyplot as plt
 from sklearn.cluster import KMeans
-from skimage.segmentation import slic, mark_boundaries
 from matplotlib.colors import ListedColormap
+import pydensecrf.densecrf as dcrf
+from pydensecrf.utils import unary_from_labels, create_pairwise_bilateral, create_pairwise_gaussian
 
-# ----- Chargement de l'image -----
+# Lecture de l'image
 image = cv2.imread('image.jpg')
 image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-# ----- Segmentation KMeans sur grayscale -----
+# --------- Clustering KMeans sur les features ---------
 n_clusters = 3
 kmeans = KMeans(n_clusters=n_clusters, random_state=42)
 kmeans.fit(gray.flatten().reshape(-1, 1))
 labels = kmeans.labels_.reshape(gray.shape)
 
-# ----- Superpixels avec SLIC -----
-superpixels = slic(image_rgb, n_segments=100, compactness=10, start_label=1)
+# --------- CRF pour affiner la segmentation ---------
+h, w = labels.shape
+d = dcrf.DenseCRF2D(w, h, n_clusters)
 
-# ----- Chargement de DINOv2 -----
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-dinov2 = torch.hub.load('facebookresearch/dinov2', 'dinov2_vits14').to(device)
-dinov2.eval()
+# Générer les énergies unaires à partir des labels KMeans
+unary = unary_from_labels(labels.astype(np.int32), n_clusters, gt_prob=0.7)
+d.setUnaryEnergy(unary)
 
-# ----- Prétraitement -----
-transform = T.Compose([
-    T.ToPILImage(),
-    T.Resize((518, 518)),  # taille adaptée à ViT-S/14 (divisible par 14 et proche du 520 conseillé)
-    T.ToTensor(),
-    T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
-])
-input_tensor = transform(image_rgb).unsqueeze(0).to(device)
+# Ajout des termes de pairwise (bilatéral et gaussien)
+d.addPairwiseGaussian(sxy=3, compat=3)  # Favorise la cohérence locale
+d.addPairwiseBilateral(sxy=80, srgb=13, rgbim=image_rgb, compat=10)  # Favorise la cohérence avec la couleur
 
-# ----- Extraction des features DINOv2 -----
-with torch.no_grad():
-    features = dinov2.forward_features(input_tensor)
-    patch_tokens = features['x_norm_patchtokens']  # shape [1, num_patches, dim]
-    patch_tokens = patch_tokens[0].cpu().numpy()
+# Inférence
+Q = d.inference(5)
+refined_labels = np.argmax(Q, axis=0).reshape(h, w)
 
-# Taille des patchs
-h, w = input_tensor.shape[2:]  # image transformée
-patch_size = 14
-n_h, n_w = h // patch_size, w // patch_size
-
-# KMeans sur les features DINOv2
-kmeans_dino = KMeans(n_clusters=n_clusters, random_state=0)
-dino_labels = kmeans_dino.fit_predict(patch_tokens)
-dino_segmentation = dino_labels.reshape(n_h, n_w)
-
-# ----- Affichage -----
+# --------- Affichage ---------
 colors = plt.cm.get_cmap('tab20', n_clusters)
 custom_cmap = ListedColormap(colors(np.arange(n_clusters)))
 
-plt.figure(figsize=(15, 8))
+plt.figure(figsize=(15, 5))
 
-plt.subplot(2, 2, 1)
+plt.subplot(1, 3, 1)
 plt.imshow(gray, cmap='gray')
 plt.title('Image Grayscale')
 plt.axis('off')
 
-plt.subplot(2, 2, 2)
+plt.subplot(1, 3, 2)
 plt.imshow(labels, cmap=custom_cmap)
-plt.title('KMeans (Grayscale)')
+plt.title(f'KMeans Initial ({n_clusters} clusters)')
 plt.axis('off')
 
-plt.subplot(2, 2, 3)
-plt.imshow(mark_boundaries(image_rgb, superpixels))
-plt.title('Superpixels (SLIC)')
-plt.axis('off')
-
-plt.subplot(2, 2, 4)
-plt.imshow(dino_segmentation, cmap=custom_cmap, interpolation='nearest')
-plt.title('Segmentation DINOv2 + KMeans')
+plt.subplot(1, 3, 3)
+plt.imshow(refined_labels, cmap=custom_cmap)
+plt.title('Segmentation Affinée (CRF)')
 plt.axis('off')
 
 plt.tight_layout()
