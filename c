@@ -346,27 +346,32 @@ custom_cmap = ListedColormap(colors(np.arange(n_clusters)))
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.cluster import AgglomerativeClustering
+from sklearn.cluster import DBSCAN
 from matplotlib.colors import ListedColormap
 
 # Charger l'image et convertir en niveaux de gris
 image = cv2.imread('image.jpg')
 gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-# Redimensionner (optionnel) si l'image est trop grande pour la CAH
-# gray = cv2.resize(gray, (100, 100))  # à adapter si nécessaire
+# Redimensionner (optionnel) si l'image est grande
+# gray = cv2.resize(gray, (100, 100))  # optionnel
 
-# --------- Clustering CAH (Agglomerative Clustering) sur les intensités ---------
-n_clusters = 3
+# --------- DBSCAN sur les intensités ---------
 X = gray.flatten().reshape(-1, 1)
 
-# CAH
-cah = AgglomerativeClustering(n_clusters=n_clusters, linkage='ward')
-labels = cah.fit_predict(X).reshape(gray.shape)
+# DBSCAN
+dbscan = DBSCAN(eps=5, min_samples=50)  # Tu peux ajuster eps et min_samples
+labels = dbscan.fit_predict(X)
+labels_reshaped = labels.reshape(gray.shape)
 
-# Créer une colormap avec exactement n_clusters couleurs
+# Déterminer le nombre de clusters (en excluant le bruit -1)
+unique_labels = np.unique(labels)
+n_clusters = len(unique_labels[unique_labels != -1])
+
+# Créer une colormap (bruit = noir)
 colors = plt.cm.get_cmap('tab20', n_clusters)
-custom_cmap = ListedColormap(colors(np.arange(n_clusters)))
+mapped_colors = [colors(i) if i != -1 else (0, 0, 0, 1) for i in labels]
+custom_cmap = ListedColormap(mapped_colors)
 
 # Affichage
 plt.figure(figsize=(10, 5))
@@ -376,8 +381,8 @@ plt.title('Image Grayscale')
 plt.axis('off')
 
 plt.subplot(1, 2, 2)
-plt.imshow(labels, cmap=custom_cmap)
-plt.title(f'Segmentation CAH ({n_clusters} clusters)')
+plt.imshow(labels_reshaped, cmap='tab20', vmin=-1, vmax=n_clusters - 1)
+plt.title(f'Segmentation DBSCAN ({n_clusters} clusters + bruit)')
 plt.axis('off')
 
 plt.tight_layout()
