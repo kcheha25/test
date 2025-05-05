@@ -549,31 +549,38 @@ image = cv2.imread('image.jpg')
 image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-# --------- Clustering KMeans sur les features ---------
+# --------- Clustering KMeans ---------
 n_clusters = 3
 kmeans = KMeans(n_clusters=n_clusters, random_state=42)
 kmeans.fit(gray.flatten().reshape(-1, 1))
-labels = kmeans.labels_.reshape(gray.shape)
+labels_raw = kmeans.labels_.reshape(gray.shape)
 
-# --------- CRF pour affiner la segmentation ---------
-h, w = labels.shape
-d = dcrf.DenseCRF2D(w, h, n_clusters)
+# --------- Fusion des classes 0 et 1 ---------
+labels_merged = labels_raw.copy()
+labels_merged[labels_raw == 1] = 0  # fusionne 1 dans 0
+labels_merged[labels_raw == 2] = 1  # remappe 2 -> 1
 
-# Générer les énergies unaires à partir des labels KMeans
-unary = unary_from_labels(labels.astype(np.int32), n_clusters, gt_prob=0.7)
+# --------- CRF ---------
+h, w = labels_merged.shape
+n_classes = 2  # Après fusion, il ne reste que 2 classes
+
+d = dcrf.DenseCRF2D(w, h, n_classes)
+
+# Unary energy
+unary = unary_from_labels(labels_merged.astype(np.int32), n_classes, gt_prob=0.7)
 d.setUnaryEnergy(unary)
 
-# Ajout des termes de pairwise (bilatéral et gaussien)
-d.addPairwiseGaussian(sxy=3, compat=3)  # Favorise la cohérence locale
-d.addPairwiseBilateral(sxy=80, srgb=13, rgbim=image_rgb, compat=10)  # Favorise la cohérence avec la couleur
+# Pairwise energies
+d.addPairwiseGaussian(sxy=3, compat=3)
+d.addPairwiseBilateral(sxy=80, srgb=13, rgbim=image_rgb, compat=10)
 
-# Inférence
+# Inference
 Q = d.inference(5)
 refined_labels = np.argmax(Q, axis=0).reshape(h, w)
 
 # --------- Affichage ---------
-colors = plt.cm.get_cmap('tab20', n_clusters)
-custom_cmap = ListedColormap(colors(np.arange(n_clusters)))
+colors = plt.cm.get_cmap('tab10', n_classes)
+custom_cmap = ListedColormap(colors(np.arange(n_classes)))
 
 plt.figure(figsize=(15, 5))
 
@@ -583,13 +590,13 @@ plt.title('Image Grayscale')
 plt.axis('off')
 
 plt.subplot(1, 3, 2)
-plt.imshow(labels, cmap=custom_cmap)
-plt.title(f'KMeans Initial ({n_clusters} clusters)')
+plt.imshow(labels_merged, cmap=custom_cmap)
+plt.title('Labels Fusionnés (0+1 → 0, 2 → 1)')
 plt.axis('off')
 
 plt.subplot(1, 3, 3)
 plt.imshow(refined_labels, cmap=custom_cmap)
-plt.title('Segmentation Affinée (CRF)')
+plt.title('Labels Affinés avec CRF')
 plt.axis('off')
 
 plt.tight_layout()
