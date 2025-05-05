@@ -543,6 +543,8 @@ from sklearn.cluster import KMeans
 from matplotlib.colors import ListedColormap
 import pydensecrf.densecrf as dcrf
 from pydensecrf.utils import unary_from_labels
+from scipy.ndimage import binary_fill_holes
+from skimage.morphology import closing, disk
 
 # Charger l'image
 image = cv2.imread('image.jpg')
@@ -574,7 +576,24 @@ labels_fused = labels_kmeans.copy()
 labels_fused[labels_kmeans == 1] = 0  # fusionne classe 1 avec 0
 labels_fused[labels_kmeans == 2] = 1  # remappe classe 2 → 1
 
-labels_crf_after_fusion = apply_crf(image_rgb, labels_fused, n_classes=2)
+# --------- Suppression d'un label et fermeture morphologique ---------
+# Supposons qu’on supprime les pixels de classe 1 avant fermeture
+mask_class_0 = (labels_fused == 0).astype(np.uint8)
+
+# Appliquer une fermeture morphologique pour combler les trous
+kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+closed_mask = cv2.morphologyEx(mask_class_0, cv2.MORPH_CLOSE, kernel)
+
+# Optionnel : remplissage des trous internes
+filled_mask = binary_fill_holes(closed_mask).astype(np.uint8)
+
+# Reconstruire le label_fused après nettoyage
+labels_fused_clean = np.zeros_like(labels_fused)
+labels_fused_clean[filled_mask == 1] = 0
+labels_fused_clean[(labels_fused == 1) & (filled_mask == 0)] = 1
+
+# --------- CRF après fusion et fermeture ---------
+labels_crf_after_fusion = apply_crf(image_rgb, labels_fused_clean, n_classes=2)
 
 # --------- Affichage ---------
 plt.figure(figsize=(18, 10))
@@ -597,16 +616,16 @@ plt.imshow(labels_crf_before_fusion, cmap=ListedColormap(plt.cm.tab10.colors[:3]
 plt.title('CRF avant fusion (3 classes)')
 plt.axis('off')
 
-# Labels fusionnés (0+1 -> 0, 2 -> 1)
+# Labels fusionnés + fermeture
 plt.subplot(2, 3, 4)
-plt.imshow(labels_fused, cmap=ListedColormap(plt.cm.tab10.colors[:2]))
-plt.title('Labels fusionnés')
+plt.imshow(labels_fused_clean, cmap=ListedColormap(plt.cm.tab10.colors[:2]))
+plt.title('Labels fusionnés + fermeture')
 plt.axis('off')
 
-# CRF après fusion
+# CRF après fusion et nettoyage
 plt.subplot(2, 3, 5)
 plt.imshow(labels_crf_after_fusion, cmap=ListedColormap(plt.cm.tab10.colors[:2]))
-plt.title('CRF après fusion (2 classes)')
+plt.title('CRF après fusion + fermeture')
 plt.axis('off')
 
 plt.tight_layout()
