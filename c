@@ -454,4 +454,84 @@ plt.axis('off')
 
 plt.tight_layout()
 plt.show()
-Oui, merci, le trajet s’est très bien passé ! J’espère que tu vas bien. Et bien sûr, je suis disponible pour faire un point dès que tu as un moment.
+
+import cv2
+import numpy as np
+from sklearn.cluster import KMeans
+from matplotlib import pyplot as plt
+from matplotlib.colors import ListedColormap
+from scipy.spatial.distance import cdist
+from skimage.morphology import remove_small_objects, closing, square
+from skimage.measure import label, regionprops
+
+# Chargement et conversion en niveaux de gris
+image = cv2.imread('image.jpg')
+gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+# Clustering KMeans
+n_clusters = 3
+kmeans = KMeans(n_clusters=n_clusters, random_state=42)
+kmeans.fit(gray.flatten().reshape(-1, 1))
+labels = kmeans.labels_.reshape(gray.shape)
+
+# Traitement morphologique et filtrage
+processed_labels = np.zeros_like(labels)
+
+for cluster_id in range(n_clusters):
+    mask = (labels == cluster_id).astype(np.uint8)
+    mask_closed = closing(mask, square(5))
+    mask_cleaned = remove_small_objects(mask_closed.astype(bool), min_size=500)
+    processed_labels[mask_cleaned] = cluster_id + 1  # éviter 0 pour les régions
+
+# Étiquetage des régions
+labeled = label(processed_labels)
+
+# Extraire les centroïdes des régions
+regions = regionprops(labeled)
+centroids = np.array([r.centroid for r in regions])
+labels_map = np.array([r.label for r in regions])
+
+# Calcul des distances entre toutes les paires de régions
+dist_matrix = cdist(centroids, centroids)
+np.fill_diagonal(dist_matrix, np.inf)  # éviter la fusion avec soi-même
+
+# Seuil de fusion (en pixels)
+distance_threshold = 50
+
+# Initialiser un dictionnaire de fusions
+merged_groups = []
+visited = set()
+
+for i in range(len(centroids)):
+    if i in visited:
+        continue
+    group = {i}
+    for j in range(len(centroids)):
+        if dist_matrix[i, j] < distance_threshold:
+            group.add(j)
+    visited.update(group)
+    merged_groups.append(group)
+
+# Nouvelle image avec zones fusionnées
+final_labels = np.zeros_like(labeled)
+
+for new_label, group in enumerate(merged_groups, 1):
+    for idx in group:
+        final_labels[labeled == labels_map[idx]] = new_label
+
+# Affichage
+colors = plt.cm.get_cmap('tab20', len(merged_groups))
+custom_cmap = ListedColormap(colors(np.arange(len(merged_groups))))
+
+plt.figure(figsize=(12, 6))
+plt.subplot(1, 2, 1)
+plt.imshow(gray, cmap='gray')
+plt.title('Image Grayscale')
+plt.axis('off')
+
+plt.subplot(1, 2, 2)
+plt.imshow(final_labels, cmap=custom_cmap)
+plt.title('Zones fusionnées (proximité < seuil)')
+plt.axis('off')
+plt.tight_layout()
+plt.show()
