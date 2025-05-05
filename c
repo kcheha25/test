@@ -342,3 +342,70 @@ from matplotlib.colors import ListedColormap
 
 colors = plt.cm.get_cmap('tab20', n_clusters)
 custom_cmap = ListedColormap(colors(np.arange(n_clusters)))
+
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.cluster import KMeans
+from matplotlib.colors import ListedColormap
+import torch
+import torchvision.models as models
+import torchvision.transforms as transforms
+
+# --------- 1. Charger l'image ---------
+image = cv2.imread('image.jpg')
+image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+h, w = image_gray.shape
+
+# --------- 2. Prétraitement pour DenseNet ---------
+transform = transforms.Compose([
+    transforms.ToPILImage(),
+    transforms.Resize((224, 224)),
+    transforms.ToTensor(),
+    transforms.Normalize([0.485, 0.456, 0.406],  # mean
+                         [0.229, 0.224, 0.225])  # std
+])
+input_tensor = transform(image_rgb).unsqueeze(0)  # (1, 3, 224, 224)
+
+# --------- 3. Extraire les features avec DenseNet ---------
+with torch.no_grad():
+    densenet = models.densenet121(pretrained=True).features.eval()
+    features = densenet(input_tensor)[0]  # shape: (1024, 7, 7)
+
+# Redimensionner les features à la taille de l'image originale
+features_np = features.cpu().numpy()
+features_resized = np.zeros((h, w, features_np.shape[0]))
+
+for i in range(features_np.shape[0]):
+    f_map = cv2.resize(features_np[i], (w, h), interpolation=cv2.INTER_LINEAR)
+    features_resized[:, :, i] = f_map
+
+# --------- 4. Combiner les features + intensité ---------
+intensity = image_gray.reshape(h, w, 1) / 255.0  # Normalisé
+combined_features = np.concatenate([intensity, features_resized], axis=2)
+flattened_features = combined_features.reshape(-1, combined_features.shape[2])
+
+# --------- 5. Clustering KMeans ---------
+n_clusters = 3
+kmeans = KMeans(n_clusters=n_clusters, random_state=42)
+kmeans.fit(flattened_features)
+labels = kmeans.labels_.reshape(h, w)
+
+# --------- 6. Affichage ---------
+colors = plt.cm.get_cmap('tab20', n_clusters)
+custom_cmap = ListedColormap(colors(np.arange(n_clusters)))
+
+plt.figure(figsize=(12, 6))
+plt.subplot(1, 2, 1)
+plt.imshow(image_rgb)
+plt.title('Image originale')
+plt.axis('off')
+
+plt.subplot(1, 2, 2)
+plt.imshow(labels, cmap=custom_cmap)
+plt.title(f'Segmentation DenseNet + KMeans ({n_clusters} clusters)')
+plt.axis('off')
+
+plt.tight_layout()
+plt.show()
