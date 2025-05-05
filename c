@@ -343,47 +343,86 @@ from matplotlib.colors import ListedColormap
 colors = plt.cm.get_cmap('tab20', n_clusters)
 custom_cmap = ListedColormap(colors(np.arange(n_clusters)))
 
-import cv2
+import torch
 import numpy as np
+from torchvision import transforms
+from PIL import Image
+from sklearn.cluster import spectral_clustering
+from scipy.sparse.csgraph import laplacian
+from scipy.sparse import csr_matrix
+from diffusers import StableDiffusionPipeline, DDIMScheduler
 import matplotlib.pyplot as plt
-from sklearn.cluster import DBSCAN
-from matplotlib.colors import ListedColormap
 
-# Charger l'image et convertir en niveaux de gris
-image = cv2.imread('image.jpg')
-gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+# Charger le modèle Stable Diffusion
+model_id = "stabilityai/stable-diffusion-2-1"
+pipe = StableDiffusionPipeline.from_pretrained(model_id, torch_dtype=torch.float16)
+pipe.scheduler = DDIMScheduler.from_config(pipe.scheduler.config)
+pipe = pipe.to("cuda")
 
-# Redimensionner (optionnel) si l'image est grande
-# gray = cv2.resize(gray, (100, 100))  # optionnel
+# Fonction pour extraire les self-attentions
+def get_self_attentions(image_path):
+    # Charger et prétraiter l'image
+    image = Image.open(image_path).convert("RGB")
+    transform = transforms.Compose([
+        transforms.Resize((512, 512)),
+        transforms.ToTensor(),
+    ])
+    image = transform(image).unsqueeze(0).to("cuda")
 
-# --------- DBSCAN sur les intensités ---------
-X = gray.flatten().reshape(-1, 1)
+    # Inversion DDIM (10 steps comme dans l'article)
+    latents = pipe.vae.encode(image).latent_dist.sample() * 0.18215
+    inverted_latents = pipe.scheduler.invert(latents, num_inference_steps=10)
 
-# DBSCAN
-dbscan = DBSCAN(eps=5, min_samples=50)  # Tu peux ajuster eps et min_samples
-labels = dbscan.fit_predict(X)
-labels_reshaped = labels.reshape(gray.shape)
+    # Extraire les self-attentions du décodeur
+    with torch.no_grad():
+        output = pipe.unet(inverted_latents, timestep=pipe.scheduler.timesteps[0], return_dict=True)
+    
+    # Agréger les self-attentions sur toutes les couches/résolutions
+    attentions = []
+    for name, module in pipe.unet.named_modules():
+        if "attn2" in name and "processor" in name:  # Couches d'auto-attention
+            attn = module.attention_probs  # Shape: (batch, heads, seq_len, seq_len)
+            attentions.append(attn.mean(dim=1))  # Moyenne sur les têtes
 
-# Déterminer le nombre de clusters (en excluant le bruit -1)
-unique_labels = np.unique(labels)
-n_clusters = len(unique_labels[unique_labels != -1])
+    # Agréger toutes les attentions (simplifié par rapport à l'article)
+    aggregated_attention = torch.stack(attentions).mean(dim=0).squeeze()  # Shape: (seq_len, seq_len)
+    return aggregated_attention.cpu().numpy()
 
-# Créer une colormap (bruit = noir)
-colors = plt.cm.get_cmap('tab20', n_clusters)
-mapped_colors = [colors(i) if i != -1 else (0, 0, 0, 1) for i in labels]
-custom_cmap = ListedColormap(mapped_colors)
+# Fonction pour appliquer Normalized Cuts
+def normalized_cuts(adjacency_matrix, n_clusters=5):
+    # Calculer le Laplacien
+    laplacian_matrix = laplacian(adjacency_matrix, normed=True)
+    
+    # Clustering spectral
+    labels = spectral_clustering(
+        laplacian_matrix,
+        n_clusters=n_clusters,
+        eigen_solver="amg",
+        random_state=0
+    )
+    return labels
 
-# Affichage
-plt.figure(figsize=(10, 5))
-plt.subplot(1, 2, 1)
-plt.imshow(gray, cmap='gray')
-plt.title('Image Grayscale')
-plt.axis('off')
+# Fonction pour visualiser la segmentation
+def visualize_segmentation(image_path, labels):
+    image = Image.open(image_path).convert("RGB")
+    plt.imshow(image)
+    plt.imshow(labels.reshape(64, 64), alpha=0.5, cmap="jet")
+    plt.colorbar()
+    plt.show()
 
-plt.subplot(1, 2, 2)
-plt.imshow(labels_reshaped, cmap='tab20', vmin=-1, vmax=n_clusters - 1)
-plt.title(f'Segmentation DBSCAN ({n_clusters} clusters + bruit)')
-plt.axis('off')
-
-plt.tight_layout()
-plt.show()
+# Exemple d'utilisation
+if __name__ == "__main__":
+    image_path = "chemin/vers/ton/image.jpg"  # Remplace par ton image
+    
+    # 1. Extraire les self-attentions
+    attention_matrix = get_self_attentions(image_path)
+    
+    # 2. Construire la matrice d'adjacence (dot product comme dans l'article)
+    adjacency_matrix = attention_matrix @ attention_matrix.T
+    
+    # 3. Appliquer Normalized Cuts
+    n_clusters = 5  # Nombre de segments (peut être ajusté)
+    labels = normalized_cuts(adjacency_matrix, n_clusters)
+    
+    # 4. Visualiser
+    visualize_segmentation(image_path, labels)
