@@ -616,3 +616,39 @@ plt.axis('off')
 
 plt.tight_layout()
 plt.show()
+
+from scipy.ndimage import binary_fill_holes, convolve
+
+# Créer les masques binaires
+mask_class_0 = (labels_fused == 0).astype(np.uint8)
+mask_class_1 = (labels_fused == 1).astype(np.uint8)
+
+# Remplir les trous
+filled_class_0 = binary_fill_holes(mask_class_0).astype(np.uint8)
+filled_class_1 = binary_fill_holes(mask_class_1).astype(np.uint8)
+
+# Conflits : pixels présents dans les deux
+conflict_mask = (filled_class_0 == 1) & (filled_class_1 == 1)
+
+# Supprimer temporairement les pixels conflictuels
+filled_class_0[conflict_mask] = 0
+filled_class_1[conflict_mask] = 0
+
+# Calcul du voisinage pour décider la classe dominante
+kernel = np.ones((3, 3), dtype=np.uint8)  # voisinage 3x3
+# Note : centre inclus
+
+# Compter les pixels voisins pour chaque classe
+neighbors_class_0 = convolve(filled_class_0, kernel, mode='constant', cval=0)
+neighbors_class_1 = convolve(filled_class_1, kernel, mode='constant', cval=0)
+
+# Réaffectation des conflits par majorité
+new_class_0 = (neighbors_class_0 > neighbors_class_1) & conflict_mask
+new_class_1 = (neighbors_class_1 >= neighbors_class_0) & conflict_mask  # égalité → classe 1
+
+# Finaliser la fusion
+labels_fused_clean = np.full_like(labels_fused, fill_value=255)  # 255 = indéfini au départ
+labels_fused_clean[filled_class_0 == 1] = 0
+labels_fused_clean[filled_class_1 == 1] = 1
+labels_fused_clean[new_class_0] = 0
+labels_fused_clean[new_class_1] = 1
