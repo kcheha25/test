@@ -649,3 +649,54 @@ dominant_class_1 = (neigh_class_1 >= neigh_class_0) & diff_mask  # égalité →
 
 labels_fused_clean[dominant_class_0] = 0
 labels_fused_clean[dominant_class_1] = 1
+import cv2
+import numpy as np
+from sklearn.cluster import KMeans
+from matplotlib.colors import ListedColormap
+import pydensecrf.densecrf as dcrf
+from pydensecrf.utils import unary_from_labels
+
+# Charger l'image
+image = cv2.imread('image.jpg')
+image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+h, w = gray.shape
+
+# --------- KMeans (3 classes) ---------
+n_clusters = 3
+kmeans = KMeans(n_clusters=n_clusters, random_state=42)
+kmeans.fit(gray.flatten().reshape(-1, 1))
+labels_kmeans = kmeans.labels_.reshape(h, w)
+
+# --------- CRF sur KMeans ---------
+def apply_crf(image_rgb, labels, n_classes, gt_prob=0.7, iter=5):
+    d = dcrf.DenseCRF2D(image_rgb.shape[1], image_rgb.shape[0], n_classes)
+    unary = unary_from_labels(labels.astype(np.int32), n_classes, gt_prob=gt_prob)
+    d.setUnaryEnergy(unary)
+    d.addPairwiseGaussian(sxy=3, compat=3)
+    d.addPairwiseBilateral(sxy=80, srgb=13, rgbim=image_rgb, compat=10)
+    Q = d.inference(iter)
+    refined = np.argmax(Q, axis=0).reshape(labels.shape)
+    return refined
+
+labels_crf = apply_crf(image_rgb, labels_kmeans, n_classes=3)
+
+# --------- Fusion des classes ---------
+labels_fused = labels_crf.copy()
+labels_fused[labels_crf == 2] = 0  # fusionne classe 2 avec 0
+labels_fused[labels_crf == 1] = 1  # garde classe 1
+
+# --------- KMeans (2 clusters) sur les pixels de classe 1 ---------
+mask_class_1 = (labels_fused == 1)
+gray_flat = gray[mask_class_1].reshape(-1, 1)
+
+if len(gray_flat) > 0:  # éviter les erreurs si aucune classe 1
+    kmeans_class1 = KMeans(n_clusters=2, random_state=42)
+    kmeans_class1.fit(gray_flat)
+    cluster_labels = kmeans_class1.labels_
+
+    # Créer une nouvelle image de labels (par défaut 0 partout)
+    refined_labels = labels_fused.copy()
+    refined_labels[mask_class_1] = cluster_labels + 1  # pour éviter d’écraser les zéros existants
+else:
+    refined_labels = labels_fused.copy()
