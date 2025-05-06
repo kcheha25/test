@@ -618,37 +618,34 @@ plt.tight_layout()
 plt.show()
 
 from scipy.ndimage import binary_fill_holes, convolve
+import numpy as np
 
-# Créer les masques binaires
+# Masques binaires initiaux (à partir de labels_fused)
 mask_class_0 = (labels_fused == 0).astype(np.uint8)
 mask_class_1 = (labels_fused == 1).astype(np.uint8)
 
-# Remplir les trous
+# Remplissage des trous (indépendamment)
 filled_class_0 = binary_fill_holes(mask_class_0).astype(np.uint8)
 filled_class_1 = binary_fill_holes(mask_class_1).astype(np.uint8)
 
-# Conflits : pixels présents dans les deux
-conflict_mask = (filled_class_0 == 1) & (filled_class_1 == 1)
+# Pixels où les résultats diffèrent (i.e. un est 1, l'autre est 0)
+diff_mask = filled_class_0 != filled_class_1
 
-# Supprimer temporairement les pixels conflictuels
-filled_class_0[conflict_mask] = 0
-filled_class_1[conflict_mask] = 0
+# Compter les classes dans le voisinage (3x3)
+kernel = np.ones((3, 3), dtype=np.uint8)
+neigh_class_0 = convolve((labels_fused == 0).astype(np.uint8), kernel, mode='constant')
+neigh_class_1 = convolve((labels_fused == 1).astype(np.uint8), kernel, mode='constant')
 
-# Calcul du voisinage pour décider la classe dominante
-kernel = np.ones((3, 3), dtype=np.uint8)  # voisinage 3x3
-# Note : centre inclus
+# Créer une carte vide
+labels_fused_clean = np.full_like(labels_fused, fill_value=255)  # 255 = indéfini
 
-# Compter les pixels voisins pour chaque classe
-neighbors_class_0 = convolve(filled_class_0, kernel, mode='constant', cval=0)
-neighbors_class_1 = convolve(filled_class_1, kernel, mode='constant', cval=0)
+# Appliquer directement les pixels où les deux classes sont d'accord
+labels_fused_clean[filled_class_0 & filled_class_1 == 1] = 1  # les deux sont 1 → classe 1
+labels_fused_clean[filled_class_0 & filled_class_1 == 0] = 0  # les deux sont 0 → classe 0
 
-# Réaffectation des conflits par majorité
-new_class_0 = (neighbors_class_0 > neighbors_class_1) & conflict_mask
-new_class_1 = (neighbors_class_1 >= neighbors_class_0) & conflict_mask  # égalité → classe 1
+# Pour les pixels conflictuels (différence entre les deux)
+dominant_class_0 = (neigh_class_0 > neigh_class_1) & diff_mask
+dominant_class_1 = (neigh_class_1 >= neigh_class_0) & diff_mask  # égalité → classe 1
 
-# Finaliser la fusion
-labels_fused_clean = np.full_like(labels_fused, fill_value=255)  # 255 = indéfini au départ
-labels_fused_clean[filled_class_0 == 1] = 0
-labels_fused_clean[filled_class_1 == 1] = 1
-labels_fused_clean[new_class_0] = 0
-labels_fused_clean[new_class_1] = 1
+labels_fused_clean[dominant_class_0] = 0
+labels_fused_clean[dominant_class_1] = 1
