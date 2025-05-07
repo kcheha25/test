@@ -716,40 +716,88 @@ label_mapping = {old: new for new, (old, _) in enumerate(cluster_means)}
 labels_kmeans = np.vectorize(label_mapping.get)(raw_labels)
 
 
-mask_class_1 = (labels_fused_clean == 1).astype(np.uint8)
-labeled_mask = label(mask_class_1)
-regions = regionprops(labeled_mask)
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.cluster import KMeans
+from matplotlib.colors import ListedColormap
+import pydensecrf.densecrf as dcrf
+from pydensecrf.utils import unary_from_labels
+from scipy.ndimage import binary_fill_holes
+from scipy import ndimage as ndi
+from skimage.segmentation import watershed
+from skimage.feature import peak_local_max
 
-# Seuil de circularité (1 = parfait cercle)
-circular_regions = []
-for region in regions:
-    if region.area < 50:  # ignore les très petites régions
-        continue
-    perimeter = region.perimeter
-    if perimeter == 0:
-        continue
-    circularity = 4 * np.pi * region.area / (perimeter ** 2)
-    if circularity > 0.6:  # seuil à ajuster
-        circular_regions.append(region.coords)
+# Charger l'image
+image = cv2.imread('image.jpg')
+image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+h, w = gray.shape
 
-# Colorier les régions circulaires en rouge dans l'image RGB
-image_circles = image_rgb.copy()
-for coords in circular_regions:
-    for y, x in coords:
-        image_circles[y, x] = [255, 0, 0]  # rouge
+# --------- KMeans (3 classes) ---------
+n_clusters = 3
+kmeans = KMeans(n_clusters=n_clusters, random_state=42)
+kmeans.fit(gray.flatten().reshape(-1, 1))
+raw_labels = kmeans.labels_.reshape(h, w)
+
+# Réordonner les labels KMeans selon l’intensité moyenne de chaque cluster
+cluster_means = []
+for i in range(n_clusters):
+    cluster_means.append((i, gray[raw_labels == i].mean()))
+cluster_means.sort(key=lambda x: x[1])  # ordre croissant
+label_mapping = {old: new for new, (old, _) in enumerate(cluster_means)}
+labels_kmeans = np.vectorize(label_mapping.get)(raw_labels)
+
+# --------- CRF sur KMeans (3 classes) ---------
+def apply_crf(image_rgb, labels, n_classes, gt_prob=0.7, iter=5):
+    d = dcrf.DenseCRF2D(image_rgb.shape[1], image_rgb.shape[0], n_classes)
+    unary = unary_from_labels(labels.astype(np.int32), n_classes, gt_prob=gt_prob)
+    d.setUnaryEnergy(unary)
+    d.addPairwiseGaussian(sxy=3, compat=3)
+    d.addPairwiseBilateral(sxy=80, srgb=13, rgbim=image_rgb, compat=10)
+    Q = d.inference(iter)
+    refined = np.argmax(Q, axis=0).reshape(labels.shape)
+    return refined
+
+labels_crf_before_fusion = apply_crf(image_rgb, labels_kmeans, n_classes=3)
+
+labels_fused = labels_kmeans.copy()
+labels_fused[labels_kmeans == 2] = 1
+labels_fused[labels_kmeans == 1] = 1
+
+mask_class_0 = (labels_fused == 0).astype(np.uint8)
+
+filled_mask = binary_fill_holes(mask_class_0).astype(np.uint8)
+
+# Reconstruire labels_fused avec masque propre
+labels_fused_clean = np.zeros_like(labels_fused)
+labels_fused_clean[filled_mask == 1] = 0
+labels_fused_clean[filled_mask == 0] = 1
+
+# --------- Détection des contours et ajustement des ellipses ---------
+contours, _ = cv2.findContours(filled_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+# Créer une image pour afficher les contours
+output_image = np.copy(image_rgb)
+
+# Parcourir les contours détectés
+for contour in contours:
+    if len(contour) >= 5:  # Nombre minimum de points pour ajuster une ellipse
+        # Ajuster une ellipse à chaque contour
+        ellipse = cv2.fitEllipse(contour)
+        
+        # Calculer le rapport des axes pour évaluer la circularité
+        (center, axes, angle) = ellipse
+        ratio = min(axes) / max(axes)  # Plus ce ratio est proche de 1, plus la forme est circulaire
+        
+        # Si l'ellipse est suffisamment circulaire, colorier en rouge
+        if ratio > 0.7:  # Seuil ajustable pour considérer comme circulaire
+            cv2.ellipse(output_image, ellipse, (255, 0, 0), 2)  # Dessiner l'ellipse en rouge
 
 # --------- Affichage ---------
-plt.figure(figsize=(20, 10))
-
-plt.subplot(1, 2, 1)
-plt.imshow(labels_fused_clean, cmap=ListedColormap(plt.cm.tab10.colors[:2]))
-plt.title('Labels fusionnés (nettoyés)')
+plt.figure(figsize=(20, 12))
+plt.imshow(output_image)
+plt.title('Contours avec ellipses circulaires colorés en rouge')
 plt.axis('off')
-
-plt.subplot(1, 2, 2)
-plt.imshow(image_circles)
-plt.title('Régions circulaires détectées en rouge')
-plt.axis('off')
-
 plt.tight_layout()
 plt.show()
