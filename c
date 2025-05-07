@@ -716,64 +716,39 @@ label_mapping = {old: new for new, (old, _) in enumerate(cluster_means)}
 labels_kmeans = np.vectorize(label_mapping.get)(raw_labels)
 
 
-output_image = image_rgb.copy()
-num_labels, labels_conn = cv2.connectedComponents(closed_mask)
+mask_class_1 = (labels_fused_clean == 1).astype(np.uint8)
+labeled_mask = label(mask_class_1)
+regions = regionprops(labeled_mask)
 
-for i in range(1, num_labels):  # ignorer le fond
-    mask = (labels_conn == i).astype(np.uint8)
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    if not contours:
+# Seuil de circularité (1 = parfait cercle)
+circular_regions = []
+for region in regions:
+    if region.area < 50:  # ignore les très petites régions
         continue
-    cnt = contours[0]
-    area = cv2.contourArea(cnt)
-    perimeter = cv2.arcLength(cnt, True)
+    perimeter = region.perimeter
     if perimeter == 0:
         continue
-    circularity = 4 * np.pi * area / (perimeter * perimeter)
-    if circularity > 0.75:  # seuil ajustable
-        cv2.drawContours(output_image, [cnt], -1, (255, 0, 0), 2)  # rouge (RGB)
+    circularity = 4 * np.pi * region.area / (perimeter ** 2)
+    if circularity > 0.6:  # seuil à ajuster
+        circular_regions.append(region.coords)
+
+# Colorier les régions circulaires en rouge dans l'image RGB
+image_circles = image_rgb.copy()
+for coords in circular_regions:
+    for y, x in coords:
+        image_circles[y, x] = [255, 0, 0]  # rouge
 
 # --------- Affichage ---------
-plt.figure(figsize=(20, 12))
+plt.figure(figsize=(20, 10))
 
-plt.subplot(2, 4, 1)
-plt.imshow(image_rgb)
-plt.title('Image originale')
-plt.axis('off')
-
-plt.subplot(2, 4, 2)
-plt.imshow(labels_kmeans, cmap=ListedColormap(plt.cm.tab10.colors[:3]))
-plt.title('KMeans (réordonné)')
-plt.axis('off')
-
-plt.subplot(2, 4, 3)
-plt.imshow(labels_crf_before_fusion, cmap=ListedColormap(plt.cm.tab10.colors[:3]))
-plt.title('CRF avant fusion (3 classes)')
-plt.axis('off')
-
-plt.subplot(2, 4, 4)
-plt.imshow(labels_fused, cmap=ListedColormap(plt.cm.tab10.colors[:2]))
-plt.title('Labels fusionnés (avant fermeture)')
-plt.axis('off')
-
-plt.subplot(2, 4, 5)
+plt.subplot(1, 2, 1)
 plt.imshow(labels_fused_clean, cmap=ListedColormap(plt.cm.tab10.colors[:2]))
-plt.title('Labels après fermeture')
+plt.title('Labels fusionnés (nettoyés)')
 plt.axis('off')
 
-plt.subplot(2, 4, 6)
-plt.imshow(distance, cmap='jet')
-plt.title('Carte de distance (watershed)')
-plt.axis('off')
-
-plt.subplot(2, 4, 7)
-plt.imshow(labels_watershed, cmap='nipy_spectral')
-plt.title('Résultat Watershed')
-plt.axis('off')
-
-plt.subplot(2, 4, 8)
-plt.imshow(output_image)
-plt.title('Formes circulaires de classe 1 en rouge')
+plt.subplot(1, 2, 2)
+plt.imshow(image_circles)
+plt.title('Régions circulaires détectées en rouge')
 plt.axis('off')
 
 plt.tight_layout()
