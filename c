@@ -715,5 +715,66 @@ cluster_means.sort(key=lambda x: x[1])  # ordre croissant
 label_mapping = {old: new for new, (old, _) in enumerate(cluster_means)}
 labels_kmeans = np.vectorize(label_mapping.get)(raw_labels)
 
-    for i in range(n_classes):
-        print(f"Classe {i} : probabilité moyenne CRF = {Q_np[i].mean():.4f}")
+
+output_image = image_rgb.copy()
+num_labels, labels_conn = cv2.connectedComponents(closed_mask)
+
+for i in range(1, num_labels):  # ignorer le fond
+    mask = (labels_conn == i).astype(np.uint8)
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        continue
+    cnt = contours[0]
+    area = cv2.contourArea(cnt)
+    perimeter = cv2.arcLength(cnt, True)
+    if perimeter == 0:
+        continue
+    circularity = 4 * np.pi * area / (perimeter * perimeter)
+    if circularity > 0.75:  # seuil ajustable
+        cv2.drawContours(output_image, [cnt], -1, (255, 0, 0), 2)  # rouge (RGB)
+
+# --------- Affichage ---------
+plt.figure(figsize=(20, 12))
+
+plt.subplot(2, 4, 1)
+plt.imshow(image_rgb)
+plt.title('Image originale')
+plt.axis('off')
+
+plt.subplot(2, 4, 2)
+plt.imshow(labels_kmeans, cmap=ListedColormap(plt.cm.tab10.colors[:3]))
+plt.title('KMeans (réordonné)')
+plt.axis('off')
+
+plt.subplot(2, 4, 3)
+plt.imshow(labels_crf_before_fusion, cmap=ListedColormap(plt.cm.tab10.colors[:3]))
+plt.title('CRF avant fusion (3 classes)')
+plt.axis('off')
+
+plt.subplot(2, 4, 4)
+plt.imshow(labels_fused, cmap=ListedColormap(plt.cm.tab10.colors[:2]))
+plt.title('Labels fusionnés (avant fermeture)')
+plt.axis('off')
+
+plt.subplot(2, 4, 5)
+plt.imshow(labels_fused_clean, cmap=ListedColormap(plt.cm.tab10.colors[:2]))
+plt.title('Labels après fermeture')
+plt.axis('off')
+
+plt.subplot(2, 4, 6)
+plt.imshow(distance, cmap='jet')
+plt.title('Carte de distance (watershed)')
+plt.axis('off')
+
+plt.subplot(2, 4, 7)
+plt.imshow(labels_watershed, cmap='nipy_spectral')
+plt.title('Résultat Watershed')
+plt.axis('off')
+
+plt.subplot(2, 4, 8)
+plt.imshow(output_image)
+plt.title('Formes circulaires de classe 1 en rouge')
+plt.axis('off')
+
+plt.tight_layout()
+plt.show()
