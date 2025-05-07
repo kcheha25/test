@@ -700,3 +700,17 @@ if len(gray_flat) > 0:  # éviter les erreurs si aucune classe 1
     refined_labels[mask_class_1] = cluster_labels + 1  # pour éviter d’écraser les zéros existants
 else:
     refined_labels = labels_fused.copy()
+
+
+n_clusters = 3
+kmeans = KMeans(n_clusters=n_clusters, random_state=42)
+kmeans.fit(gray.flatten().reshape(-1, 1))
+raw_labels = kmeans.labels_.reshape(h, w)
+
+# Réordonner les labels KMeans selon l’intensité moyenne de chaque cluster
+cluster_means = []
+for i in range(n_clusters):
+    cluster_means.append((i, gray[raw_labels == i].mean()))
+cluster_means.sort(key=lambda x: x[1])  # ordre croissant
+label_mapping = {old: new for new, (old, _) in enumerate(cluster_means)}
+labels_kmeans = np.vectorize(label_mapping.get)(raw_labels)
