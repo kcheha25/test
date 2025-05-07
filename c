@@ -714,3 +714,6 @@ for i in range(n_clusters):
 cluster_means.sort(key=lambda x: x[1])  # ordre croissant
 label_mapping = {old: new for new, (old, _) in enumerate(cluster_means)}
 labels_kmeans = np.vectorize(label_mapping.get)(raw_labels)
+
+    for i in range(n_classes):
+        print(f"Classe {i} : probabilité moyenne CRF = {Q_np[i].mean():.4f}")
