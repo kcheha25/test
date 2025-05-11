@@ -827,3 +827,99 @@ plt.imshow(final_mask, cmap='gray')
 plt.title(f"Pixels avec ≥{threshold} voisins identiques (même classe) dans {window_size}x{window_size}")
 plt.axis("off")
 plt.show()
+import numpy as np
+import matplotlib.pyplot as plt
+import tensorflow as tf
+from tensorflow.keras import layers, models
+import cv2
+from sklearn.cluster import KMeans
+from matplotlib.colors import ListedColormap
+from scipy.ndimage import binary_fill_holes
+
+# Fonction pour construire le modèle UNet
+def unet(input_size=(512, 512, 1)):  # Adapter la taille d'entrée à 512x512
+    inputs = layers.Input(input_size)
+
+    # Encoder
+    c1 = layers.Conv2D(64, (3, 3), activation='relu', padding='same')(inputs)
+    c1 = layers.Conv2D(64, (3, 3), activation='relu', padding='same')(c1)
+    p1 = layers.MaxPooling2D((2, 2))(c1)
+
+    c2 = layers.Conv2D(128, (3, 3), activation='relu', padding='same')(p1)
+    c2 = layers.Conv2D(128, (3, 3), activation='relu', padding='same')(c2)
+    p2 = layers.MaxPooling2D((2, 2))(c2)
+
+    c3 = layers.Conv2D(256, (3, 3), activation='relu', padding='same')(p2)
+    c3 = layers.Conv2D(256, (3, 3), activation='relu', padding='same')(c3)
+    p3 = layers.MaxPooling2D((2, 2))(c3)
+
+    c4 = layers.Conv2D(512, (3, 3), activation='relu', padding='same')(p3)
+    c4 = layers.Conv2D(512, (3, 3), activation='relu', padding='same')(c4)
+    p4 = layers.MaxPooling2D((2, 2))(c4)
+
+    # Bottleneck
+    c5 = layers.Conv2D(1024, (3, 3), activation='relu', padding='same')(p4)
+    c5 = layers.Conv2D(1024, (3, 3), activation='relu', padding='same')(c5)
+
+    # Decoder
+    u6 = layers.Conv2DTranspose(512, (3, 3), activation='relu', padding='same')(c5)
+    u6 = layers.UpSampling2D((2, 2))(u6)
+    u6 = layers.concatenate([u6, c4])
+    c6 = layers.Conv2D(512, (3, 3), activation='relu', padding='same')(u6)
+    c6 = layers.Conv2D(512, (3, 3), activation='relu', padding='same')(c6)
+
+    u7 = layers.Conv2DTranspose(256, (3, 3), activation='relu', padding='same')(c6)
+    u7 = layers.UpSampling2D((2, 2))(u7)
+    u7 = layers.concatenate([u7, c3])
+    c7 = layers.Conv2D(256, (3, 3), activation='relu', padding='same')(u7)
+    c7 = layers.Conv2D(256, (3, 3), activation='relu', padding='same')(c7)
+
+    u8 = layers.Conv2DTranspose(128, (3, 3), activation='relu', padding='same')(c7)
+    u8 = layers.UpSampling2D((2, 2))(u8)
+    u8 = layers.concatenate([u8, c2])
+    c8 = layers.Conv2D(128, (3, 3), activation='relu', padding='same')(u8)
+    c8 = layers.Conv2D(128, (3, 3), activation='relu', padding='same')(c8)
+
+    u9 = layers.Conv2DTranspose(64, (3, 3), activation='relu', padding='same')(c8)
+    u9 = layers.UpSampling2D((2, 2))(u9)
+    u9 = layers.concatenate([u9, c1])
+    c9 = layers.Conv2D(64, (3, 3), activation='relu', padding='same')(u9)
+    c9 = layers.Conv2D(64, (3, 3), activation='relu', padding='same')(c9)
+
+    outputs = layers.Conv2D(1, (1, 1), activation='sigmoid')(c9)
+
+    model = models.Model(inputs, outputs)
+    model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+    return model
+
+# Charger l'image (labelfusedclean) et prétraitement
+labelfusedclean = cv2.imread('path_to_labelfusedclean_image.png', cv2.IMREAD_GRAYSCALE)
+
+# Redimensionner l'image à 512x512
+labelfusedclean = cv2.resize(labelfusedclean, (512, 512))  # Redimensionner à la taille 512x512
+labelfusedclean = np.expand_dims(labelfusedclean, axis=-1)  # Ajouter une dimension pour le canal
+labelfusedclean = labelfusedclean / 255.0  # Normalisation
+
+# Ajouter une dimension pour le batch
+labelfusedclean = np.expand_dims(labelfusedclean, axis=0)
+
+# Création et entraînement du modèle UNet
+model = unet(input_size=(512, 512, 1))  # Adapter la taille d'entrée à 512x512
+
+# Suppose que le modèle est déjà formé, sinon tu devrais charger un modèle pré-entraîné ou entraîner le modèle
+# Par exemple : model.load_weights('chemin/vers/poids_du_modele.h5')
+
+# Appliquer le modèle UNet sur l'image
+mask = model.predict(labelfusedclean)
+
+# Conversion de la sortie en format d'image
+mask = np.squeeze(mask)  # Enlever les dimensions inutiles
+mask = (mask > 0.5).astype(np.uint8)  # Seuillage pour obtenir un masque binaire
+
+# Affichage du masque final détecté
+plt.figure(figsize=(12, 8))
+plt.imshow(mask, cmap='gray')
+plt.title('Masque des motifs cohérents détectés')
+plt.axis('off')
+plt.tight_layout()
+plt.show()
