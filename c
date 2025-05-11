@@ -923,3 +923,6 @@ plt.title('Masque des motifs cohérents détectés')
 plt.axis('off')
 plt.tight_layout()
 plt.show()
+Objectif du projet
+Décrire de manière plus riche l’hétérogénéité au sein de la bille et la modéliser statistiquement à partir des descripteurs de distribution en taille de cristaux, en taille de pores, et en densité des différentes zones.
+
