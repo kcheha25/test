@@ -801,3 +801,86 @@ plt.title('Contours avec ellipses circulaires colorés en rouge')
 plt.axis('off')
 plt.tight_layout()
 plt.show()
+
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.cluster import KMeans
+from matplotlib.colors import ListedColormap
+import pydensecrf.densecrf as dcrf
+from pydensecrf.utils import unary_from_labels
+from scipy.ndimage import binary_fill_holes, label
+
+# Charger l'image
+image = cv2.imread('image.jpg')
+image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+h, w = gray.shape
+
+# --------- KMeans (3 classes) ---------
+n_clusters = 3
+kmeans = KMeans(n_clusters=n_clusters, random_state=42)
+kmeans.fit(gray.flatten().reshape(-1, 1))
+raw_labels = kmeans.labels_.reshape(h, w)
+
+# Réordonner les labels KMeans selon l’intensité moyenne
+cluster_means = []
+for i in range(n_clusters):
+    cluster_means.append((i, gray[raw_labels == i].mean()))
+cluster_means.sort(key=lambda x: x[1])
+label_mapping = {old: new for new, (old, _) in enumerate(cluster_means)}
+labels_kmeans = np.vectorize(label_mapping.get)(raw_labels)
+
+# --------- CRF sur KMeans ---------
+def apply_crf(image_rgb, labels, n_classes, gt_prob=0.7, iter=5):
+    d = dcrf.DenseCRF2D(image_rgb.shape[1], image_rgb.shape[0], n_classes)
+    unary = unary_from_labels(labels.astype(np.int32), n_classes, gt_prob=gt_prob)
+    d.setUnaryEnergy(unary)
+    d.addPairwiseGaussian(sxy=3, compat=3)
+    d.addPairwiseBilateral(sxy=80, srgb=13, rgbim=image_rgb, compat=10)
+    Q = d.inference(iter)
+    refined = np.argmax(Q, axis=0).reshape(labels.shape)
+    return refined
+
+labels_crf = apply_crf(image_rgb, labels_kmeans, n_classes=3)
+
+# Fusionner classe 1 et 2 en une seule classe d'objet
+labels_fused = labels_crf.copy()
+labels_fused[labels_fused == 2] = 1  # fusionner avec la classe 1
+
+# Créer masque binaire pour les classes 0 et 1
+mask_class_0 = (labels_fused == 0).astype(np.uint8)
+mask_class_1 = (labels_fused == 1).astype(np.uint8)
+
+# Remplir les trous pour objets fermés
+mask_class_0_filled = binary_fill_holes(mask_class_0).astype(np.uint8)
+mask_class_1_filled = binary_fill_holes(mask_class_1).astype(np.uint8)
+
+# Regrouper en un seul masque (0 et 1 ensemble)
+mask_combined = np.logical_or(mask_class_0_filled, mask_class_1_filled).astype(np.uint8)
+
+# Garder uniquement les objets fermés (optionnel : filtrer par taille si nécessaire)
+labeled_mask, num_features = label(mask_combined)
+final_mask = np.zeros_like(mask_combined)
+
+for i in range(1, num_features + 1):
+    component = (labeled_mask == i)
+    filled = binary_fill_holes(component)
+    if np.sum(filled) > 50:  # seuil de taille pour ignorer bruit
+        final_mask[filled] = 1
+
+# --------- Affichage ---------
+plt.figure(figsize=(16, 8))
+
+plt.subplot(1, 2, 1)
+plt.imshow(image_rgb)
+plt.title("Image originale")
+plt.axis("off")
+
+plt.subplot(1, 2, 2)
+plt.imshow(final_mask, cmap='gray')
+plt.title("Masque objets fermés (classes 0 et 1)")
+plt.axis("off")
+
+plt.tight_layout()
+plt.show()
