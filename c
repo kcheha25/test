@@ -802,85 +802,28 @@ plt.axis('off')
 plt.tight_layout()
 plt.show()
 
-import cv2
-import numpy as np
-import matplotlib.pyplot as plt
-from sklearn.cluster import KMeans
-from matplotlib.colors import ListedColormap
-import pydensecrf.densecrf as dcrf
-from pydensecrf.utils import unary_from_labels
-from scipy.ndimage import binary_fill_holes, label
+from scipy.ndimage import convolve
 
-# Charger l'image
-image = cv2.imread('image.jpg')
-image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-h, w = gray.shape
+# ---------- Paramètres ----------
+window_size = 5  # Taille de la fenêtre (doit être impair)
+threshold = 3    # Nombre de voisins de même classe minimum
 
-# --------- KMeans (3 classes) ---------
-n_clusters = 3
-kmeans = KMeans(n_clusters=n_clusters, random_state=42)
-kmeans.fit(gray.flatten().reshape(-1, 1))
-raw_labels = kmeans.labels_.reshape(h, w)
+# ---------- Préparer le noyau de convolution ----------
+kernel = np.ones((window_size, window_size), dtype=np.uint8)
+kernel[window_size // 2, window_size // 2] = 0  # Exclure le centre
 
-# Réordonner les labels KMeans selon l’intensité moyenne
-cluster_means = []
-for i in range(n_clusters):
-    cluster_means.append((i, gray[raw_labels == i].mean()))
-cluster_means.sort(key=lambda x: x[1])
-label_mapping = {old: new for new, (old, _) in enumerate(cluster_means)}
-labels_kmeans = np.vectorize(label_mapping.get)(raw_labels)
+# ---------- Calculer pour chaque classe séparément ----------
+final_mask = np.zeros_like(labels_fused_clean, dtype=np.uint8)
 
-# --------- CRF sur KMeans ---------
-def apply_crf(image_rgb, labels, n_classes, gt_prob=0.7, iter=5):
-    d = dcrf.DenseCRF2D(image_rgb.shape[1], image_rgb.shape[0], n_classes)
-    unary = unary_from_labels(labels.astype(np.int32), n_classes, gt_prob=gt_prob)
-    d.setUnaryEnergy(unary)
-    d.addPairwiseGaussian(sxy=3, compat=3)
-    d.addPairwiseBilateral(sxy=80, srgb=13, rgbim=image_rgb, compat=10)
-    Q = d.inference(iter)
-    refined = np.argmax(Q, axis=0).reshape(labels.shape)
-    return refined
+for cls in [0, 1]:
+    mask_cls = (labels_fused_clean == cls).astype(np.uint8)
+    same_neighbor_count = convolve(mask_cls, kernel, mode='constant', cval=0)
+    # Garder les pixels qui sont de cette classe ET ont assez de voisins identiques
+    final_mask[np.logical_and(mask_cls == 1, same_neighbor_count >= threshold)] = 1
 
-labels_crf = apply_crf(image_rgb, labels_kmeans, n_classes=3)
-
-# Fusionner classe 1 et 2 en une seule classe d'objet
-labels_fused = labels_crf.copy()
-labels_fused[labels_fused == 2] = 1  # fusionner avec la classe 1
-
-# Créer masque binaire pour les classes 0 et 1
-mask_class_0 = (labels_fused == 0).astype(np.uint8)
-mask_class_1 = (labels_fused == 1).astype(np.uint8)
-
-# Remplir les trous pour objets fermés
-mask_class_0_filled = binary_fill_holes(mask_class_0).astype(np.uint8)
-mask_class_1_filled = binary_fill_holes(mask_class_1).astype(np.uint8)
-
-# Regrouper en un seul masque (0 et 1 ensemble)
-mask_combined = np.logical_or(mask_class_0_filled, mask_class_1_filled).astype(np.uint8)
-
-# Garder uniquement les objets fermés (optionnel : filtrer par taille si nécessaire)
-labeled_mask, num_features = label(mask_combined)
-final_mask = np.zeros_like(mask_combined)
-
-for i in range(1, num_features + 1):
-    component = (labeled_mask == i)
-    filled = binary_fill_holes(component)
-    if np.sum(filled) > 50:  # seuil de taille pour ignorer bruit
-        final_mask[filled] = 1
-
-# --------- Affichage ---------
-plt.figure(figsize=(16, 8))
-
-plt.subplot(1, 2, 1)
-plt.imshow(image_rgb)
-plt.title("Image originale")
-plt.axis("off")
-
-plt.subplot(1, 2, 2)
+# ---------- Affichage ----------
+plt.figure(figsize=(12, 6))
 plt.imshow(final_mask, cmap='gray')
-plt.title("Masque objets fermés (classes 0 et 1)")
+plt.title(f"Pixels avec ≥{threshold} voisins identiques (même classe) dans {window_size}x{window_size}")
 plt.axis("off")
-
-plt.tight_layout()
 plt.show()
