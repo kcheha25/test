@@ -923,6 +923,108 @@ plt.title('Masque des motifs cohérents détectés')
 plt.axis('off')
 plt.tight_layout()
 plt.show()
-Objectif du projet
-Décrire de manière plus riche l’hétérogénéité au sein de la bille et la modéliser statistiquement à partir des descripteurs de distribution en taille de cristaux, en taille de pores, et en densité des différentes zones.
 
+
+import numpy as np
+import cv2
+import matplotlib.pyplot as plt
+from sklearn.cluster import KMeans
+from matplotlib.colors import ListedColormap
+import pydensecrf.densecrf as dcrf
+from pydensecrf.utils import unary_from_labels
+from scipy.ndimage import binary_fill_holes
+from scipy import ndimage as ndi
+from skimage.morphology import disk, opening, dilation
+from skimage.measure import find_contours
+import json
+
+# Charger l'image
+image = cv2.imread('image.jpg')
+image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+h, w = gray.shape
+
+# --------- KMeans (3 classes) ---------
+n_clusters = 3
+kmeans = KMeans(n_clusters=n_clusters, random_state=42)
+kmeans.fit(gray.flatten().reshape(-1, 1))
+raw_labels = kmeans.labels_.reshape(h, w)
+
+# Réordonner les labels
+cluster_means = [(i, gray[raw_labels == i].mean()) for i in range(n_clusters)]
+cluster_means.sort(key=lambda x: x[1])  # ordre croissant
+label_mapping = {old: new for new, (old, _) in enumerate(cluster_means)}
+labels_kmeans = np.vectorize(label_mapping.get)(raw_labels)
+
+# --------- CRF ---------
+def apply_crf(image_rgb, labels, n_classes, gt_prob=0.7, iter=5):
+    d = dcrf.DenseCRF2D(image_rgb.shape[1], image_rgb.shape[0], n_classes)
+    unary = unary_from_labels(labels.astype(np.int32), n_classes, gt_prob=gt_prob)
+    d.setUnaryEnergy(unary)
+    d.addPairwiseGaussian(sxy=3, compat=3)
+    d.addPairwiseBilateral(sxy=80, srgb=13, rgbim=image_rgb, compat=10)
+    Q = d.inference(iter)
+    refined = np.argmax(Q, axis=0).reshape(labels.shape)
+    return refined
+
+labels_crf_before_fusion = apply_crf(image_rgb, labels_kmeans, n_classes=3)
+
+# Fusionner les classes
+labels_fused = labels_kmeans.copy()
+labels_fused[labels_kmeans == 2] = 1  # fusionner classe 2 dans 1
+
+# Masques binaires
+mask_class_0 = (labels_fused == 0).astype(np.uint8)
+mask_class_1 = (labels_fused == 1).astype(np.uint8)
+
+# Morphologie : ouverture + dilatation
+selem = disk(3)
+mask_class_0_clean = dilation(opening(mask_class_0, selem), selem)
+mask_class_1_clean = dilation(opening(mask_class_1, selem), selem)
+
+# Génération d'annotations (type LabelMe)
+def generate_labelme_annotation(mask, class_name):
+    contours = find_contours(mask, 0.5)
+    shapes = []
+    for contour in contours:
+        # Convertir en liste de [x, y]
+        points = contour[:, [1, 0]].tolist()
+        shapes.append({
+            "label": class_name,
+            "points": points,
+            "group_id": None,
+            "shape_type": "polygon",
+            "flags": {}
+        })
+    return shapes
+
+annotations = {
+    "version": "4.5.7",
+    "flags": {},
+    "shapes": [],
+    "imagePath": "image.jpg",
+    "imageData": None,
+    "imageHeight": h,
+    "imageWidth": w
+}
+
+annotations["shapes"].extend(generate_labelme_annotation(mask_class_0_clean, "class_0"))
+annotations["shapes"].extend(generate_labelme_annotation(mask_class_1_clean, "class_1"))
+
+# Sauvegarder annotation en JSON
+with open("annotations_labelme.json", "w") as f:
+    json.dump(annotations, f, indent=2)
+
+# Affichage
+plt.figure(figsize=(16, 8))
+plt.subplot(1, 2, 1)
+plt.imshow(mask_class_0_clean, cmap='gray')
+plt.title("Classe 0 - Nettoyée")
+plt.axis('off')
+
+plt.subplot(1, 2, 2)
+plt.imshow(mask_class_1_clean, cmap='gray')
+plt.title("Classe 1 - Nettoyée")
+plt.axis('off')
+
+plt.show()
