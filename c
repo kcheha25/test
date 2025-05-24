@@ -932,31 +932,11 @@ from sklearn.cluster import KMeans
 from matplotlib.colors import ListedColormap
 import pydensecrf.densecrf as dcrf
 from pydensecrf.utils import unary_from_labels
-from scipy.ndimage import binary_fill_holes
-from scipy import ndimage as ndi
 from skimage.morphology import disk, opening, dilation
-from skimage.measure import find_contours
+import os
 import json
 
-# Charger l'image
-image = cv2.imread('image.jpg')
-image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-h, w = gray.shape
-
-# --------- KMeans (3 classes) ---------
-n_clusters = 3
-kmeans = KMeans(n_clusters=n_clusters, random_state=42)
-kmeans.fit(gray.flatten().reshape(-1, 1))
-raw_labels = kmeans.labels_.reshape(h, w)
-
-# Réordonner les labels
-cluster_means = [(i, gray[raw_labels == i].mean()) for i in range(n_clusters)]
-cluster_means.sort(key=lambda x: x[1])  # ordre croissant
-label_mapping = {old: new for new, (old, _) in enumerate(cluster_means)}
-labels_kmeans = np.vectorize(label_mapping.get)(raw_labels)
-
-# --------- CRF ---------
+# --------- Fonctions utilitaires ---------
 def apply_crf(image_rgb, labels, n_classes, gt_prob=0.7, iter=5):
     d = dcrf.DenseCRF2D(image_rgb.shape[1], image_rgb.shape[0], n_classes)
     unary = unary_from_labels(labels.astype(np.int32), n_classes, gt_prob=gt_prob)
@@ -967,64 +947,88 @@ def apply_crf(image_rgb, labels, n_classes, gt_prob=0.7, iter=5):
     refined = np.argmax(Q, axis=0).reshape(labels.shape)
     return refined
 
-labels_crf_before_fusion = apply_crf(image_rgb, labels_kmeans, n_classes=3)
-
-# Fusionner les classes
-labels_fused = labels_kmeans.copy()
-labels_fused[labels_kmeans == 2] = 1  # fusionner classe 2 dans 1
-
-# Masques binaires
-mask_class_0 = (labels_fused == 0).astype(np.uint8)
-mask_class_1 = (labels_fused == 1).astype(np.uint8)
-
-# Morphologie : ouverture + dilatation
-selem = disk(3)
-mask_class_0_clean = dilation(opening(mask_class_0, selem), selem)
-mask_class_1_clean = dilation(opening(mask_class_1, selem), selem)
-
-# Génération d'annotations (type LabelMe)
-def generate_labelme_annotation(mask, class_name):
-    contours = find_contours(mask, 0.5)
+def mask_to_labelme_shapes(mask, class_name):
+    contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
     shapes = []
     for contour in contours:
-        # Convertir en liste de [x, y]
-        points = contour[:, [1, 0]].tolist()
-        shapes.append({
-            "label": class_name,
-            "points": points,
-            "group_id": None,
-            "shape_type": "polygon",
-            "flags": {}
-        })
+        if len(contour) >= 3:
+            contour = contour.squeeze()
+            if len(contour.shape) == 1:
+                continue  # Évite les artefacts
+            points = contour.tolist()
+            shapes.append({
+                "label": class_name,
+                "points": points,
+                "group_id": None,
+                "shape_type": "polygon",
+                "flags": {}
+            })
     return shapes
 
-annotations = {
-    "version": "4.5.7",
-    "flags": {},
-    "shapes": [],
-    "imagePath": "image.jpg",
-    "imageData": None,
-    "imageHeight": h,
-    "imageWidth": w
-}
+def save_labelme_json(json_path, image_filename, image_shape, shapes):
+    h, w = image_shape[:2]
+    labelme_json = {
+        "version": "4.5.7",
+        "flags": {},
+        "shapes": shapes,
+        "imagePath": image_filename,
+        "imageData": None,
+        "imageHeight": h,
+        "imageWidth": w
+    }
+    with open(json_path, 'w') as f:
+        json.dump(labelme_json, f, indent=2)
 
-annotations["shapes"].extend(generate_labelme_annotation(mask_class_0_clean, "class_0"))
-annotations["shapes"].extend(generate_labelme_annotation(mask_class_1_clean, "class_1"))
+# --------- Traitement principal ---------
+def process_image(image_path):
+    # Lecture
+    image = cv2.imread(image_path)
+    image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    h, w = gray.shape
 
-# Sauvegarder annotation en JSON
-with open("annotations_labelme.json", "w") as f:
-    json.dump(annotations, f, indent=2)
+    # KMeans
+    kmeans = KMeans(n_clusters=3, random_state=42)
+    kmeans.fit(gray.flatten().reshape(-1, 1))
+    raw_labels = kmeans.labels_.reshape(h, w)
 
-# Affichage
-plt.figure(figsize=(16, 8))
-plt.subplot(1, 2, 1)
-plt.imshow(mask_class_0_clean, cmap='gray')
-plt.title("Classe 0 - Nettoyée")
-plt.axis('off')
+    # Tri des labels
+    cluster_means = [(i, gray[raw_labels == i].mean()) for i in range(3)]
+    cluster_means.sort(key=lambda x: x[1])
+    label_mapping = {old: new for new, (old, _) in enumerate(cluster_means)}
+    labels_kmeans = np.vectorize(label_mapping.get)(raw_labels)
 
-plt.subplot(1, 2, 2)
-plt.imshow(mask_class_1_clean, cmap='gray')
-plt.title("Classe 1 - Nettoyée")
-plt.axis('off')
+    # CRF
+    labels_crf = apply_crf(image_rgb, labels_kmeans, n_classes=3)
 
-plt.show()
+    # Fusion des classes 1 et 2
+    labels_fused = labels_crf.copy()
+    labels_fused[labels_crf == 2] = 1
+
+    # Masques binaires
+    mask_class_0 = (labels_fused == 0).astype(np.uint8)
+    mask_class_1 = (labels_fused == 1).astype(np.uint8)
+
+    # Morphologie : ouverture + dilatation
+    selem = disk(3)
+    mask_class_0_clean = dilation(opening(mask_class_0, selem), selem) * 255
+    mask_class_1_clean = dilation(opening(mask_class_1, selem), selem) * 255
+
+    # Générer les formes pour LabelMe
+    shapes = []
+    shapes.extend(mask_to_labelme_shapes(mask_class_0_clean, "class_0"))
+    shapes.extend(mask_to_labelme_shapes(mask_class_1_clean, "class_1"))
+
+    # Sauvegarde JSON
+    base_name = os.path.basename(image_path)
+    name_wo_ext = os.path.splitext(base_name)[0]
+    json_path = os.path.join(os.path.dirname(image_path), name_wo_ext + ".json")
+    save_labelme_json(json_path, base_name, image.shape, shapes)
+
+    print(f"Annotation sauvegardée : {json_path}")
+
+# --------- Exécution ---------
+if __name__ == "__main__":
+    # Spécifiez ici votre image ou parcourez un dossier
+    image_path = "image.jpg"  # Chemin vers votre image
+    process_image(image_path)
