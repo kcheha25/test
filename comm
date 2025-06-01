@@ -1,113 +1,126 @@
-Voici une version détaillée et bien commentée de votre code TensorFlow. J'ai ajouté des explications ligne par ligne pour chaque classe personnalisée :
+Voici votre code Python commenté en détail, ligne par ligne, pour expliquer chaque étape du traitement des chromatogrammes :
 
 ---
 
-### 📌 `CustomLoss` — Fonction de perte personnalisée avec pondération de classe
-
 ```python
-class CustomLoss(tf.keras.losses.Loss):
-    def __init__(self, n_splits, weight_prob=1.0, weight_hinge=1.0, weight_class_1=5.0, weight_class_0=1.0, **kwargs):
-        super().__init__(**kwargs)
-        self.n_splits = n_splits  # (Non utilisé ici, mais probablement utile dans un autre contexte, ex: k-fold)
-        self.weight_prob = weight_prob  # Poids de la perte de probabilité (BCE ou Focal)
-        self.weight_class_1 = weight_class_1  # Poids appliqué aux échantillons de classe 1
-        self.weight_class_0 = weight_class_0  # Poids appliqué aux échantillons de classe 0
+# Charger un fichier JSON contenant les données des chromatogrammes
+file_path = "chromatogrammes.json"
+df = pd.read_json(file_path)
 
-    def call(self, y_true, y_pred):
-        # Conversion des étiquettes et des prédictions en float32
-        y_true = tf.cast(y_true, tf.float32)
-        y_pred = tf.cast(y_pred, tf.float32)
-
-        # Calcul de la perte de type Binary Focal Crossentropy avec équilibrage des classes
-        prob_loss = tf.keras.losses.BinaryFocalCrossentropy(apply_class_balancing=True, alpha=0.8)(y_true, y_pred)
-
-        # Création d'un vecteur de poids basé sur les classes : classe 1 => poids fort, classe 0 => poids faible
-        weights = tf.where(y_true == 1, self.weight_class_1, self.weight_class_0)
-
-        # Application du poids global à la loss
-        total_loss = self.weight_prob * prob_loss
-
-        # Application des poids de classes au total de la perte
-        weighted_loss = total_loss * weights
-
-        return weighted_loss
+# Supprimer les lignes où la colonne 'pics' est vide (NaN)
+df = df.dropna(subset=['pics'])
 ```
 
 ---
 
-### 📌 `CustomAUC` — AUC personnalisée avec pondération de la classe 1
+### 🔧 Troncature des données (x ≤ 150)
 
 ```python
-class CustomAUC(tf.keras.metrics.AUC):
-    def __init__(self, beta=5.0, name="weighted_auc", **kwargs):
-        super().__init__(name=name, **kwargs)
-        self.beta = beta  # Poids appliqué aux échantillons de classe 1
+# Fonction pour tronquer les données : ne garder que les points où x <= 150
+def truncate(row):
+    mask = np.array(row["x"]) <= 150  # Masque booléen pour garder les x <= 150
+    row["x"] = np.array(row["x"])[mask].tolist()  # Tronque x
+    row["y"] = np.array(row["y"])[mask].tolist()  # Tronque y en même temps
+    return row
 
-    def update_state(self, y_true, y_pred, sample_weight=None):
-        # Création d'un vecteur de poids : beta pour les positifs, 1.0 pour les négatifs
-        weights = tf.where(y_true == 1, self.beta, 1.0)
-
-        # Mise à jour de la métrique AUC avec ces poids
-        super().update_state(y_true, y_pred, sample_weight=weights)
+# Appliquer la troncature à toutes les lignes du DataFrame
+df = df.apply(truncate, axis=1)
 ```
 
 ---
 
-### 📌 `CustomAccuracy` — Précision binaire pondérée
+### 🧩 Segmentation des chromatogrammes
 
 ```python
-class CustomAccuracy(tf.keras.metrics.BinaryAccuracy):
-    def __init__(self, beta=2.0, name="weighted_binary_accuracy", **kwargs):
-        super().__init__(name=name, **kwargs)
-        self.beta = beta  # Poids pour les exemples de classe 1
+sequence_length = 1000  # Longueur des segments (nombre de points par séquence)
+```
 
-    def update_state(self, y_true, y_pred, sample_weight=None):
-        # Attribuer un poids beta à la classe 1 et 1.0 à la classe 0
-        weights = tf.where(y_true == 1, self.beta, 1.0)
+```python
+# Fonction pour découper les signaux x/y en segments de taille fixe, et annoter les pics
+def segment_data(x, y, pics, segment_size=1000):
+    segments_X, segments_Y = [], []  # Listes pour stocker les segments d'entrée et leurs labels
+    num_segments = len(x) // segment_size  # Calcul du nombre de segments complets
 
-        # Mise à jour de la précision en tenant compte de la pondération
-        super().update_state(y_true, y_pred, sample_weight=weights)
+    for i in range(num_segments):
+        # Indices de début et de fin pour le segment courant
+        start_idx = i * segment_size
+        end_idx = start_idx + segment_size
+
+        # Créer le segment en concaténant x et y dans une seule matrice 2D [temps, intensité]
+        segment_x = np.column_stack((x[start_idx:end_idx], y[start_idx:end_idx]))
+
+        # Initialiser les labels à zéro : [segment_size, 3] (seule la première colonne est utilisée ici)
+        segment_y = np.zeros((segment_size, 3), dtype=np.float32)
+
+        # Extraire les valeurs de temps pour le segment courant
+        x_time = np.array(x[start_idx:end_idx])
+        
+        # Annoter les pics présents dans le segment courant
+        for pic_time, data in pics.items():
+            pic_time = float(pic_time)
+            borne_avant_time, borne_apres_time = data[1], data[2]
+
+            # Vérifie si le pic est dans ce segment
+            if start_idx <= np.argmin(np.abs(np.array(x) - pic_time)) < end_idx:
+                # Indice du pic dans le segment local
+                pic_idx = np.argmin(np.abs(x_time - pic_time))
+                borne_avant_idx = np.argmin(np.abs(x_time - borne_avant_time))
+                borne_apres_idx = np.argmin(np.abs(x_time - borne_apres_time))
+
+                # Marquer la position du pic (dans la 1ère colonne du label)
+                segment_y[pic_idx, 0] = 1  
+
+        # Ajouter le segment et son label à la liste
+        segments_X.append(segment_x)
+        segments_Y.append(segment_y)
+
+    return segments_X, segments_Y
 ```
 
 ---
 
-### 📌 `CustomF1Score` — F1-score pondéré (approximation personnalisée)
+### 🧪 Création des jeux de données
 
 ```python
-class CustomF1Score(tf.keras.metrics.Metric):
-    def __init__(self, beta=2.0, name="weighted_f1_score", **kwargs):
-        super().__init__(name=name, **kwargs)
-        self.beta = beta  # Poids de la classe 1
-        self.correct = self.add_weight(name="correct", initializer="zeros")  # Nombre de prédictions correctes pondérées
-        self.total = self.add_weight(name="total", initializer="zeros")  # Total pondéré
+X, Y = [], []  # Listes pour stocker tous les segments (features) et leurs labels
+```
 
-    def update_state(self, y_true, y_pred, sample_weight=None):
-        # Binarisation des prédictions avec un seuil de 0.7 (plus strict que 0.5)
-        y_pred = tf.cast(y_pred > 0.7, tf.float32)
-
-        # Pondération des classes : beta pour classe 1, sinon 1
-        weights = tf.where(y_true == 1, self.beta, 1.0)
-
-        # Comptage des prédictions correctes pondérées
-        correct_preds = tf.cast(tf.equal(y_true, y_pred), tf.float32) * weights
-        self.correct.assign_add(tf.reduce_sum(correct_preds))
-        self.total.assign_add(tf.reduce_sum(weights))
-
-    def result(self):
-        # Calcul d'une forme simplifiée du F1-score pondéré
-        precision = self.correct / (self.total + tf.keras.backend.epsilon())
-        recall = self.correct / (tf.reduce_sum(self.total) + tf.keras.backend.epsilon())
-
-        # Formule du F1-score : 2 * (P * R) / (P + R)
-        return 2 * (precision * recall) / (precision + recall + tf.keras.backend.epsilon())
+```python
+# Appliquer la segmentation à chaque chromatogramme
+for _, row in df.iterrows():
+    segments_X, segments_Y = segment_data(np.array(row["x"]), np.array(row["y"]), row["pics"], sequence_length)
+    X.extend(segments_X)
+    Y.extend(segments_Y)
 ```
 
 ---
 
-### ✅ Remarques générales :
+### 📏 Normalisation et séparation en jeu d'entraînement/test
 
-* Les métriques sont adaptées pour les problèmes déséquilibrés, où la classe positive (1) est sous-représentée.
-* La classe `CustomF1Score` utilise une approximation du F1 score qui pourrait être améliorée avec un calcul plus explicite de TP, FP, FN.
-* L’attribut `n_splits` dans `CustomLoss` semble inutilisé ici — à retirer ou documenter.
+```python
+# Conversion en tableau numpy
+X = np.array(X)
+Y = np.array(Y)
 
-Souhaitez-vous une version plus rigoureuse du F1-score (avec vrais TP/FP/FN) ?
+# Normaliser la colonne de temps (X[:,:,0]) entre 0 et 1
+X[:, :, 0] = X[:, :, 0] / 150.0
+```
+
+```python
+# Séparation des données en jeu d'entraînement et de test (80/20)
+X_train, X_test, Y_train, Y_test = train_test_split(X, Y, test_size=0.2, random_state=42)
+```
+
+---
+
+### ✅ Résumé :
+
+* Vous nettoyez et tronquez les données des chromatogrammes.
+* Vous segmentez les signaux en tranches de 1000 points.
+* Vous marquez les positions des pics (dans la première colonne de `Y`).
+* Vous normalisez et préparez les données pour l’apprentissage supervisé (par exemple pour un modèle de type CNN, RNN, etc.).
+
+Souhaitez-vous ajouter :
+
+* d’autres classes aux labels (par exemple détection du **début** et de la **fin** des pics) ?
+* un affichage/visualisation des segments annotés pour vérification visuelle ?
