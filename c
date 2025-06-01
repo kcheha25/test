@@ -1032,3 +1032,290 @@ if __name__ == "__main__":
     # Spécifiez ici votre image ou parcourez un dossier
     image_path = "image.jpg"  # Chemin vers votre image
     process_image(image_path)
+
+
+
+import os
+import json
+import cv2
+import numpy as np
+from glob import glob
+
+def labelme_to_coco(labelme_dir, output_path, category_mapping=None):
+    images = []
+    annotations = []
+    categories = []
+    ann_id = 1
+    image_id = 1
+
+    # Créer les catégories
+    if category_mapping is None:
+        category_mapping = {"class_0": 1, "class_1": 2}
+    
+    for label, cat_id in category_mapping.items():
+        categories.append({"id": cat_id, "name": label})
+
+    labelme_files = glob(os.path.join(labelme_dir, "*.json"))
+
+    for labelme_file in labelme_files:
+        with open(labelme_file, 'r') as f:
+            data = json.load(f)
+
+        image_filename = data['imagePath']
+        img_path = os.path.join(labelme_dir, image_filename)
+        if not os.path.exists(img_path):
+            print(f"Image non trouvée : {img_path}")
+            continue
+
+        img = cv2.imread(img_path)
+        height, width = img.shape[:2]
+
+        images.append({
+            "id": image_id,
+            "file_name": image_filename,
+            "width": width,
+            "height": height
+        })
+
+        for shape in data['shapes']:
+            label = shape['label']
+            if label not in category_mapping:
+                continue  # Ignore classes non mappées
+
+            category_id = category_mapping[label]
+            points = np.array(shape['points'], dtype=np.float32)
+            if points.shape[0] < 3:
+                continue  # Skip small/invalid polygons
+
+            # Fermer le polygone s'il n'est pas fermé
+            if not np.allclose(points[0], points[-1]):
+                points = np.vstack([points, points[0]])
+
+            segmentation = [points.flatten().tolist()]
+            area = cv2.contourArea(points.astype(np.int32))
+            x, y, w, h = cv2.boundingRect(points.astype(np.int32))
+
+            annotations.append({
+                "id": ann_id,
+                "image_id": image_id,
+                "category_id": category_id,
+                "segmentation": segmentation,
+                "area": float(area),
+                "bbox": [float(x), float(y), float(w), float(h)],
+                "iscrowd": 0
+            })
+            ann_id += 1
+
+        image_id += 1
+
+    coco = {
+        "images": images,
+        "annotations": annotations,
+        "categories": categories
+    }
+
+    with open(output_path, 'w') as f:
+        json.dump(coco, f, indent=2)
+    print(f"COCO annotations saved to: {output_path}")
+
+if __name__ == "__main__":
+    labelme_dir = "chemin/vers/dossier_avec_json_et_images"
+    output_json = "annotations_coco.json"
+    # Facultatif : mapping personnalisé LabelMe → COCO category_id
+    category_mapping = {"class_0": 1, "class_1": 2}
+
+    labelme_to_coco(labelme_dir, output_json, category_mapping)
+
+
+
+import os
+import json
+import cv2
+import numpy as np
+from glob import glob
+from shapely.geometry import Polygon, box
+
+def labelme_to_coco_split4(labelme_dir, output_path, category_mapping=None):
+    images = []
+    annotations = []
+    categories = []
+    ann_id = 1
+    image_id = 1
+
+    if category_mapping is None:
+        category_mapping = {"class_0": 1, "class_1": 2}
+
+    for label, cat_id in category_mapping.items():
+        categories.append({"id": cat_id, "name": label})
+
+    labelme_files = glob(os.path.join(labelme_dir, "*.json"))
+
+    for labelme_file in labelme_files:
+        with open(labelme_file, 'r') as f:
+            data = json.load(f)
+
+        image_filename = data['imagePath']
+        img_path = os.path.join(labelme_dir, image_filename)
+        if not os.path.exists(img_path):
+            print(f"Image non trouvée : {img_path}")
+            continue
+
+        img = cv2.imread(img_path)
+        if img is None:
+            print(f"Erreur de lecture : {img_path}")
+            continue
+
+        H, W = img.shape[:2]
+        h_half, w_half = H // 2, W // 2
+
+        # Définir les 4 régions
+        quadrants = [
+            ((0, 0), (w_half, h_half)),  # Haut-gauche
+            ((w_half, 0), (W, h_half)),  # Haut-droit
+            ((0, h_half), (w_half, H)),  # Bas-gauche
+            ((w_half, h_half), (W, H))   # Bas-droit
+        ]
+
+        for qid, ((x0, y0), (x1, y1)) in enumerate(quadrants):
+            quad_box = box(x0, y0, x1, y1)
+            new_shapes = []
+
+            for shape in data['shapes']:
+                label = shape['label']
+                if label not in category_mapping:
+                    continue
+
+                points = np.array(shape['points'], dtype=np.float32)
+                if len(points) < 3:
+                    continue
+
+                polygon = Polygon(points)
+                inter = polygon.intersection(quad_box)
+
+                if inter.is_empty or not inter.is_valid or inter.area < 1:
+                    continue
+
+                inter_pts = np.array(inter.exterior.coords)
+                inter_pts_shifted = inter_pts - np.array([[x0, y0]])
+
+                new_shapes.append({
+                    "label": label,
+                    "points": inter_pts_shifted.tolist()
+                })
+
+            if not new_shapes:
+                continue  # pas d'objet dans ce quadrant
+
+            # Sauvegarder nouvelle image (optionnel, sinon juste référencer)
+            crop_filename = f"{os.path.splitext(image_filename)[0]}_crop{qid}.png"
+            crop_path = os.path.join(labelme_dir, crop_filename)
+            cv2.imwrite(crop_path, img[y0:y1, x0:x1])
+
+            images.append({
+                "id": image_id,
+                "file_name": crop_filename,
+                "width": x1 - x0,
+                "height": y1 - y0
+            })
+
+            for shape in new_shapes:
+                points = np.array(shape['points'], dtype=np.float32)
+                if len(points) < 3:
+                    continue
+
+                segmentation = [points.flatten().tolist()]
+                area = cv2.contourArea(points.astype(np.int32))
+                x, y, w, h = cv2.boundingRect(points.astype(np.int32))
+                category_id = category_mapping[shape['label']]
+
+                annotations.append({
+                    "id": ann_id,
+                    "image_id": image_id,
+                    "category_id": category_id,
+                    "segmentation": segmentation,
+                    "area": float(area),
+                    "bbox": [float(x), float(y), float(w), float(h)],
+                    "iscrowd": 0
+                })
+                ann_id += 1
+
+            image_id += 1
+
+    coco = {
+        "images": images,
+        "annotations": annotations,
+        "categories": categories
+    }
+
+    with open(output_path, 'w') as f:
+        json.dump(coco, f, indent=2)
+    print(f"COCO annotations saved to: {output_path}")
+
+# Exemple d’utilisation
+if __name__ == "__main__":
+    labelme_dir = "chemin/vers/dossier_avec_json_et_images"
+    output_json = "annotations_coco_split4.json"
+    category_mapping = {"class_0": 1, "class_1": 2}
+
+    labelme_to_coco_split4(labelme_dir, output_json, category_mapping)
+
+
+import json
+import os
+import cv2
+import matplotlib.pyplot as plt
+from matplotlib.patches import Polygon
+import numpy as np
+
+def visualize_coco_annotations(coco_json_path, image_dir, num_images=5):
+    # Charger le fichier JSON COCO
+    with open(coco_json_path, 'r') as f:
+        coco = json.load(f)
+
+    images = coco['images']
+    annotations = coco['annotations']
+    categories = {cat['id']: cat['name'] for cat in coco['categories']}
+
+    # Lier les annotations aux images
+    image_to_anns = {}
+    for ann in annotations:
+        img_id = ann['image_id']
+        if img_id not in image_to_anns:
+            image_to_anns[img_id] = []
+        image_to_anns[img_id].append(ann)
+
+    for img_data in images[:num_images]:
+        img_path = os.path.join(image_dir, img_data['file_name'])
+        if not os.path.exists(img_path):
+            print(f"Image non trouvée : {img_path}")
+            continue
+
+        img = cv2.imread(img_path)
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+        fig, ax = plt.subplots(figsize=(10, 10))
+        ax.imshow(img)
+        ax.set_title(img_data['file_name'])
+        ax.axis('off')
+
+        anns = image_to_anns.get(img_data['id'], [])
+
+        for ann in anns:
+            segs = ann['segmentation']
+            cat_id = ann['category_id']
+            label = categories[cat_id]
+
+            for seg in segs:
+                poly = np.array(seg).reshape((-1, 2))
+                patch = Polygon(poly, edgecolor='red', facecolor='none', linewidth=2)
+                ax.add_patch(patch)
+                ax.text(poly[0][0], poly[0][1] - 5, label, color='red', fontsize=12, backgroundcolor='white')
+
+        plt.tight_layout()
+        plt.show()
+
+
+if __name__ == "__main__":
+    coco_json = "annotations_coco_split4.json"  # ou votre fichier coco
+    image_dir = "chemin/vers/les/images"
+    visualize_coco_annotations(coco_json, image_dir, num_images=5)
