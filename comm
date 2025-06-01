@@ -1,17 +1,2 @@
-# Première couche LSTM bidirectionnelle :
-# Elle permet d'extraire des dépendances temporelles dans les deux directions (avant et arrière).
-# return_sequences=True : retourne toute la séquence (utile pour l'attention ou les couches suivantes)
-self.lstm1 = Bidirectional(LSTM(lstm_units, return_sequences=True))  
-
-# Mécanisme d'attention spatio-temporelle :
-# Permet au modèle de se concentrer sur les parties pertinentes de la séquence en apprenant des pondérations d’attention.
-self.attention2 = tf.keras.layers.Attention()
-
-# SpatialDropout1D :
-# Applique un dropout sur les canaux entiers (plutôt que sur des éléments individuels),
-# ce qui est plus efficace pour des séquences ou séries temporelles.
-self.dropout = SpatialDropout1D(rate=dropout_rate)  
-
-# Couche de classification finale :
-# Utilise une activation sigmoïde pour produire une probabilité entre 0 et 1 (problème de classification binaire).
-self.classifier = Dense(1, activation="sigmoid")
+# Modification : utilisation de stride = 1 et padding = "same"
+# Cela permet de conserver la même longueur de séquence en sortie qu'en entrée,
