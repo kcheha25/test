@@ -1,2 +1,0 @@
-# Modification : utilisation de stride = 1 et padding = "same"
-# Cela permet de conserver la même longueur de séquence en sortie qu'en entrée,
