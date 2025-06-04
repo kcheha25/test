@@ -1436,3 +1436,102 @@ def adjust_shape_coordinates(shape, offset_x, offset_y, patch_width, patch_heigh
 Garder patch_size = (512, 350)
 
 Fixer step_x = 256, step_y = 175 → overlap = patch_width - step_x = 256, soit chevauchement de 256 px
+
+
+import os
+import json
+from PIL import Image, ImageEnhance, ImageOps
+
+# Paramètres
+image_path = "chemin/vers/ton_image.png"
+json_path = "chemin/vers/ton_image.json"
+output_dir = "patches/"
+patch_size = (512, 350)
+overlap = 50
+
+os.makedirs(output_dir, exist_ok=True)
+
+def load_labelme_annotations(json_file):
+    with open(json_file, 'r') as f:
+        return json.load(f)
+
+def adjust_shape_coordinates(shape, offset_x, offset_y, patch_width, patch_height):
+    new_points = []
+    for point in shape['points']:
+        x, y = point
+        if offset_x <= x < offset_x + patch_width and offset_y <= y < offset_y + patch_height:
+            new_points.append([x - offset_x, y - offset_y])
+        else:
+            return None
+    if not new_points:
+        return None
+    new_shape = shape.copy()
+    new_shape['points'] = new_points
+    return new_shape
+
+def apply_augmentations(image, shapes, base_filename, output_dir, width, height):
+    augmentations = {
+        "flip": lambda img: img.transpose(Image.FLIP_LEFT_RIGHT),
+        "bright": lambda img: ImageEnhance.Brightness(img).enhance(1.5),
+        "contrast": lambda img: ImageEnhance.Contrast(img).enhance(1.5),
+        "invert": lambda img: ImageOps.invert(img.convert("RGB")),
+        "rotate90": lambda img: img.rotate(90, expand=True),
+        "rotate180": lambda img: img.rotate(180, expand=True),
+        "color": lambda img: ImageEnhance.Color(img).enhance(1.8),
+        "sharpness": lambda img: ImageEnhance.Sharpness(img).enhance(2.0),
+        "solarize": lambda img: ImageOps.solarize(img.convert("RGB"), threshold=128)
+    }
+
+    for aug_name, aug_fn in augmentations.items():
+        aug_img = aug_fn(image)
+        aug_filename = f"{base_filename}_{aug_name}.png"
+        aug_path = os.path.join(output_dir, aug_filename)
+        aug_img.save(aug_path)
+
+        aug_json = {
+            "imagePath": aug_filename,
+            "imageHeight": aug_img.height,
+            "imageWidth": aug_img.width,
+            "shapes": shapes  # Même annotations que l’image originale (valide pour les augmentations simples)
+        }
+        with open(os.path.join(output_dir, f"{base_filename}_{aug_name}.json"), 'w') as f:
+            json.dump(aug_json, f, indent=2)
+
+def extract_patches(image, annotations, patch_size, overlap, output_dir):
+    width, height = image.size
+    pw, ph = patch_size
+    step_x = pw - overlap
+    step_y = ph - overlap
+
+    patch_id = 0
+    for y in range(0, height - ph + 1, step_y):
+        for x in range(0, width - pw + 1, step_x):
+            patch = image.crop((x, y, x + pw, y + ph))
+            base_filename = f"patch_{patch_id}"
+            patch_filename = f"{base_filename}.png"
+            patch.save(os.path.join(output_dir, patch_filename))
+
+            new_shapes = []
+            for shape in annotations['shapes']:
+                adjusted = adjust_shape_coordinates(shape, x, y, pw, ph)
+                if adjusted:
+                    new_shapes.append(adjusted)
+
+            patch_json = {
+                "imagePath": patch_filename,
+                "imageHeight": ph,
+                "imageWidth": pw,
+                "shapes": new_shapes
+            }
+
+            with open(os.path.join(output_dir, f"{base_filename}.json"), 'w') as f:
+                json.dump(patch_json, f, indent=2)
+
+            apply_augmentations(patch, new_shapes, base_filename, output_dir, pw, ph)
+
+            patch_id += 1
+
+# Chargement et exécution
+image = Image.open(image_path)
+annotations = load_labelme_annotations(json_path)
+extract_patches(image, annotations, patch_size, overlap, output_dir)
