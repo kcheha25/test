@@ -1319,3 +1319,120 @@ if __name__ == "__main__":
     coco_json = "annotations_coco_split4.json"  # ou votre fichier coco
     image_dir = "chemin/vers/les/images"
     visualize_coco_annotations(coco_json, image_dir, num_images=5)
+
+
+import os
+import json
+import numpy as np
+from PIL import Image
+from patchify import patchify
+import shutil
+
+# Paramètres
+image_path = "chemin/vers/ton_image.png"
+json_path = "chemin/vers/ton_image.json"
+output_dir = "patches/"
+patch_size = (512, 350)  # Taille de chaque patch
+overlap = 50
+
+os.makedirs(output_dir, exist_ok=True)
+
+def load_labelme_annotations(json_file):
+    with open(json_file, 'r') as f:
+        data = json.load(f)
+    return data
+
+def adjust_shape_coordinates(shape, offset_x, offset_y, patch_width, patch_height):
+    new_points = []
+    for point in shape['points']:
+        x, y = point
+        if offset_x <= x < offset_x + patch_width and offset_y <= y < offset_y + patch_height:
+            new_points.append([x - offset_x, y - offset_y])
+        else:
+            return None  # La forme est en dehors du patch
+    if not new_points:
+        return None
+    new_shape = shape.copy()
+    new_shape['points'] = new_points
+    return new_shape
+
+def extract_patches(image, annotations, patch_size, overlap, output_dir):
+    width, height = image.size
+    pw, ph = patch_size
+    step_x = pw - overlap
+    step_y = ph - overlap
+
+    patch_id = 0
+    for y in range(0, height - ph + 1, step_y):
+        for x in range(0, width - pw + 1, step_x):
+            patch = image.crop((x, y, x + pw, y + ph))
+            patch_filename = f"patch_{patch_id}.png"
+            patch.save(os.path.join(output_dir, patch_filename))
+
+            # Filtrer les annotations dans le patch
+            new_shapes = []
+            for shape in annotations['shapes']:
+                adjusted = adjust_shape_coordinates(shape, x, y, pw, ph)
+                if adjusted:
+                    new_shapes.append(adjusted)
+
+            # Créer nouveau JSON
+            patch_json = annotations.copy()
+            patch_json['imagePath'] = patch_filename
+            patch_json['imageHeight'] = ph
+            patch_json['imageWidth'] = pw
+            patch_json['shapes'] = new_shapes
+
+            patch_json_path = os.path.join(output_dir, f"patch_{patch_id}.json")
+            with open(patch_json_path, 'w') as f:
+                json.dump(patch_json, f, indent=2)
+
+            patch_id += 1
+
+# Chargement
+image = Image.open(image_path)
+annotations = load_labelme_annotations(json_path)
+
+# Traitement
+extract_patches(image, annotations, patch_size, overlap, output_dir)
+
+
+from shapely.geometry import Polygon, box
+from shapely.errors import TopologicalError
+
+def adjust_shape_coordinates(shape, offset_x, offset_y, patch_width, patch_height):
+    try:
+        # Crée le polygone original
+        polygon = Polygon(shape['points'])
+
+        # Boîte du patch dans les coordonnées globales
+        patch_rect = box(offset_x, offset_y, offset_x + patch_width, offset_y + patch_height)
+
+        # Intersection
+        intersected = polygon.intersection(patch_rect)
+
+        if intersected.is_empty:
+            return None
+
+        # Convertir l'intersection en liste de points relative au patch
+        if intersected.geom_type == 'Polygon':
+            points = np.array(intersected.exterior.coords)
+        elif intersected.geom_type == 'MultiPolygon':
+            # Prendre le plus grand polygone (optionnel, à adapter si tu veux tous les fragments)
+            largest = max(intersected.geoms, key=lambda a: a.area)
+            points = np.array(largest.exterior.coords)
+        else:
+            return None
+
+        # Convertir en coordonnées locales au patch
+        local_points = [[x - offset_x, y - offset_y] for x, y in points]
+
+        new_shape = shape.copy()
+        new_shape['points'] = local_points
+        return new_shape
+    except TopologicalError:
+        return None
+
+Garder patch_size = (512, 350)
+
+Fixer step_x = 256, step_y = 175 → overlap = patch_width - step_x = 256, soit chevauchement de 256 px
