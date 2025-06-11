@@ -1506,7 +1506,15 @@ def extract_patches(image, annotations, patch_size, overlap, output_dir):
     patch_id = 0
     for y in range(0, height - ph + 1, step_y):
         for x in range(0, width - pw + 1, step_x):
-            patch = image.crop((x, y, x + pw, y + ph))
+            if patch_id==0:
+                patch = image.crop((x, y, x + pw, y + ph))
+            elif patch_id==1:
+                patch = image.crop((x, y, x + pw + overlap, y + ph))
+            elif patch_id==2:
+                patch = image.crop((x, y, x + pw, y + ph+ overlap))
+            else:
+                patch = image.crop((x, y, x + pw+ overlap, y + ph+ overlap))
+            patch = patch.resize((512,400))
             base_filename = f"patch_{patch_id}"
             patch_filename = f"{base_filename}.png"
             patch.save(os.path.join(output_dir, patch_filename))
@@ -1576,3 +1584,124 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+import os
+import json
+from PIL import Image, ImageEnhance, ImageOps
+
+# Paramètres
+image_path = "chemin/vers/ton_image.png"
+json_path = "chemin/vers/ton_image.json"
+output_dir = "patches/"
+patch_size = (512, 350)  # base patch size
+resized_size = (512, 400)  # taille après redimensionnement
+overlap = 50
+
+os.makedirs(output_dir, exist_ok=True)
+
+def load_labelme_annotations(json_file):
+    with open(json_file, 'r') as f:
+        return json.load(f)
+
+def adjust_shape_coordinates(shape, offset_x, offset_y, crop_w, crop_h, resized_w, resized_h):
+    scale_x = resized_w / crop_w
+    scale_y = resized_h / crop_h
+
+    new_points = []
+    for x, y in shape['points']:
+        if offset_x <= x < offset_x + crop_w and offset_y <= y < offset_y + crop_h:
+            x_local = x - offset_x
+            y_local = y - offset_y
+            x_resized = x_local * scale_x
+            y_resized = y_local * scale_y
+            new_points.append([x_resized, y_resized])
+
+    if not new_points:
+        return None
+
+    new_shape = shape.copy()
+    new_shape['points'] = new_points
+    return new_shape
+
+def apply_augmentations(image, shapes, base_filename, output_dir):
+    augmentations = {
+        "flip": lambda img: img.transpose(Image.FLIP_LEFT_RIGHT),
+        "bright": lambda img: ImageEnhance.Brightness(img).enhance(1.5),
+        "contrast": lambda img: ImageEnhance.Contrast(img).enhance(1.5),
+        "invert": lambda img: ImageOps.invert(img.convert("RGB")),
+        "rotate90": lambda img: img.rotate(90, expand=True),
+        "rotate180": lambda img: img.rotate(180, expand=True),
+        "color": lambda img: ImageEnhance.Color(img).enhance(1.8),
+        "sharpness": lambda img: ImageEnhance.Sharpness(img).enhance(2.0),
+        "solarize": lambda img: ImageOps.solarize(img.convert("RGB"), threshold=128)
+    }
+
+    for aug_name, aug_fn in augmentations.items():
+        aug_img = aug_fn(image)
+        aug_filename = f"{base_filename}_{aug_name}.png"
+        aug_img.save(os.path.join(output_dir, aug_filename))
+
+        aug_json = {
+            "imagePath": aug_filename,
+            "imageHeight": aug_img.height,
+            "imageWidth": aug_img.width,
+            "shapes": shapes
+        }
+        with open(os.path.join(output_dir, f"{base_filename}_{aug_name}.json"), 'w') as f:
+            json.dump(aug_json, f, indent=2)
+
+def extract_patches(image, annotations, patch_size, resized_size, overlap, output_dir):
+    width, height = image.size
+    pw, ph = patch_size
+    rw, rh = resized_size
+
+    patch_id = 0
+    for y in range(0, height, ph - overlap):
+        for x in range(0, width, pw - overlap):
+            # Déterminer la taille du crop en fonction de patch_id
+            if patch_id == 0:
+                crop_w, crop_h = pw, ph
+            elif patch_id == 1:
+                crop_w, crop_h = pw + overlap, ph
+            elif patch_id == 2:
+                crop_w, crop_h = pw, ph + overlap
+            else:
+                crop_w, crop_h = pw + overlap, ph + overlap
+
+            # Empêcher le dépassement de l'image
+            crop_w = min(crop_w, width - x)
+            crop_h = min(crop_h, height - y)
+
+            patch = image.crop((x, y, x + crop_w, y + crop_h))
+            patch = patch.resize(resized_size)
+
+            base_filename = f"patch_{patch_id}"
+            patch_filename = f"{base_filename}.png"
+            patch.save(os.path.join(output_dir, patch_filename))
+
+            new_shapes = []
+            for shape in annotations['shapes']:
+                adjusted = adjust_shape_coordinates(
+                    shape, x, y, crop_w, crop_h, rw, rh
+                )
+                if adjusted:
+                    new_shapes.append(adjusted)
+
+            patch_json = {
+                "imagePath": patch_filename,
+                "imageHeight": rh,
+                "imageWidth": rw,
+                "shapes": new_shapes
+            }
+
+            with open(os.path.join(output_dir, f"{base_filename}.json"), 'w') as f:
+                json.dump(patch_json, f, indent=2)
+
+            apply_augmentations(patch, new_shapes, base_filename, output_dir)
+
+            patch_id += 1
+
+# Chargement et exécution
+image = Image.open(image_path)
+annotations = load_labelme_annotations(json_path)
+extract_patches(image, annotations, patch_size, resized_size, overlap, output_dir)
