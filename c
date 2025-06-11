@@ -1535,3 +1535,44 @@ def extract_patches(image, annotations, patch_size, overlap, output_dir):
 image = Image.open(image_path)
 annotations = load_labelme_annotations(json_path)
 extract_patches(image, annotations, patch_size, overlap, output_dir)
+
+import pytorch_lightning as pl
+from finetune import SAMFinetuner  # du repo cloné
+import argparse
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data_root", type=str, required=True, help="Dataset root")
+    parser.add_argument("--model_type", type=str, default="vit_h")
+    parser.add_argument("--checkpoint_path", type=str, required=True)
+    parser.add_argument("--batch_size", type=int, default=2)
+    parser.add_argument("--image_size", type=int, default=1024)
+    parser.add_argument("--steps", type=int, default=1500)
+    parser.add_argument("--learning_rate", type=float, default=1e-5)
+    parser.add_argument("--weight_decay", type=float, default=0.01)
+    parser.add_argument("--freeze_image_encoder", action="store_true")
+    args = parser.parse_args()
+
+    model = SAMFinetuner(
+        model_type=args.model_type,
+        checkpoint_path=args.checkpoint_path,
+        freeze_image_encoder=args.freeze_image_encoder,
+        image_size=args.image_size,
+        batch_size=args.batch_size,
+        lr=args.learning_rate,
+        weight_decay=args.weight_decay,
+        max_steps=args.steps,
+        data_root=args.data_root
+    )
+
+    trainer = pl.Trainer(
+        max_steps=args.steps,
+        accelerator="gpu",
+        devices=1,
+        log_every_n_steps=10,
+        precision=16,
+    )
+    trainer.fit(model)
+
+if __name__ == "__main__":
+    main()
