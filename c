@@ -1705,3 +1705,65 @@ def extract_patches(image, annotations, patch_size, resized_size, overlap, outpu
 image = Image.open(image_path)
 annotations = load_labelme_annotations(json_path)
 extract_patches(image, annotations, patch_size, resized_size, overlap, output_dir)
+
+
+
+def transform_shapes(shapes, aug_name, img_width, img_height):
+    transformed_shapes = []
+    for shape in shapes:
+        new_shape = shape.copy()
+        new_points = []
+        for x, y in shape['points']:
+            if aug_name == "flip":
+                # flip horizontal (gauche-droite)
+                x_new = img_width - x
+                y_new = y
+            elif aug_name == "rotate90":
+                # rotation 90° clockwise
+                x_new = y
+                y_new = img_width - x
+            elif aug_name == "rotate180":
+                # rotation 180°
+                x_new = img_width - x
+                y_new = img_height - y
+            else:
+                x_new, y_new = x, y
+            new_points.append([x_new, y_new])
+        new_shape['points'] = new_points
+        transformed_shapes.append(new_shape)
+    return transformed_shapes
+
+def apply_augmentations(image, shapes, base_filename, output_dir):
+    augmentations = {
+        "flip": lambda img: img.transpose(Image.FLIP_LEFT_RIGHT),
+        "bright": lambda img: ImageEnhance.Brightness(img).enhance(1.5),
+        "contrast": lambda img: ImageEnhance.Contrast(img).enhance(1.5),
+        "invert": lambda img: ImageOps.invert(img.convert("RGB")),
+        "rotate90": lambda img: img.rotate(90, expand=True),
+        "rotate180": lambda img: img.rotate(180, expand=True),
+        "color": lambda img: ImageEnhance.Color(img).enhance(1.8),
+        "sharpness": lambda img: ImageEnhance.Sharpness(img).enhance(2.0),
+        "solarize": lambda img: ImageOps.solarize(img.convert("RGB"), threshold=128)
+    }
+
+    for aug_name, aug_fn in augmentations.items():
+        aug_img = aug_fn(image)
+        aug_filename = f"{base_filename}_{aug_name}.png"
+        aug_img.save(os.path.join(output_dir, aug_filename))
+
+        # Pour flip et rotations, appliquer la transformation sur les annotations
+        if aug_name in ["flip", "rotate90", "rotate180"]:
+            transformed_shapes = transform_shapes(
+                shapes, aug_name, image.width, image.height
+            )
+        else:
+            transformed_shapes = shapes
+
+        aug_json = {
+            "imagePath": aug_filename,
+            "imageHeight": aug_img.height,
+            "imageWidth": aug_img.width,
+            "shapes": transformed_shapes
+        }
+        with open(os.path.join(output_dir, f"{base_filename}_{aug_name}.json"), 'w') as f:
+            json.dump(aug_json, f, indent=2)
