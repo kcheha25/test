@@ -1767,3 +1767,196 @@ def apply_augmentations(image, shapes, base_filename, output_dir):
         }
         with open(os.path.join(output_dir, f"{base_filename}_{aug_name}.json"), 'w') as f:
             json.dump(aug_json, f, indent=2)
+
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+from skimage.measure import perimeter
+from detectron2.config import get_cfg
+from detectron2 import model_zoo
+from detectron2.engine import DefaultPredictor
+from detectron2.utils.visualizer import Visualizer, ColorMode
+from detectron2.data import MetadataCatalog
+
+# === CONFIGURATION DU MODELE ===
+cfg = get_cfg()
+cfg.merge_from_file(model_zoo.get_config_file("COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml"))
+cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5
+cfg.MODEL.ROI_HEADS.NUM_CLASSES = 3
+cfg.MODEL.WEIGHTS = "path/to/your/model_final.pth"  # ← Remplacer par ton chemin
+
+predictor = DefaultPredictor(cfg)
+
+# === CHARGER L’IMAGE ===
+image_path = "path/to/your/image.jpg"  # ← Remplacer par ton image
+image = cv2.imread(image_path)
+image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+# === INFERENCE ===
+outputs = predictor(image)
+instances = outputs["instances"].to("cpu")
+
+masks = instances.pred_masks.numpy()
+classes = instances.pred_classes.numpy()
+scores = instances.scores.numpy()
+
+# === AFFICHER LES DETECTIONS ===
+metadata = MetadataCatalog.get("__unused")
+metadata.set(thing_classes=["Classe A", "Classe B", "Classe C"])
+v = Visualizer(image_rgb, metadata=metadata, scale=1.0, instance_mode=ColorMode.IMAGE)
+v = v.draw_instance_predictions(instances)
+cv2.imshow("Détections", cv2.cvtColor(v.get_image(), cv2.COLOR_RGB2BGR))
+cv2.waitKey(0)
+cv2.destroyAllWindows()
+
+# === EXTRACTION DES DONNEES PAR OBJET ===
+perimeters = []
+areas = []
+means = []
+stds = []
+class_ids = []
+
+for i, mask in enumerate(masks):
+    # Aire
+    area = np.sum(mask)
+    # Périmètre (scikit-image)
+    perim = perimeter(mask)
+    # Moyenne et écart-type (en niveaux de gris)
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    pixels = gray[mask]
+    mean_val = np.mean(pixels)
+    std_val = np.std(pixels)
+
+    # Stockage
+    perimeters.append(perim)
+    areas.append(area)
+    means.append(mean_val)
+    stds.append(std_val)
+    class_ids.append(classes[i])
+
+# === COULEURS PAR CLASSE ===
+colors = ['red', 'green', 'blue']
+color_map = [colors[c] for c in class_ids]
+
+# === NUAGE 1 : Périmètre vs Aire ===
+plt.figure(figsize=(6, 5))
+plt.scatter(perimeters, areas, c=color_map)
+plt.xlabel("Périmètre")
+plt.ylabel("Aire")
+plt.title("Nuage 1 : Périmètre vs Aire")
+plt.grid(True)
+
+# === NUAGE 2 : Moyenne vs Écart-type ===
+plt.figure(figsize=(6, 5))
+plt.scatter(means, stds, c=color_map)
+plt.xlabel("Moyenne intensité")
+plt.ylabel("Écart-type intensité")
+plt.title("Nuage 2 : Moyenne vs Écart-type")
+plt.grid(True)
+
+# === NUAGE 3 : Aire vs Moyenne (ou re-Périmètre si souhaité) ===
+plt.figure(figsize=(6, 5))
+plt.scatter(areas, means, c=color_map)
+plt.xlabel("Aire")
+plt.ylabel("Moyenne intensité")
+plt.title("Nuage 3 : Aire vs Moyenne intensité")
+plt.grid(True)
+
+plt.show()
+
+
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+from skimage.measure import perimeter
+from detectron2.config import get_cfg
+from detectron2 import model_zoo
+from detectron2.engine import DefaultPredictor
+from detectron2.utils.visualizer import Visualizer, ColorMode
+from detectron2.data import MetadataCatalog
+
+# === CONFIG DETECTRON2 ===
+cfg = get_cfg()
+cfg.merge_from_file(model_zoo.get_config_file("COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml"))
+cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5
+cfg.MODEL.ROI_HEADS.NUM_CLASSES = 3
+cfg.MODEL.WEIGHTS = "path/to/your/model_final.pth"  # ← mettre le chemin vers ton modèle entraîné
+
+predictor = DefaultPredictor(cfg)
+
+# === IMAGE ===
+image_path = "path/to/your/image.jpg"  # ← chemin de ton image
+image = cv2.imread(image_path)
+image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+# === INFERENCE ===
+outputs = predictor(image)
+instances = outputs["instances"].to("cpu")
+masks = instances.pred_masks.numpy()
+classes = instances.pred_classes.numpy()
+
+# === VISUALISATION DES DETECTIONS ===
+metadata = MetadataCatalog.get("__unused")
+metadata.set(thing_classes=["Classe A", "Classe B", "Classe C"])
+v = Visualizer(image_rgb, metadata=metadata, scale=1.0, instance_mode=ColorMode.IMAGE)
+v = v.draw_instance_predictions(instances)
+cv2.imshow("Détections", cv2.cvtColor(v.get_image(), cv2.COLOR_RGB2BGR))
+cv2.waitKey(0)
+cv2.destroyAllWindows()
+
+# === EXTRACTION DES DONNÉES ===
+gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+perimeters, areas, means, stds, class_ids = [], [], [], [], []
+
+for i, mask in enumerate(masks):
+    area = np.sum(mask)
+    perim = perimeter(mask)
+    pixels = gray[mask]
+    mean_val = np.mean(pixels)
+    std_val = np.std(pixels)
+
+    areas.append(area)
+    perimeters.append(perim)
+    means.append(mean_val)
+    stds.append(std_val)
+    class_ids.append(classes[i])
+
+# === COULEUR PAR CLASSE ===
+colors = ['red', 'green', 'blue']
+color_map = [colors[c] for c in class_ids]
+x_ids = list(range(len(class_ids)))
+
+# === NUAGE 1 : AIRE ===
+plt.figure()
+plt.scatter(x_ids, areas, c=color_map)
+plt.xlabel("Objet")
+plt.ylabel("Aire")
+plt.title("Aire des objets détectés (couleur = classe)")
+plt.grid(True)
+
+# === NUAGE 2 : PÉRIMÈTRE ===
+plt.figure()
+plt.scatter(x_ids, perimeters, c=color_map)
+plt.xlabel("Objet")
+plt.ylabel("Périmètre")
+plt.title("Périmètre des objets détectés (couleur = classe)")
+plt.grid(True)
+
+# === NUAGE 3 : MOYENNE INTENSITÉ ===
+plt.figure()
+plt.scatter(x_ids, means, c=color_map)
+plt.xlabel("Objet")
+plt.ylabel("Moyenne intensité (gris)")
+plt.title("Moyenne d’intensité par objet (couleur = classe)")
+plt.grid(True)
+
+# === NUAGE 4 : ÉCART-TYPE INTENSITÉ ===
+plt.figure()
+plt.scatter(x_ids, stds, c=color_map)
+plt.xlabel("Objet")
+plt.ylabel("Écart-type intensité (gris)")
+plt.title("Écart-type d’intensité par objet (couleur = classe)")
+plt.grid(True)
+
+plt.show()
