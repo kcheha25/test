@@ -1,6 +1,36 @@
-Développement d’un modèle capable de détecter automatiquement les pics dans les chromatogrammes et d’attribuer à chacun le nom du composant correspondant.
+Détection des éléments de platine dans les images STEM-HAADF
+Base de données
+Comparaison des différentes méthodes de détection
+Du cerveau à l’IA : correspondances entre vision biologique et réseaux neuronaux
+Vue d’ensemble de l’architecture du modèle
 
 
+Détection automatique de feuillets
+Base de données
+Incompatibilité de Detectron2 avec les contraintes du projet
+Quid de la détection du nombre de feuillets par empilement ?
+
+Détection automatique des pics et classification dans les chromatogrammes GC
+Base de données
+Quel modèle choisir pour ce projet ?
+
+Absence d’annotations : quelles solutions ?
+Solutions pour l’entraînement d’IA avec un jeu de données limité
 
 
+plant
 
+projet xxxxxx
+
+Détection des éléments de platine dans les images STEM-HAADF
+
+Détection automatique des feuillets sur support catalytique en alumine
+
+Détection automatique des pics et classification dans les chromatogrammes GC
+
+##################3
+Validation des annotations par des experts
+
+Annotation des images avec un grandissement 15kx
+
+Entraînement d’un modèle sur les images 15kx pour la détection des cristaux
