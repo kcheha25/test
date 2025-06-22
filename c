@@ -1960,3 +1960,175 @@ plt.title("Écart-type d’intensité par objet (couleur = classe)")
 plt.grid(True)
 
 plt.show()
+
+import os
+import json
+from collections import defaultdict
+from tqdm import tqdm
+
+def coco_to_labelme(coco_json_path, image_dir, output_dir):
+    os.makedirs(output_dir, exist_ok=True)
+
+    with open(coco_json_path, 'r') as f:
+        coco = json.load(f)
+
+    # Map image_id → image info
+    images = {img["id"]: img for img in coco["images"]}
+    # Map category_id → category name
+    categories = {cat["id"]: cat["name"] for cat in coco["categories"]}
+
+    # Group annotations by image
+    ann_by_image = defaultdict(list)
+    for ann in coco["annotations"]:
+        ann_by_image[ann["image_id"]].append(ann)
+
+    for image_id, anns in tqdm(ann_by_image.items(), desc="Conversion en cours"):
+        image_info = images[image_id]
+        filename = image_info["file_name"]
+
+        labelme_shapes = []
+
+        for ann in anns:
+            cat_name = categories[ann["category_id"]]
+
+            # Utiliser segmentation (assume format polygon)
+            segs = ann.get("segmentation", [])
+            if not isinstance(segs, list):
+                continue  # Ignore RLE ou formats non pris en charge ici
+
+            for seg in segs:
+                # segmentation est une liste plate → on transforme en [[x1, y1], [x2, y2], ...]
+                points = [[seg[i], seg[i+1]] for i in range(0, len(seg), 2)]
+
+                shape = {
+                    "label": cat_name,
+                    "points": points,
+                    "group_id": None,
+                    "shape_type": "polygon",
+                    "flags": {}
+                }
+                labelme_shapes.append(shape)
+
+        labelme_json = {
+            "version": "5.0.1",
+            "flags": {},
+            "shapes": labelme_shapes,
+            "imagePath": filename,
+            "imageData": None,
+            "imageHeight": image_info["height"],
+            "imageWidth": image_info["width"]
+        }
+
+        # Sauvegarder le fichier .json dans le style LabelMe
+        output_path = os.path.join(output_dir, os.path.splitext(filename)[0] + ".json")
+        with open(output_path, 'w') as f:
+            json.dump(labelme_json, f, indent=4)
+
+    print(f"✅ Conversion terminée. JSON LabelMe enregistrés dans : {output_dir}")
+
+# 🔧 Exemple d’utilisation :
+coco_json_path = "/chemin/vers/annotations_coco.json"
+image_dir = "/chemin/vers/images"
+output_dir = "/chemin/vers/labelme_jsons"
+
+coco_to_labelme(coco_json_path, image_dir, output_dir)
+
+
+import os
+import json
+import cv2
+import numpy as np
+from glob import glob
+from tqdm import tqdm
+
+def labelme_to_coco_detectron2(labelme_dir, output_json):
+    images = []
+    annotations = []
+    categories = []
+    label_to_id = {}
+
+    image_id = 1
+    ann_id = 1
+
+    json_files = glob(os.path.join(labelme_dir, "*.json"))
+
+    for json_file in tqdm(json_files, desc="Conversion en COCO"):
+        with open(json_file, 'r') as f:
+            data = json.load(f)
+
+        image_filename = data["imagePath"]
+        image_height = data["imageHeight"]
+        image_width = data["imageWidth"]
+
+        images.append({
+            "id": image_id,
+            "file_name": image_filename,
+            "height": image_height,
+            "width": image_width
+        })
+
+        for shape in data["shapes"]:
+            label = shape["label"]
+            points = shape["points"]
+            shape_type = shape.get("shape_type", "polygon")
+
+            if shape_type != "polygon":
+                continue  # on ignore les rectangles, cercles, etc. pour segmentation instance
+
+            # Enregistrer la catégorie si inconnue
+            if label not in label_to_id:
+                label_id = len(label_to_id) + 1
+                label_to_id[label] = label_id
+                categories.append({
+                    "id": label_id,
+                    "name": label,
+                    "supercategory": "object"
+                })
+
+            # Créer segmentation
+            segmentation = [np.array(points).flatten().tolist()]
+
+            # Masque pour calculer bbox et area
+            mask = np.zeros((image_height, image_width), dtype=np.uint8)
+            polygon = np.array([points], dtype=np.int32)
+            cv2.fillPoly(mask, polygon, 1)
+
+            area = float(np.sum(mask))
+            x, y, w, h = cv2.boundingRect(polygon[0])
+            bbox = [x, y, w, h]
+
+            annotations.append({
+                "id": ann_id,
+                "image_id": image_id,
+                "category_id": label_to_id[label],
+                "segmentation": segmentation,
+                "area": area,
+                "bbox": bbox,
+                "iscrowd": 0
+            })
+            ann_id += 1
+
+        image_id += 1
+
+    coco_output = {
+        "info": {
+            "description": "LabelMe converted to COCO",
+            "version": "1.0",
+            "year": 2025
+        },
+        "licenses": [],
+        "images": images,
+        "annotations": annotations,
+        "categories": categories
+    }
+
+    with open(output_json, "w") as f:
+        json.dump(coco_output, f, indent=4)
+
+    print(f"\n✅ Fichier COCO généré : {output_json}")
+
+# 🔧 Exemple d’utilisation
+labelme_dir = "/chemin/vers/dossier_labelme"
+output_json = "annotations_coco.json"
+
+labelme_to_coco_detectron2(labelme_dir, output_json)
