@@ -2132,3 +2132,250 @@ labelme_dir = "/chemin/vers/dossier_labelme"
 output_json = "annotations_coco.json"
 
 labelme_to_coco_detectron2(labelme_dir, output_json)
+
+
+import os
+import json
+import cv2
+import random
+import numpy as np
+from tqdm import tqdm
+from pycocotools.coco import COCO
+from shutil import copyfile
+
+# === Config ===
+INPUT_IMAGE_DIR = 'images/'               # Dossier contenant les images originales
+ANNOTATION_PATH = 'coco.json'             # Fichier COCO original
+OUTPUT_ANNOTATION_PATH = 'coco_augmented.json'
+AUG_SUFFIXES = ['_flipH', '_flipV', '_rot90', '_rot180', '_rot270']
+
+# === Charger les annotations COCO ===
+with open(ANNOTATION_PATH) as f:
+    coco_data = json.load(f)
+
+new_images = []
+new_annotations = []
+new_image_id = max(img['id'] for img in coco_data['images']) + 1
+new_annotation_id = max(ann['id'] for ann in coco_data['annotations']) + 1
+
+coco = COCO(ANNOTATION_PATH)
+image_id_to_annotations = {}
+
+# Regrouper les annotations par image
+for ann in coco_data['annotations']:
+    image_id_to_annotations.setdefault(ann['image_id'], []).append(ann)
+
+# === Fonctions de transformation ===
+
+def transform_annotation(bbox, img_w, img_h, operation):
+    x, y, w, h = bbox
+    if operation == 'flipH':
+        return [img_w - x - w, y, w, h]
+    elif operation == 'flipV':
+        return [x, img_h - y - h, w, h]
+    elif operation == 'rot90':
+        return [y, img_w - x - w, h, w]
+    elif operation == 'rot180':
+        return [img_w - x - w, img_h - y - h, w, h]
+    elif operation == 'rot270':
+        return [img_h - y - h, x, h, w]
+    return bbox
+
+def rotate_image(image, angle):
+    if angle == 90:
+        return cv2.rotate(image, cv2.ROTATE_90_CLOCKWISE)
+    elif angle == 180:
+        return cv2.rotate(image, cv2.ROTATE_180)
+    elif angle == 270:
+        return cv2.rotate(image, cv2.ROTATE_90_COUNTERCLOCKWISE)
+    return image
+
+def augment_image(img, operation):
+    if operation == 'flipH':
+        return cv2.flip(img, 1)
+    elif operation == 'flipV':
+        return cv2.flip(img, 0)
+    elif operation == 'rot90':
+        return rotate_image(img, 90)
+    elif operation == 'rot180':
+        return rotate_image(img, 180)
+    elif operation == 'rot270':
+        return rotate_image(img, 270)
+    return img
+
+# === Processus principal ===
+for img_info in tqdm(coco_data['images'], desc="Augmenting images"):
+    file_name = img_info['file_name']
+    image_path = os.path.join(INPUT_IMAGE_DIR, file_name)
+
+    if not os.path.exists(image_path):
+        print(f"Image not found: {image_path}")
+        continue
+
+    original_image = cv2.imread(image_path)
+    original_h, original_w = original_image.shape[:2]
+    annotations = image_id_to_annotations.get(img_info['id'], [])
+
+    for suffix in AUG_SUFFIXES:
+        operation = suffix[1:]  # remove '_'
+
+        aug_image = augment_image(original_image.copy(), operation)
+
+        if 'rot' in operation:
+            aug_h, aug_w = aug_image.shape[:2]
+        else:
+            aug_h, aug_w = original_h, original_w
+
+        # Nouveau nom de fichier
+        new_file_name = f"{os.path.splitext(file_name)[0]}{suffix}.jpg"
+        new_path = os.path.join(INPUT_IMAGE_DIR, new_file_name)
+        cv2.imwrite(new_path, aug_image)
+
+        # Ajouter image dans la structure COCO
+        new_images.append({
+            "id": new_image_id,
+            "file_name": new_file_name,
+            "height": aug_h,
+            "width": aug_w
+        })
+
+        # Modifier les annotations pour cette image
+        for ann in annotations:
+            new_bbox = transform_annotation(ann['bbox'], original_w, original_h, operation)
+
+            new_annotations.append({
+                "id": new_annotation_id,
+                "image_id": new_image_id,
+                "category_id": ann['category_id'],
+                "bbox": new_bbox,
+                "area": new_bbox[2] * new_bbox[3],
+                "iscrowd": ann.get("iscrowd", 0)
+            })
+
+            new_annotation_id += 1
+
+        new_image_id += 1
+
+# === Ajouter les nouvelles données au JSON COCO ===
+coco_data['images'].extend(new_images)
+coco_data['annotations'].extend(new_annotations)
+
+# === Sauvegarde ===
+with open(OUTPUT_ANNOTATION_PATH, 'w') as f:
+    json.dump(coco_data, f)
+
+print(f"\n✅ Augmentation terminée. Nouveau fichier COCO : {OUTPUT_ANNOTATION_PATH}")
+
+
+import os
+import json
+from PIL import Image, ImageEnhance, ImageOps
+from pycocotools.coco import COCO
+from tqdm import tqdm
+
+# === Augmentations définies ===
+def apply_augmentations(image, shapes, base_filename, output_dir):
+    augmentations = {
+        "flip": lambda img: img.transpose(Image.FLIP_LEFT_RIGHT),
+        "bright": lambda img: ImageEnhance.Brightness(img).enhance(1.5),
+        "contrast": lambda img: ImageEnhance.Contrast(img).enhance(1.5),
+        "invert": lambda img: ImageOps.invert(img.convert("RGB")),
+        "rotate90": lambda img: img.rotate(90, expand=True),
+        "rotate180": lambda img: img.rotate(180, expand=True),
+        "color": lambda img: ImageEnhance.Color(img).enhance(1.8),
+        "sharpness": lambda img: ImageEnhance.Sharpness(img).enhance(2.0),
+        "solarize": lambda img: ImageOps.solarize(img.convert("RGB"), threshold=128)
+    }
+
+    augmented = []
+    for name, aug in augmentations.items():
+        new_img = aug(image.copy())
+        new_filename = f"{base_filename}_{name}.jpg"
+        new_path = os.path.join(output_dir, new_filename)
+        new_img.save(new_path)
+        augmented.append((name, new_filename, new_img.size))
+    return augmented
+
+# === Chemins ===
+IMAGE_DIR = "images/"
+ANNOTATION_PATH = "coco.json"
+OUTPUT_JSON_PATH = "coco_augmented.json"
+
+# === Charger le JSON COCO ===
+with open(ANNOTATION_PATH, 'r') as f:
+    coco_data = json.load(f)
+
+coco = COCO(ANNOTATION_PATH)
+image_id_map = {}
+new_images = []
+new_annotations = []
+new_image_id = max(img['id'] for img in coco_data['images']) + 1
+new_ann_id = max(ann['id'] for ann in coco_data['annotations']) + 1
+
+# === Préparer les annotations groupées par image ===
+annotations_by_image = {}
+for ann in coco_data['annotations']:
+    annotations_by_image.setdefault(ann['image_id'], []).append(ann)
+
+# === Transformation des bboxes ===
+def transform_bbox(bbox, orig_size, new_size, transform_name):
+    x, y, w, h = bbox
+    orig_w, orig_h = orig_size
+    new_w, new_h = new_size
+
+    if transform_name == "flip":
+        return [orig_w - x - w, y, w, h]
+    elif transform_name == "rotate90":
+        return [y, orig_w - x - w, h, w]
+    elif transform_name == "rotate180":
+        return [orig_w - x - w, orig_h - y - h, w, h]
+    # Other augmentations do not affect bbox
+    return [x, y, w, h]
+
+# === Processus principal ===
+for img_info in tqdm(coco_data['images'], desc="Augmenting"):
+    img_path = os.path.join(IMAGE_DIR, img_info['file_name'])
+    if not os.path.exists(img_path):
+        continue
+
+    img = Image.open(img_path)
+    base_name = os.path.splitext(img_info['file_name'])[0]
+    ann_list = annotations_by_image.get(img_info['id'], [])
+
+    augmented_versions = apply_augmentations(img, ann_list, base_name, IMAGE_DIR)
+
+    for aug_name, new_filename, (new_w, new_h) in augmented_versions:
+        new_images.append({
+            "id": new_image_id,
+            "file_name": new_filename,
+            "width": new_w,
+            "height": new_h
+        })
+
+        for ann in ann_list:
+            new_bbox = transform_bbox(
+                ann['bbox'],
+                (img.width, img.height),
+                (new_w, new_h),
+                aug_name
+            )
+            new_annotations.append({
+                "id": new_ann_id,
+                "image_id": new_image_id,
+                "category_id": ann['category_id'],
+                "bbox": new_bbox,
+                "area": new_bbox[2] * new_bbox[3],
+                "iscrowd": ann.get("iscrowd", 0)
+            })
+            new_ann_id += 1
+
+        new_image_id += 1
+
+# === Mise à jour du fichier COCO ===
+coco_data['images'].extend(new_images)
+coco_data['annotations'].extend(new_annotations)
+
+with open(OUTPUT_JSON_PATH, 'w') as f:
+    json.dump(coco_data, f)
+
+print(f"\n✅ Terminé. Nouveau fichier COCO : {OUTPUT_JSON_PATH}")
