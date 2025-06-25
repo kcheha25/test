@@ -2267,6 +2267,14 @@ with open(OUTPUT_ANNOTATION_PATH, 'w') as f:
 print(f"\n✅ Augmentation terminée. Nouveau fichier COCO : {OUTPUT_ANNOTATION_PATH}")
 
 
+Merci pour le fichier Excel.
+
+En consultant les données, j’ai vu que nous avons uniquement les indices pour chaque composant. Serait-il possible d’avoir les temps de rétention de référence correspondants ?
+Dans mes données, je n’ai que les temps de rétention pour les pics.
+
+Existe-t-il une formule pour passer de l’indice au temps de rétention ?
+
+Merci par avance,
 import os
 import json
 from PIL import Image, ImageEnhance, ImageOps
@@ -2274,7 +2282,7 @@ from pycocotools.coco import COCO
 from tqdm import tqdm
 
 # === Augmentations définies ===
-def apply_augmentations(image, shapes, base_filename, output_dir):
+def apply_augmentations(image, base_filename, output_dir):
     augmentations = {
         "flip": lambda img: img.transpose(Image.FLIP_LEFT_RIGHT),
         "bright": lambda img: ImageEnhance.Brightness(img).enhance(1.5),
@@ -2282,6 +2290,7 @@ def apply_augmentations(image, shapes, base_filename, output_dir):
         "invert": lambda img: ImageOps.invert(img.convert("RGB")),
         "rotate90": lambda img: img.rotate(90, expand=True),
         "rotate180": lambda img: img.rotate(180, expand=True),
+        "rotate270": lambda img: img.rotate(270, expand=True),  # ✅ Ajout ici
         "color": lambda img: ImageEnhance.Color(img).enhance(1.8),
         "sharpness": lambda img: ImageEnhance.Sharpness(img).enhance(2.0),
         "solarize": lambda img: ImageOps.solarize(img.convert("RGB"), threshold=128)
@@ -2296,6 +2305,53 @@ def apply_augmentations(image, shapes, base_filename, output_dir):
         augmented.append((name, new_filename, new_img.size))
     return augmented
 
+# === Transformation du polygone ===
+def transform_polygon(segmentation, orig_size, transform_name):
+    orig_w, orig_h = orig_size
+    new_segmentation = []
+
+    for poly in segmentation:
+        new_poly = []
+        for i in range(0, len(poly), 2):
+            x, y = poly[i], poly[i + 1]
+
+            if transform_name == "flip":
+                x = orig_w - x
+            elif transform_name == "rotate90":
+                x, y = y, orig_w - x
+            elif transform_name == "rotate180":
+                x, y = orig_w - x, orig_h - y
+            elif transform_name == "rotate270":
+                x, y = orig_h - y, x
+
+            new_poly.extend([x, y])
+        new_segmentation.append(new_poly)
+    return new_segmentation
+
+# === Calcul de la bbox à partir du polygone ===
+def polygon_to_bbox(segmentation):
+    x_coords = []
+    y_coords = []
+    for poly in segmentation:
+        x_coords.extend(poly[::2])
+        y_coords.extend(poly[1::2])
+    x_min = min(x_coords)
+    y_min = min(y_coords)
+    x_max = max(x_coords)
+    y_max = max(y_coords)
+    return [x_min, y_min, x_max - x_min, y_max - y_min]
+
+# === Calcul de l'aire du polygone ===
+def polygon_area(segmentation):
+    area = 0
+    for poly in segmentation:
+        x = poly[::2]
+        y = poly[1::2]
+        n = len(x)
+        a = sum(x[i] * y[(i + 1) % n] - x[(i + 1) % n] * y[i] for i in range(n))
+        area += abs(a) / 2
+    return area
+
 # === Chemins ===
 IMAGE_DIR = "images/"
 ANNOTATION_PATH = "coco.json"
@@ -2306,7 +2362,6 @@ with open(ANNOTATION_PATH, 'r') as f:
     coco_data = json.load(f)
 
 coco = COCO(ANNOTATION_PATH)
-image_id_map = {}
 new_images = []
 new_annotations = []
 new_image_id = max(img['id'] for img in coco_data['images']) + 1
@@ -2316,21 +2371,6 @@ new_ann_id = max(ann['id'] for ann in coco_data['annotations']) + 1
 annotations_by_image = {}
 for ann in coco_data['annotations']:
     annotations_by_image.setdefault(ann['image_id'], []).append(ann)
-
-# === Transformation des bboxes ===
-def transform_bbox(bbox, orig_size, new_size, transform_name):
-    x, y, w, h = bbox
-    orig_w, orig_h = orig_size
-    new_w, new_h = new_size
-
-    if transform_name == "flip":
-        return [orig_w - x - w, y, w, h]
-    elif transform_name == "rotate90":
-        return [y, orig_w - x - w, h, w]
-    elif transform_name == "rotate180":
-        return [orig_w - x - w, orig_h - y - h, w, h]
-    # Other augmentations do not affect bbox
-    return [x, y, w, h]
 
 # === Processus principal ===
 for img_info in tqdm(coco_data['images'], desc="Augmenting"):
@@ -2342,7 +2382,7 @@ for img_info in tqdm(coco_data['images'], desc="Augmenting"):
     base_name = os.path.splitext(img_info['file_name'])[0]
     ann_list = annotations_by_image.get(img_info['id'], [])
 
-    augmented_versions = apply_augmentations(img, ann_list, base_name, IMAGE_DIR)
+    augmented_versions = apply_augmentations(img, base_name, IMAGE_DIR)
 
     for aug_name, new_filename, (new_w, new_h) in augmented_versions:
         new_images.append({
@@ -2353,18 +2393,23 @@ for img_info in tqdm(coco_data['images'], desc="Augmenting"):
         })
 
         for ann in ann_list:
-            new_bbox = transform_bbox(
-                ann['bbox'],
+            # ✅ Appliquer transformation si géométrique
+            new_segmentation = transform_polygon(
+                ann['segmentation'],
                 (img.width, img.height),
-                (new_w, new_h),
                 aug_name
-            )
+            ) if aug_name in ['flip', 'rotate90', 'rotate180', 'rotate270'] else ann['segmentation']
+
+            new_bbox = polygon_to_bbox(new_segmentation)
+            area = polygon_area(new_segmentation)
+
             new_annotations.append({
                 "id": new_ann_id,
                 "image_id": new_image_id,
                 "category_id": ann['category_id'],
+                "segmentation": new_segmentation,
                 "bbox": new_bbox,
-                "area": new_bbox[2] * new_bbox[3],
+                "area": area,
                 "iscrowd": ann.get("iscrowd", 0)
             })
             new_ann_id += 1
@@ -2379,3 +2424,4 @@ with open(OUTPUT_JSON_PATH, 'w') as f:
     json.dump(coco_data, f)
 
 print(f"\n✅ Terminé. Nouveau fichier COCO : {OUTPUT_JSON_PATH}")
+
