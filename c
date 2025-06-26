@@ -2425,3 +2425,73 @@ with open(OUTPUT_JSON_PATH, 'w') as f:
 
 print(f"\n✅ Terminé. Nouveau fichier COCO : {OUTPUT_JSON_PATH}")
 
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+from detectron2.engine import DefaultPredictor
+from detectron2.config import get_cfg
+from detectron2 import model_zoo
+from detectron2.utils.visualizer import Visualizer, ColorMode
+from detectron2.data import MetadataCatalog
+
+# === Configuration ===
+image_path = "votre_image.jpg"  # Chemin vers votre image
+resolution_nm_per_pixel = 0.06  # nm/pixel
+
+# === Setup Detectron2 Predictor ===
+cfg = get_cfg()
+cfg.merge_from_file(model_zoo.get_config_file(
+    "COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml"))
+cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5
+cfg.MODEL.WEIGHTS = model_zoo.get_checkpoint_url(
+    "COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml")
+
+predictor = DefaultPredictor(cfg)
+
+# === Charger l'image ===
+image = cv2.imread(image_path)
+image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+# === Prédiction ===
+outputs = predictor(image)
+instances = outputs["instances"].to("cpu")
+masks = instances.pred_masks.numpy()
+
+# === Visualisation des masques ===
+v = Visualizer(image_rgb, MetadataCatalog.get(cfg.DATASETS.TRAIN[0]), scale=1.2, instance_mode=ColorMode.IMAGE)
+out = v.draw_instance_predictions(instances)
+
+plt.figure(figsize=(12, 6))
+plt.imshow(out.get_image())
+plt.title("Objets détectés et segmentés")
+plt.axis("off")
+plt.show()
+
+# === Calcul du diamètre équivalent et de la surface ===
+diameters_nm = []
+areas_nm2 = []
+
+for mask in masks:
+    area_pixels = np.sum(mask)
+    if area_pixels == 0:
+        continue
+    area_nm2 = area_pixels * (resolution_nm_per_pixel ** 2)
+    diameter_nm = 2 * np.sqrt(area_nm2 / np.pi)
+    
+    diameters_nm.append(diameter_nm)
+    areas_nm2.append(area_nm2)
+
+# === Affichage des histogrammes normalisés ===
+def plot_histogram(data, xlabel, title, bins=20):
+    plt.figure(figsize=(8, 4))
+    plt.hist(data, bins=bins, density=True, alpha=0.7, color='teal', edgecolor='black')
+    plt.xlabel(xlabel)
+    plt.ylabel("Fréquence normalisée")
+    plt.title(title)
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
+
+plot_histogram(diameters_nm, "Diamètre (nm)", "Histogramme normalisé des diamètres")
+plot_histogram(areas_nm2, "Surface (nm²)", "Histogramme normalisé des surfaces")
+
