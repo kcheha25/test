@@ -2604,19 +2604,33 @@ class ParticleAnalyzerApp:
 
     def plot_histogram(self, data, xlabel, title, bins=20, canvas_index=1):
         fig, ax = plt.subplots(figsize=(4, 3))
-        ax.hist(data, bins=bins, density=True, alpha=0.7, color='teal', edgecolor='black')
+
+        # Histogramme brut
+        counts, bin_edges = np.histogram(data, bins=bins)
+
+        # Normalisation des hauteurs en fréquence relative (somme = 1)
+        total = np.sum(counts)
+        if total > 0:
+            normalized_counts = counts / total
+        else:
+            normalized_counts = counts
+
+        # Tracer l'histogramme avec plt.hist (sans barres visibles)
+        ax.hist(data, bins=bin_edges, weights=np.ones_like(data) / total,
+                alpha=0.7, color='teal', edgecolor='black')
+
         ax.set_xlabel(xlabel)
         ax.set_ylabel("Fréquence normalisée")
         ax.set_title(title)
+        ax.set_ylim(0, 1)
         ax.grid(True)
         fig.tight_layout()
 
-        # Dessin dans l'interface
+        # Affichage dans l'interface Tkinter
         canvas = FigureCanvasTkAgg(fig, master=self.hist_frame)
         canvas_widget = canvas.get_tk_widget()
         canvas.draw()
 
-        # Suppression de l'ancien histogramme si présent
         if canvas_index == 1:
             if self.hist_canvas1:
                 self.hist_canvas1.get_tk_widget().destroy()
@@ -2628,37 +2642,80 @@ class ParticleAnalyzerApp:
             self.hist_canvas2 = canvas
             canvas_widget.grid(row=0, column=1)
 
+
+
 # === Lancement Interface ===
 if __name__ == "__main__":
     root = Tk()
     app = ParticleAnalyzerApp(root)
     root.mainloop()
 
-def plot_histogram(self, data, xlabel, title, bins=20, canvas_index=1):
-    fig, ax = plt.subplots(figsize=(4, 3))
 
-    # Histogramme brut
-    counts, bin_edges = np.histogram(data, bins=bins)
+from tkinter import Scrollbar, Canvas
 
-    # Normalisation des hauteurs en fréquence relative (somme = 1)
-    total = np.sum(counts)
-    if total > 0:
-        normalized_counts = counts / total
-    else:
-        normalized_counts = counts
+def setup_ui(self):
+    control_frame = Frame(self.root)
+    control_frame.pack(pady=10)
 
-    # Tracer l'histogramme avec plt.hist (sans barres visibles)
-    ax.hist(data, bins=bin_edges, weights=np.ones_like(data) / total,
-            alpha=0.7, color='teal', edgecolor='black')
+    Button(control_frame, text="Charger Image", command=self.load_image).pack(side="left", padx=5)
+    Label(control_frame, text="Résolution (nm/pixel):").pack(side="left")
+
+    self.res_entry = Entry(control_frame, width=10)
+    self.res_entry.insert(0, str(self.resolution))
+    self.res_entry.pack(side="left", padx=5)
+
+    Button(control_frame, text="Lancer l'Inference", command=self.run_inference).pack(side="left", padx=5)
+
+    # Image
+    self.img_label = Label(self.root)
+    self.img_label.pack()
+
+    # Scrollable frame pour histogrammes
+    canvas = Canvas(self.root)
+    scrollbar = Scrollbar(self.root, orient="vertical", command=canvas.yview)
+    self.hist_frame = Frame(canvas)
+
+    self.hist_frame.bind(
+        "<Configure>",
+        lambda e: canvas.configure(
+            scrollregion=canvas.bbox("all")
+        )
+    )
+
+    canvas.create_window((0, 0), window=self.hist_frame, anchor="nw")
+    canvas.configure(yscrollcommand=scrollbar.set)
+
+    canvas.pack(side="left", fill="both", expand=True)
+    scrollbar.pack(side="right", fill="y")
+
+    self.hist_canvas1 = None
+    self.hist_canvas2 = None
+
+# Calcul des bins partagés (basé sur les diamètres)
+combined_data = diameters_nm + areas_nm2
+shared_bins = np.histogram_bin_edges(combined_data, bins=20)
+
+self.plot_histogram(diameters_nm, "Diamètre (nm)", "Histogramme des diamètres", shared_bins, canvas_index=1)
+self.plot_histogram(areas_nm2, "Surface (nm²)", "Histogramme des surfaces", shared_bins, canvas_index=2)
+
+def plot_histogram(self, data, xlabel, title, bin_edges, canvas_index=1):
+    fig, ax = plt.subplots(figsize=(5, 4))
+
+    total = len(data)
+    weights = np.ones_like(data) / total if total > 0 else np.ones_like(data)
+
+    ax.hist(data, bins=bin_edges, weights=weights, alpha=0.7, color='teal', edgecolor='black')
 
     ax.set_xlabel(xlabel)
     ax.set_ylabel("Fréquence normalisée")
     ax.set_title(title)
-    ax.set_ylim(0, 1)
     ax.grid(True)
+
+    # Plus de ticks sur l’axe X
+    ax.set_xticks(np.linspace(min(bin_edges), max(bin_edges), num=10))
+
     fig.tight_layout()
 
-    # Affichage dans l'interface Tkinter
     canvas = FigureCanvasTkAgg(fig, master=self.hist_frame)
     canvas_widget = canvas.get_tk_widget()
     canvas.draw()
@@ -2673,4 +2730,3 @@ def plot_histogram(self, data, xlabel, title, bins=20, canvas_index=1):
             self.hist_canvas2.get_tk_widget().destroy()
         self.hist_canvas2 = canvas
         canvas_widget.grid(row=0, column=1)
-
