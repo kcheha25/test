@@ -2639,18 +2639,18 @@ def plot_histogram(self, data, xlabel, title, bins=20, canvas_index=1):
 
     # Histogramme brut
     counts, bin_edges = np.histogram(data, bins=bins)
-    
-    # Fréquence normalisée en nombre
+
+    # Normalisation des hauteurs en fréquence relative (somme = 1)
     total = np.sum(counts)
-    frequencies = counts / total  # Normalisation manuelle
+    if total > 0:
+        normalized_counts = counts / total
+    else:
+        normalized_counts = counts
 
-    # Positions des barres au centre des intervalles
-    bin_centers = 0.5 * (bin_edges[1:] + bin_edges[:-1])
+    # Tracer l'histogramme avec plt.hist (sans barres visibles)
+    ax.hist(data, bins=bin_edges, weights=np.ones_like(data) / total,
+            alpha=0.7, color='teal', edgecolor='black')
 
-    # Affichage en barres
-    ax.bar(bin_centers, frequencies, width=(bin_edges[1] - bin_edges[0]), color='teal', edgecolor='black', alpha=0.8)
-
-    # Configuration des axes
     ax.set_xlabel(xlabel)
     ax.set_ylabel("Fréquence normalisée")
     ax.set_title(title)
@@ -2658,7 +2658,7 @@ def plot_histogram(self, data, xlabel, title, bins=20, canvas_index=1):
     ax.grid(True)
     fig.tight_layout()
 
-    # Affichage dans interface
+    # Affichage dans l'interface Tkinter
     canvas = FigureCanvasTkAgg(fig, master=self.hist_frame)
     canvas_widget = canvas.get_tk_widget()
     canvas.draw()
@@ -2673,3 +2673,4 @@ def plot_histogram(self, data, xlabel, title, bins=20, canvas_index=1):
             self.hist_canvas2.get_tk_widget().destroy()
         self.hist_canvas2 = canvas
         canvas_widget.grid(row=0, column=1)
+
