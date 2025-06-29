@@ -2495,3 +2495,116 @@ def plot_histogram(data, xlabel, title, bins=20):
 plot_histogram(diameters_nm, "Diamètre (nm)", "Histogramme normalisé des diamètres")
 plot_histogram(areas_nm2, "Surface (nm²)", "Histogramme normalisé des surfaces")
 
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+from tkinter import filedialog, Tk, Button, Label, Entry, Frame
+from PIL import Image, ImageTk
+from detectron2.engine import DefaultPredictor
+from detectron2.config import get_cfg
+from detectron2 import model_zoo
+from detectron2.utils.visualizer import Visualizer, ColorMode
+from detectron2.data import MetadataCatalog
+
+# === Setup Detectron2 Predictor ===
+cfg = get_cfg()
+cfg.merge_from_file(model_zoo.get_config_file(
+    "COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml"))
+cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5
+cfg.MODEL.WEIGHTS = model_zoo.get_checkpoint_url(
+    "COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml")
+predictor = DefaultPredictor(cfg)
+
+class ParticleAnalyzerApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Analyse de Particules - Detectron2")
+
+        self.image_path = None
+        self.resolution = 0.06  # Valeur par défaut
+
+        self.setup_ui()
+
+    def setup_ui(self):
+        frame = Frame(self.root)
+        frame.pack(pady=10)
+
+        Button(frame, text="Charger Image", command=self.load_image).pack(side="left", padx=5)
+
+        Label(frame, text="Résolution (nm/pixel):").pack(side="left")
+        self.res_entry = Entry(frame, width=10)
+        self.res_entry.insert(0, str(self.resolution))
+        self.res_entry.pack(side="left", padx=5)
+
+        Button(frame, text="Lancer l'Inference", command=self.run_inference).pack(side="left", padx=5)
+
+        self.img_label = Label(self.root)
+        self.img_label.pack()
+
+    def load_image(self):
+        self.image_path = filedialog.askopenfilename(filetypes=[("Image files", "*.jpg *.png *.jpeg")])
+        if self.image_path:
+            image = Image.open(self.image_path).resize((512, 512))
+            self.tk_image = ImageTk.PhotoImage(image)
+            self.img_label.config(image=self.tk_image)
+
+    def run_inference(self):
+        if not self.image_path:
+            return
+
+        try:
+            self.resolution = float(self.res_entry.get())
+        except ValueError:
+            print("Résolution invalide.")
+            return
+
+        image = cv2.imread(self.image_path)
+        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+        outputs = predictor(image)
+        instances = outputs["instances"].to("cpu")
+        masks = instances.pred_masks.numpy()
+
+        # Visualisation
+        v = Visualizer(image_rgb, MetadataCatalog.get(cfg.DATASETS.TRAIN[0]), scale=1.2, instance_mode=ColorMode.IMAGE)
+        out = v.draw_instance_predictions(instances)
+        vis_image = out.get_image()
+
+        # Affichage dans interface
+        vis_pil = Image.fromarray(vis_image).resize((512, 512))
+        self.tk_image = ImageTk.PhotoImage(vis_pil)
+        self.img_label.config(image=self.tk_image)
+
+        # Calcul des métriques
+        diameters_nm = []
+        areas_nm2 = []
+
+        for mask in masks:
+            area_pixels = np.sum(mask)
+            if area_pixels == 0:
+                continue
+            area_nm2 = area_pixels * (self.resolution ** 2)
+            diameter_nm = 2 * np.sqrt(area_nm2 / np.pi)
+
+            diameters_nm.append(diameter_nm)
+            areas_nm2.append(area_nm2)
+
+        # Histogrammes
+        self.plot_histogram(diameters_nm, "Diamètre (nm)", "Histogramme des diamètres")
+        self.plot_histogram(areas_nm2, "Surface (nm²)", "Histogramme des surfaces")
+
+    def plot_histogram(self, data, xlabel, title, bins=20):
+        plt.figure(figsize=(6, 4))
+        plt.hist(data, bins=bins, density=True, alpha=0.7, color='teal', edgecolor='black')
+        plt.xlabel(xlabel)
+        plt.ylabel("Fréquence normalisée")
+        plt.title(title)
+        plt.grid(True)
+        plt.tight_layout()
+        plt.show()
+
+# === Lancement Interface ===
+if __name__ == "__main__":
+    root = Tk()
+    app = ParticleAnalyzerApp(root)
+    root.mainloop()
