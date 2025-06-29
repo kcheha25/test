@@ -2633,3 +2633,43 @@ if __name__ == "__main__":
     root = Tk()
     app = ParticleAnalyzerApp(root)
     root.mainloop()
+
+def plot_histogram(self, data, xlabel, title, bins=20, canvas_index=1):
+    fig, ax = plt.subplots(figsize=(4, 3))
+
+    # Histogramme brut
+    counts, bin_edges = np.histogram(data, bins=bins)
+    
+    # Fréquence normalisée en nombre
+    total = np.sum(counts)
+    frequencies = counts / total  # Normalisation manuelle
+
+    # Positions des barres au centre des intervalles
+    bin_centers = 0.5 * (bin_edges[1:] + bin_edges[:-1])
+
+    # Affichage en barres
+    ax.bar(bin_centers, frequencies, width=(bin_edges[1] - bin_edges[0]), color='teal', edgecolor='black', alpha=0.8)
+
+    # Configuration des axes
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel("Fréquence normalisée")
+    ax.set_title(title)
+    ax.set_ylim(0, 1)
+    ax.grid(True)
+    fig.tight_layout()
+
+    # Affichage dans interface
+    canvas = FigureCanvasTkAgg(fig, master=self.hist_frame)
+    canvas_widget = canvas.get_tk_widget()
+    canvas.draw()
+
+    if canvas_index == 1:
+        if self.hist_canvas1:
+            self.hist_canvas1.get_tk_widget().destroy()
+        self.hist_canvas1 = canvas
+        canvas_widget.grid(row=0, column=0)
+    else:
+        if self.hist_canvas2:
+            self.hist_canvas2.get_tk_widget().destroy()
+        self.hist_canvas2 = canvas
+        canvas_widget.grid(row=0, column=1)
