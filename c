@@ -2505,6 +2505,7 @@ from detectron2.config import get_cfg
 from detectron2 import model_zoo
 from detectron2.utils.visualizer import Visualizer, ColorMode
 from detectron2.data import MetadataCatalog
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 # === Setup Detectron2 Predictor ===
 cfg = get_cfg()
@@ -2526,20 +2527,28 @@ class ParticleAnalyzerApp:
         self.setup_ui()
 
     def setup_ui(self):
-        frame = Frame(self.root)
-        frame.pack(pady=10)
+        control_frame = Frame(self.root)
+        control_frame.pack(pady=10)
 
-        Button(frame, text="Charger Image", command=self.load_image).pack(side="left", padx=5)
+        Button(control_frame, text="Charger Image", command=self.load_image).pack(side="left", padx=5)
 
-        Label(frame, text="Résolution (nm/pixel):").pack(side="left")
-        self.res_entry = Entry(frame, width=10)
+        Label(control_frame, text="Résolution (nm/pixel):").pack(side="left")
+        self.res_entry = Entry(control_frame, width=10)
         self.res_entry.insert(0, str(self.resolution))
         self.res_entry.pack(side="left", padx=5)
 
-        Button(frame, text="Lancer l'Inference", command=self.run_inference).pack(side="left", padx=5)
+        Button(control_frame, text="Lancer l'Inference", command=self.run_inference).pack(side="left", padx=5)
 
+        # Section image
         self.img_label = Label(self.root)
         self.img_label.pack()
+
+        # Section histogrammes
+        self.hist_frame = Frame(self.root)
+        self.hist_frame.pack()
+
+        self.hist_canvas1 = None
+        self.hist_canvas2 = None
 
     def load_image(self):
         self.image_path = filedialog.askopenfilename(filetypes=[("Image files", "*.jpg *.png *.jpeg")])
@@ -2589,19 +2598,35 @@ class ParticleAnalyzerApp:
             diameters_nm.append(diameter_nm)
             areas_nm2.append(area_nm2)
 
-        # Histogrammes
-        self.plot_histogram(diameters_nm, "Diamètre (nm)", "Histogramme des diamètres")
-        self.plot_histogram(areas_nm2, "Surface (nm²)", "Histogramme des surfaces")
+        # Affichage des histogrammes dans interface
+        self.plot_histogram(diameters_nm, "Diamètre (nm)", "Histogramme des diamètres", canvas_index=1)
+        self.plot_histogram(areas_nm2, "Surface (nm²)", "Histogramme des surfaces", canvas_index=2)
 
-    def plot_histogram(self, data, xlabel, title, bins=20):
-        plt.figure(figsize=(6, 4))
-        plt.hist(data, bins=bins, density=True, alpha=0.7, color='teal', edgecolor='black')
-        plt.xlabel(xlabel)
-        plt.ylabel("Fréquence normalisée")
-        plt.title(title)
-        plt.grid(True)
-        plt.tight_layout()
-        plt.show()
+    def plot_histogram(self, data, xlabel, title, bins=20, canvas_index=1):
+        fig, ax = plt.subplots(figsize=(4, 3))
+        ax.hist(data, bins=bins, density=True, alpha=0.7, color='teal', edgecolor='black')
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel("Fréquence normalisée")
+        ax.set_title(title)
+        ax.grid(True)
+        fig.tight_layout()
+
+        # Dessin dans l'interface
+        canvas = FigureCanvasTkAgg(fig, master=self.hist_frame)
+        canvas_widget = canvas.get_tk_widget()
+        canvas.draw()
+
+        # Suppression de l'ancien histogramme si présent
+        if canvas_index == 1:
+            if self.hist_canvas1:
+                self.hist_canvas1.get_tk_widget().destroy()
+            self.hist_canvas1 = canvas
+            canvas_widget.grid(row=0, column=0)
+        else:
+            if self.hist_canvas2:
+                self.hist_canvas2.get_tk_widget().destroy()
+            self.hist_canvas2 = canvas
+            canvas_widget.grid(row=0, column=1)
 
 # === Lancement Interface ===
 if __name__ == "__main__":
