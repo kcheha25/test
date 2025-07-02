@@ -2730,3 +2730,246 @@ def plot_histogram(self, data, xlabel, title, bin_edges, canvas_index=1):
             self.hist_canvas2.get_tk_widget().destroy()
         self.hist_canvas2 = canvas
         canvas_widget.grid(row=0, column=1)
+
+
+import pandas as pd
+import numpy as np
+import json
+from collections import defaultdict
+from itertools import combinations
+
+# === Étape 1 : Charger le fichier Excel et renommer les composants en doublon ===
+excel_path = "composants.xlsx"
+df_excel = pd.read_excel(excel_path, usecols=[0], header=None)
+component_names = df_excel[0].tolist()
+
+# Ajouter suffixes pour différencier les doublons
+seen = defaultdict(int)
+renamed_components = []
+for name in component_names:
+    seen[name] += 1
+    new_name = f"{name}_{seen[name]}"
+    renamed_components.append(new_name)
+
+# Liste unique (les composants à couvrir)
+components_to_cover = set(renamed_components)
+
+# === Étape 2 : Charger les chromatogrammes JSON ===
+json_path = "chromatogrammes.json"
+df_json = pd.read_json(json_path).dropna(subset=['pics'])
+
+chromatogram_components = []
+chromatogram_times = []
+
+for idx, row in df_json.iterrows():
+    seen_counts = defaultdict(int)
+    current_components = set()
+    time_map = {}
+
+    sorted_pics = sorted(row['pics'].items(), key=lambda x: float(x[0]))
+    for time_str, data in sorted_pics:
+        time = float(time_str)
+        if time <= 150:
+            base = data[0]
+            seen_counts[base] += 1
+            comp_name = f"{base}_{seen_counts[base]}"
+            current_components.add(comp_name)
+            time_map[comp_name] = time
+
+    chromatogram_components.append(current_components)
+    chromatogram_times.append(time_map)
+
+# === Étape 3 : Trouver le nombre minimal de chromatogrammes qui couvrent tous les composants ===
+
+# Réduire la liste de composants à ceux effectivement présents dans les chromatogrammes
+present_components = set().union(*chromatogram_components)
+filtered_components = components_to_cover.intersection(present_components)
+
+# Création des ensembles de couverture
+chrom_sets = [
+    comps.intersection(filtered_components)
+    for comps in chromatogram_components
+]
+
+# Fonction pour trouver la plus petite combinaison de chromatogrammes couvrant tous les composants
+def minimal_cover(chrom_sets, target_components):
+    n = len(chrom_sets)
+    for r in range(1, n + 1):
+        for indices in combinations(range(n), r):
+            covered = set().union(*(chrom_sets[i] for i in indices))
+            if target_components.issubset(covered):
+                return list(indices)
+    return []
+
+selected_indices = minimal_cover(chrom_sets, filtered_components)
+
+# === Étape 4 : Affichage des résultats ===
+print(f"\nNombre minimal de chromatogrammes nécessaires : {len(selected_indices)}\n")
+
+for idx in selected_indices:
+    print(f"Chromatogramme {idx} :")
+    for comp in chromatogram_components[idx].intersection(filtered_components):
+        time = chromatogram_times[idx].get(comp, "N/A")
+        print(f" - {comp} à {time:.2f}")
+    print()
+
+import pandas as pd
+import numpy as np
+import json
+from collections import defaultdict
+from itertools import combinations
+
+# === Étape 1 : Charger le fichier Excel et renommer les composants en doublon ===
+excel_path = "composants.xlsx"
+df_excel = pd.read_excel(excel_path, usecols=[0], header=None)
+component_names = [str(name).strip().lower() for name in df_excel[0].tolist()]  # conversion en minuscules
+
+seen = defaultdict(int)
+renamed_components = []
+for name in component_names:
+    seen[name] += 1
+    new_name = f"{name}_{seen[name]}"
+    renamed_components.append(new_name)
+
+components_to_cover = set(renamed_components)
+
+# === Étape 2 : Charger les chromatogrammes JSON ===
+json_path = "chromatogrammes.json"
+df_json = pd.read_json(json_path).dropna(subset=['pics'])
+
+chromatogram_components = []
+chromatogram_times = []
+
+for idx, row in df_json.iterrows():
+    seen_counts = defaultdict(int)
+    current_components = set()
+    time_map = {}
+
+    sorted_pics = sorted(row['pics'].items(), key=lambda x: float(x[0]))
+    for time_str, data in sorted_pics:
+        time = float(time_str)
+        if time <= 150:
+            base = str(data[0]).strip().lower()  # conversion en minuscules
+            seen_counts[base] += 1
+            comp_name = f"{base}_{seen_counts[base]}"
+            current_components.add(comp_name)
+            time_map[comp_name] = time
+
+    chromatogram_components.append(current_components)
+    chromatogram_times.append(time_map)
+
+# === Étape 3 : Trouver le nombre minimal de chromatogrammes qui couvrent tous les composants ===
+present_components = set().union(*chromatogram_components)
+filtered_components = components_to_cover.intersection(present_components)
+
+chrom_sets = [
+    comps.intersection(filtered_components)
+    for comps in chromatogram_components
+]
+
+def minimal_cover(chrom_sets, target_components):
+    n = len(chrom_sets)
+    for r in range(1, n + 1):
+        for indices in combinations(range(n), r):
+            covered = set().union(*(chrom_sets[i] for i in indices))
+            if target_components.issubset(covered):
+                return list(indices)
+    return []
+
+selected_indices = minimal_cover(chrom_sets, filtered_components)
+
+# === Étape 4 : Affichage des résultats ===
+print(f"\nNombre minimal de chromatogrammes nécessaires : {len(selected_indices)}\n")
+
+for idx in selected_indices:
+    print(f"Chromatogramme {idx} :")
+    for comp in chromatogram_components[idx].intersection(filtered_components):
+        time = chromatogram_times[idx].get(comp, "N/A")
+        print(f" - {comp} à {time:.2f}")
+    print()
+
+
+import pandas as pd
+import numpy as np
+import json
+from collections import defaultdict
+from itertools import combinations
+
+# === Étape 1 : Charger le fichier Excel et renommer les composants en doublon ===
+excel_path = "composants.xlsx"
+df_excel = pd.read_excel(excel_path, usecols=[0], header=None)
+component_names = [str(name).strip().lower() for name in df_excel[0].tolist()]
+
+seen = defaultdict(int)
+renamed_components = []
+for name in component_names:
+    seen[name] += 1
+    new_name = f"{name}_{seen[name]}"
+    renamed_components.append(new_name)
+
+components_to_cover = set(renamed_components)
+
+# === Étape 2 : Charger les chromatogrammes JSON ===
+json_path = "chromatogrammes.json"
+df_json = pd.read_json(json_path).dropna(subset=['pics'])
+
+chromatogram_components = []
+chromatogram_times = []
+
+for idx, row in df_json.iterrows():
+    seen_counts = defaultdict(int)
+    current_components = set()
+    time_map = {}
+
+    sorted_pics = sorted(row['pics'].items(), key=lambda x: float(x[0]))
+    for time_str, data in sorted_pics:
+        time = float(time_str)
+        if time <= 150:
+            base = str(data[0]).strip().lower()
+            seen_counts[base] += 1
+            comp_name = f"{base}_{seen_counts[base]}"
+            current_components.add(comp_name)
+            time_map[comp_name] = time
+
+    chromatogram_components.append(current_components)
+    chromatogram_times.append(time_map)
+
+# === Étape 3 : Trouver le nombre minimal de chromatogrammes qui couvrent tous les composants ===
+present_components = set().union(*chromatogram_components)
+filtered_components = components_to_cover.intersection(present_components)
+
+chrom_sets = [
+    comps.intersection(filtered_components)
+    for comps in chromatogram_components
+]
+
+def minimal_cover(chrom_sets, target_components):
+    n = len(chrom_sets)
+    for r in range(1, n + 1):
+        for indices in combinations(range(n), r):
+            covered = set().union(*(chrom_sets[i] for i in indices))
+            if target_components.issubset(covered):
+                return list(indices)
+    return []
+
+selected_indices = minimal_cover(chrom_sets, filtered_components)
+
+# === Étape 4 : Affichage des résultats ===
+print(f"\nNombre minimal de chromatogrammes nécessaires : {len(selected_indices)}\n")
+
+# === Étape 5 : Récupérer tous les temps de rétention pour les composants sélectionnés ===
+component_retention_times = defaultdict(list)
+
+for idx in selected_indices:
+    print(f"Chromatogramme {idx} :")
+    for comp in chromatogram_components[idx].intersection(filtered_components):
+        time = chromatogram_times[idx].get(comp)
+        if time is not None:
+            component_retention_times[comp].append(time)
+            print(f" - {comp} à {time:.2f}")
+    print()
+
+# === Étape 6 : Affichage de la variable finale (en option) ===
+print("\nTemps de rétention par composant parmi les chromatogrammes sélectionnés :")
+for comp, times in component_retention_times.items():
+    print(f"{comp} : {sorted(times)}")

@@ -1,195 +1,188 @@
-import pandas as pd
-from collections import defaultdict
-
-# -------------------------- #
-# 1. Charger et traiter Excel
-# -------------------------- #
-excel_path = "composants.xlsx"
-df_excel = pd.read_excel(excel_path)
-
-# Ajouter suffixes _1, _2, etc.
-comptage = defaultdict(int)
-noms_modifies = []
-
-for comp in df_excel['Composant']:
-    comptage[comp] += 1
-    comp_modifie = f"{comp}_{comptage[comp]}"
-    noms_modifies.append(comp_modifie)
-
-df_excel['Composant'] = noms_modifies
-
-# Séparer les composants connus / inconnus
-df_connus = df_excel.dropna(subset=['Temps de rétention'])
-df_inconnus = df_excel[df_excel['Temps de rétention'].isna()]
-
-composants_connus = dict(zip(df_connus['Composant'], df_connus['Temps de rétention']))
-composants_inconnus = list(df_inconnus['Composant'])
-
-# -------------------------- #
-# 2. Charger le fichier JSON
-# -------------------------- #
+import os
 import json
+import glob
+import numpy as np
+import cv2
+from tqdm import tqdm
 
-json_path = "chromatogrammes.json"
-df_json = pd.read_json(json_path)
-df_json = df_json.dropna(subset=['pics'])
+def labelme_to_coco_segmentation(labelme_dir, output_file):
+    categories = []
+    label_set = set()
+    annotation_id = 1
+    image_id = 1
 
-# -------------------------- #
-# 3. Fonction d'extraction des composants
-# -------------------------- #
-def extraire_composants_avec_temps(pics_dict):
-    seen_counts = defaultdict(int)
-    composants_detectes = {}
+    coco_output = {
+        "images": [],
+        "annotations": [],
+        "categories": []
+    }
 
-    sorted_pics = sorted(pics_dict.items(), key=lambda x: float(x[0]))
+    # Collect all label names
+    for json_file in glob.glob(os.path.join(labelme_dir, "*.json")):
+        with open(json_file) as f:
+            data = json.load(f)
+            for shape in data["shapes"]:
+                label_set.add(shape["label"])
 
-    for pic_time_str, data in sorted_pics:
-        pic_time = float(pic_time_str)
-        if pic_time <= 150:
-            base_name = data[0]
-            seen_counts[base_name] += 1
-            comp_name = f"{base_name}_{seen_counts[base_name]}"
-            composants_detectes[comp_name] = pic_time
-    return composants_detectes
+    label_list = sorted(list(label_set))
+    label_to_id = {label: idx + 1 for idx, label in enumerate(label_list)}
 
-# -------------------------- #
-# 4. Analyse des chromatogrammes
-# -------------------------- #
-chromatogrammes_complets = []
-
-for idx, row in df_json.iterrows():
-    composants_detectes = extraire_composants_avec_temps(row['pics'])
-
-    # Vérifier si tous les composants inconnus sont détectés
-    if all(comp in composants_detectes for comp in composants_inconnus):
-        # Vérifier si les temps des composants connus correspondent
-        correspondance = all(
-            comp in composants_detectes and abs(composants_detectes[comp] - composants_connus[comp]) < 0.5
-            for comp in composants_connus
-        )
-
-        chromatogrammes_complets.append({
-            'index': idx,
-            'composants_inconnus_avec_temps': {comp: composants_detectes[comp] for comp in composants_inconnus},
-            'correspondance_connus': correspondance
+    for label, idx in label_to_id.items():
+        coco_output["categories"].append({
+            "id": idx,
+            "name": label,
+            "supercategory": "object"
         })
 
-# -------------------------- #
-# 5. Affichage des résultats
-# -------------------------- #
-print("\n--- Résultats ---\n")
-if chromatogrammes_complets:
-    for entry in chromatogrammes_complets:
-        print(f"✅ Chromatogramme #{entry['index']}")
-        print("  Temps de rétention pour composants inconnus :")
-        for comp, time in entry['composants_inconnus_avec_temps'].items():
-            print(f"    - {comp} : {time:.2f} min")
-        print(f"  Composants connus valides : {'✅ Oui' if entry['correspondance_connus'] else '❌ Non'}")
-        print()
-else:
-    print("Aucun chromatogramme ne contient tous les composants inconnus.")
+    for json_path in tqdm(glob.glob(os.path.join(labelme_dir, "*.json"))):
+        with open(json_path) as f:
+            data = json.load(f)
 
-df_excel.to_excel("composants_modifies.xlsx", index=False)
+        image_path = os.path.join(labelme_dir, data["imagePath"])
+        if not os.path.exists(image_path):
+            print(f"Image not found: {image_path}")
+            continue
+
+        img = cv2.imread(image_path)
+        height, width = img.shape[:2]
+
+        coco_output["images"].append({
+            "id": image_id,
+            "file_name": data["imagePath"],
+            "height": height,
+            "width": width
+        })
+
+        for shape in data["shapes"]:
+            points = np.array(shape["points"], dtype=np.float32).flatten().tolist()
+
+            # Create a binary mask from the polygon
+            mask = np.zeros((height, width), dtype=np.uint8)
+            polygon = np.array([shape["points"]], dtype=np.int32)
+            cv2.fillPoly(mask, polygon, 1)
+            area = float(np.sum(mask))
+
+            # Calculate bounding box
+            x, y, w, h = cv2.boundingRect(polygon)
+
+            annotation = {
+                "id": annotation_id,
+                "image_id": image_id,
+                "category_id": label_to_id[shape["label"]],
+                "segmentation": [points],
+                "area": area,
+                "bbox": [x, y, w, h],
+                "iscrowd": 0
+            }
+
+            coco_output["annotations"].append(annotation)
+            annotation_id += 1
+
+        image_id += 1
+
+    # Save output
+    with open(output_file, "w") as f:
+        json.dump(coco_output, f, indent=4)
+    print(f"\n✅ Fichier COCO segmentation sauvegardé ici : {output_file}")
+
+# 🔧 Exécution
+labelme_dir = "dataset"  # Remplace par le chemin vers ton dossier
+output_file = "coco_segmentation.json"
+
+labelme_to_coco_segmentation(labelme_dir, output_file)
 
 
-
-import pandas as pd
-from collections import defaultdict
+import os
 import json
+import glob
+import numpy as np
+import cv2
+from tqdm import tqdm
 
-# -------------------------- #
-# 1. Charger et renommer les composants Excel
-# -------------------------- #
-excel_path = "composants.xlsx"
-df_excel = pd.read_excel(excel_path)
+def labelme_to_coco_segmentation(labelme_dir, output_file):
+    annotation_id = 1
+    image_id = 1
 
-# Ajouter suffixes _1, _2, etc.
-comptage = defaultdict(int)
-noms_modifies = []
+    coco_output = {
+        "images": [],
+        "annotations": [],
+        "categories": []
+    }
 
-for comp in df_excel['Composant']:
-    comptage[comp] += 1
-    comp_modifie = f"{comp}_{comptage[comp]}"
-    noms_modifies.append(comp_modifie)
+    # Collect all label names
+    label_set = set()
+    for json_file in glob.glob(os.path.join(labelme_dir, "*.json")):
+        with open(json_file) as f:
+            data = json.load(f)
+            for shape in data.get("shapes", []):
+                label_set.add(shape["label"])
 
-df_excel['Composant'] = noms_modifies
+    label_list = sorted(list(label_set))
+    label_to_id = {label: idx + 1 for idx, label in enumerate(label_list)}
 
-# Séparer composants connus / inconnus
-df_connus = df_excel.dropna(subset=['Temps de rétention'])
-df_inconnus = df_excel[df_excel['Temps de rétention'].isna()]
+    for label, idx in label_to_id.items():
+        coco_output["categories"].append({
+            "id": idx,
+            "name": label,
+            "supercategory": "object"
+        })
 
-composants_connus = dict(zip(df_connus['Composant'], df_connus['Temps de rétention']))
-composants_inconnus = list(df_inconnus['Composant'])
+    for json_path in tqdm(glob.glob(os.path.join(labelme_dir, "*.json"))):
+        with open(json_path) as f:
+            data = json.load(f)
 
-# -------------------------- #
-# 2. Charger les chromatogrammes JSON
-# -------------------------- #
-json_path = "chromatogrammes.json"
-df_json = pd.read_json(json_path)
-df_json = df_json.dropna(subset=['pics'])
+        image_filename = data["imagePath"]
+        image_path = os.path.join(labelme_dir, image_filename)
+        if not os.path.exists(image_path):
+            print(f"⚠️ Image not found: {image_path}")
+            continue
 
-# -------------------------- #
-# 3. Fonction d'extraction des composants avec indices
-# -------------------------- #
-def extraire_composants_avec_temps(pics_dict):
-    seen_counts = defaultdict(int)
-    composants_detectes = {}
+        img = cv2.imread(image_path)
+        height, width = img.shape[:2]
 
-    sorted_pics = sorted(pics_dict.items(), key=lambda x: float(x[0]))
+        coco_output["images"].append({
+            "id": image_id,
+            "file_name": image_filename,
+            "height": height,
+            "width": width
+        })
 
-    for pic_time_str, data in sorted_pics:
-        pic_time = float(pic_time_str)
-        if pic_time <= 150:
-            base_name = data[0]
-            seen_counts[base_name] += 1
-            comp_name = f"{base_name}_{seen_counts[base_name]}"
-            composants_detectes[comp_name] = pic_time
-    return composants_detectes
+        shapes = data.get("shapes", [])
+        if shapes:
+            for shape in shapes:
+                points = np.array(shape["points"], dtype=np.float32).flatten().tolist()
 
-# -------------------------- #
-# 4. Analyse des chromatogrammes
-# -------------------------- #
-resultats = []
+                # Create binary mask
+                mask = np.zeros((height, width), dtype=np.uint8)
+                polygon = np.array([shape["points"]], dtype=np.int32)
+                cv2.fillPoly(mask, polygon, 1)
+                area = float(np.sum(mask))
 
-for idx, row in df_json.iterrows():
-    composants_detectes = extraire_composants_avec_temps(row['pics'])
+                # Bounding box
+                x, y, w, h = cv2.boundingRect(polygon)
 
-    # Vérifier si tous les composants inconnus sont présents
-    if all(comp in composants_detectes for comp in composants_inconnus):
-        comparaison_connus = {}
-        for comp, ref_time in composants_connus.items():
-            if comp in composants_detectes:
-                obs_time = composants_detectes[comp]
-                match = abs(obs_time - ref_time) < 0.5
-                comparaison_connus[comp] = {
-                    'observé': obs_time,
-                    'référence': ref_time,
-                    'match': match
+                annotation = {
+                    "id": annotation_id,
+                    "image_id": image_id,
+                    "category_id": label_to_id[shape["label"]],
+                    "segmentation": [points],
+                    "area": area,
+                    "bbox": [x, y, w, h],
+                    "iscrowd": 0
                 }
 
-        resultats.append({
-            'index': idx,
-            'composants_inconnus': {c: composants_detectes[c] for c in composants_inconnus},
-            'comparaison_connus': comparaison_connus
-        })
+                coco_output["annotations"].append(annotation)
+                annotation_id += 1
 
-# -------------------------- #
-# 5. Affichage final
-# -------------------------- #
-print("\n--- Résultats ---\n")
-if not resultats:
-    print("Aucun chromatogramme ne contient tous les composants inconnus.")
-else:
-    for r in resultats:
-        print(f"✅ Chromatogramme #{r['index']}")
-        print("  📌 Temps de rétention des composants inconnus :")
-        for comp, tr in r['composants_inconnus'].items():
-            print(f"    - {comp} : {tr:.2f} min")
+        image_id += 1
 
-        print("  🔍 Comparaison des composants connus (si présents) :")
-        if not r['comparaison_connus']:
-            print("    Aucun composant connu présent.")
-        else:
-            for comp, info in r['comparaison_connus'].items():
-                print(f"    - {comp} : Observé = {info['observé']:.2f} / Référence = {info['référence']:.2f} → {'✅ OK' if info['match'] else '❌ Différent'}")
-        print()
+    # Save output
+    with open(output_file, "w") as f:
+        json.dump(coco_output, f, indent=4)
+    print(f"\n✅ Fichier COCO sauvegardé (images avec et sans objets) ici : {output_file}")
+
+# 🔧 Utilisation
+labelme_dir = "dataset"  # Remplace par ton dossier d'entrée
+output_file = "coco_segmentation.json"
+
+labelme_to_coco_segmentation(labelme_dir, output_file)
