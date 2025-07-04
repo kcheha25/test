@@ -82,3 +82,20 @@ if not trouve:
 
 if not trouve:
     print("❌ Aucun autre chromatogramme ou combinaison de 2 chromatogrammes ne couvre tous les composants manquants.")
+
+import pandas as pd
+
+# Récupérer les temps de rétention pour le chromatogramme avec le plus de pics
+max_time_map = chromatogram_times[max_idx]
+
+# Créer un DataFrame avec nom du composant + temps
+df_export = pd.DataFrame([
+    {"Composant": comp, "Temps de rétention": time}
+    for comp, time in max_time_map.items()
+])
+
+# Sauvegarder dans un fichier Excel
+output_path = "chromatogramme_max_components.xlsx"
+df_export.to_excel(output_path, index=False)
+
+print(f"📁 Fichier Excel sauvegardé : {output_path}")
