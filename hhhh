@@ -1,0 +1,84 @@
+import pandas as pd
+from collections import defaultdict
+import itertools
+
+# ------------------------------- #
+# 1. Charger les chromatogrammes
+# ------------------------------- #
+json_path = "chromatogrammes.json"
+df_json = pd.read_json(json_path).dropna(subset=['pics'])
+
+chromatogram_components = []
+chromatogram_times = []
+
+for idx, row in df_json.iterrows():
+    seen_counts = defaultdict(int)
+    current_components = set()
+    time_map = {}
+
+    sorted_pics = sorted(row['pics'].items(), key=lambda x: float(x[0]))
+    for time_str, data in sorted_pics:
+        time = float(time_str)
+        if time <= 150:
+            base = str(data[0]).strip().lower()
+            seen_counts[base] += 1
+            comp_name = f"{base}_{seen_counts[base]}"
+            current_components.add(comp_name)
+            time_map[comp_name] = time
+
+    chromatogram_components.append(current_components)
+    chromatogram_times.append(time_map)
+
+# --------------------------------------- #
+# 2. Trouver le chromatogramme le plus riche
+# --------------------------------------- #
+max_idx = max(range(len(chromatogram_components)), key=lambda i: len(chromatogram_components[i]))
+max_comps = chromatogram_components[max_idx]
+
+print(f"🔍 Chromatogramme #{max_idx} contient le plus de composants : {len(max_comps)}")
+print()
+
+# --------------------------------------- #
+# 3. Trouver tous les composants observés
+# --------------------------------------- #
+all_components = set().union(*chromatogram_components)
+missing_components = all_components - max_comps
+
+print(f"📉 Composants manquants dans ce chromatogramme ({len(missing_components)}) :")
+for comp in sorted(missing_components):
+    print(f" - {comp}")
+print()
+
+# --------------------------------------- #
+# 4. Chercher 1 ou 2 autres chromatogrammes qui comblent les manques
+# --------------------------------------- #
+def couvre_les_manquants(indexes):
+    union = set(max_comps)
+    for i in indexes:
+        if i == max_idx:
+            continue
+        union |= chromatogram_components[i]
+    return missing_components.issubset(union)
+
+# Essayer avec 1 chromatogramme
+trouve = False
+for i in range(len(chromatogram_components)):
+    if i == max_idx:
+        continue
+    if couvre_les_manquants([i]):
+        print(f"✅ Tous les composants manquants peuvent être couverts avec le chromatogramme #{i}")
+        trouve = True
+        break
+
+# Sinon, essayer avec des paires
+if not trouve:
+    for i, j in itertools.combinations(range(len(chromatogram_components)), 2):
+        if max_idx in (i, j):
+            continue
+        if couvre_les_manquants([i, j]):
+            print(f"✅ Tous les composants manquants peuvent être couverts avec les chromatogrammes #{i} et #{j}")
+            trouve = True
+            break
+
+if not trouve:
+    print("❌ Aucun autre chromatogramme ou combinaison de 2 chromatogrammes ne couvre tous les composants manquants.")
