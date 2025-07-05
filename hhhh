@@ -1,101 +1,94 @@
 import pandas as pd
-from collections import defaultdict
-import itertools
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.neighbors import NearestNeighbors
 
-# ------------------------------- #
-# 1. Charger les chromatogrammes
-# ------------------------------- #
-json_path = "chromatogrammes.json"
-df_json = pd.read_json(json_path).dropna(subset=['pics'])
+# ----------------------- #
+# 1. Charger les temps depuis l'Excel
+# ----------------------- #
+excel_path = "composants_ref.xlsx"
+df_excel = pd.read_excel(excel_path)
 
-chromatogram_components = []
-chromatogram_times = []
+# Nettoyage de noms (optionnel)
+df_excel['Composant'] = df_excel['Composant'].astype(str).str.strip().str.upper()
 
-for idx, row in df_json.iterrows():
-    seen_counts = defaultdict(int)
-    current_components = set()
-    time_map = {}
+# Valeur expérimentale mesurée pour le toluène
+tol_value = 85.0
 
-    sorted_pics = sorted(row['pics'].items(), key=lambda x: float(x[0]))
-    for time_str, data in sorted_pics:
-        time = float(time_str)
-        if time <= 150:
-            base = str(data[0]).strip().lower()
-            seen_counts[base] += 1
-            comp_name = f"{base}_{seen_counts[base]}"
-            current_components.add(comp_name)
-            time_map[comp_name] = time
+# Vérification que toluene est bien présent
+if not any(df_excel['Composant'].str.upper() == "TOLUENE"):
+    raise ValueError("❌ 'TOLUENE' n'est pas présent dans le fichier Excel.")
 
-    chromatogram_components.append(current_components)
-    chromatogram_times.append(time_map)
+# Temps de rétention de référence de toluène dans l'Excel
+toluene_ref_time = df_excel[df_excel['Composant'] == "TOLUENE"]['Temps de rétention'].values[0]
 
-# --------------------------------------- #
-# 2. Trouver le chromatogramme le plus riche
-# --------------------------------------- #
-max_idx = max(range(len(chromatogram_components)), key=lambda i: len(chromatogram_components[i]))
-max_comps = chromatogram_components[max_idx]
+# ----------------------- #
+# 2. Ajustement des temps par le delta
+# ----------------------- #
+delta = tol_value - toluene_ref_time
+df_excel['AdjustedTime'] = df_excel['Temps de rétention'] + delta
 
-print(f"🔍 Chromatogramme #{max_idx} contient le plus de composants : {len(max_comps)}")
-print()
+# ----------------------- #
+# 3. Entraînement du modèle NearestNeighbors
+# ----------------------- #
+component_names = df_excel['Composant'].tolist()
+X = df_excel['AdjustedTime'].values.reshape(-1, 1) / 150.0  # normalisation
 
-# --------------------------------------- #
-# 3. Trouver tous les composants observés
-# --------------------------------------- #
-all_components = set().union(*chromatogram_components)
-missing_components = all_components - max_comps
+nbrs = NearestNeighbors(n_neighbors=1)
+nbrs.fit(X)
 
-print(f"📉 Composants manquants dans ce chromatogramme ({len(missing_components)}) :")
-for comp in sorted(missing_components):
-    print(f" - {comp}")
-print()
+# ----------------------- #
+# 4. Détection des pics (déjà fournis)
+# ----------------------- #
+# Variables supposées disponibles :
+# x_full : array des temps (x)
+# y_full : intensités (y)
+# probs_full : probabilité d’être un pic (même longueur que x_full)
 
-# --------------------------------------- #
-# 4. Chercher 1 ou 2 autres chromatogrammes qui comblent les manques
-# --------------------------------------- #
-def couvre_les_manquants(indexes):
-    union = set(max_comps)
-    for i in indexes:
-        if i == max_idx:
-            continue
-        union |= chromatogram_components[i]
-    return missing_components.issubset(union)
+detected_peaks = []
+threshold = 0.4
+i = 3  # éviter les bords du signal
 
-# Essayer avec 1 chromatogramme
-trouve = False
-for i in range(len(chromatogram_components)):
-    if i == max_idx:
-        continue
-    if couvre_les_manquants([i]):
-        print(f"✅ Tous les composants manquants peuvent être couverts avec le chromatogramme #{i}")
-        trouve = True
-        break
+plt.figure(figsize=(12, 5))
+plt.plot(x_full, y_full, label='Signal')
+plt.title("Attribution des composants par NearestNeighbors")
 
-# Sinon, essayer avec des paires
-if not trouve:
-    for i, j in itertools.combinations(range(len(chromatogram_components)), 2):
-        if max_idx in (i, j):
-            continue
-        if couvre_les_manquants([i, j]):
-            print(f"✅ Tous les composants manquants peuvent être couverts avec les chromatogrammes #{i} et #{j}")
-            trouve = True
-            break
+while i < len(probs_full) - 3:
+    if probs_full[i] > threshold:
+        window = probs_full[i - 3:i + 4]
+        if np.any(window > threshold):
+            idx_window = np.arange(i - 3, i + 4)
+            idx_max_intensity = idx_window[np.argmax(y_full[idx_window])]
+            detected_peaks.append(idx_max_intensity)
 
-if not trouve:
-    print("❌ Aucun autre chromatogramme ou combinaison de 2 chromatogrammes ne couvre tous les composants manquants.")
+            # Temps de pic détecté
+            pic_time_detected = x_full[idx_max_intensity]
+            pic_time_normalized = pic_time_detected / 150.0
 
-import pandas as pd
+            # Trouver le composant le plus proche
+            _, indices = nbrs.kneighbors([[pic_time_normalized]])
+            closest_index = indices[0][0]
+            closest_component = component_names[closest_index]
 
-# Récupérer les temps de rétention pour le chromatogramme avec le plus de pics
-max_time_map = chromatogram_times[max_idx]
+            # Affichage sur le graphique
+            plt.text(
+                pic_time_detected,
+                y_full[idx_max_intensity] + 0.02 * max(y_full),
+                closest_component,
+                color='red',
+                fontsize=9,
+                ha='center',
+            )
 
-# Créer un DataFrame avec nom du composant + temps
-df_export = pd.DataFrame([
-    {"Composant": comp, "Temps de rétention": time}
-    for comp, time in max_time_map.items()
-])
+            # Avancer après la fenêtre
+            i = i + 4
+        else:
+            i += 1
+    else:
+        i += 1
 
-# Sauvegarder dans un fichier Excel
-output_path = "chromatogramme_max_components.xlsx"
-df_export.to_excel(output_path, index=False)
-
-print(f"📁 Fichier Excel sauvegardé : {output_path}")
+plt.xlabel("Temps (min)")
+plt.ylabel("Intensité")
+plt.legend()
+plt.grid(True)
+plt.show()
