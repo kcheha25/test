@@ -1,1202 +1,238 @@
-import tkinter as tk
-from tkinter import filedialog, messagebox
-from PIL import Image, ImageTk
-import math
 import os
-import openpyxl
-
-class ImageAnnotator:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("Image Annotator")
-        self.root.state('zoomed')
-        self.root.configure(bg="#f0f0f0")
-
-        # Layout principal centré
-        self.top_frame = tk.Frame(root, bg="#333")
-        self.top_frame.pack(side="top", anchor="center", pady=10)
-
-        self.upload_btn = tk.Button(self.top_frame, text="📂 Upload Image", command=self.upload_image,
-                                    font=("Segoe UI", 10, "bold"), bg="#4CAF50", fg="white", padx=10, pady=5)
-        self.upload_btn.pack(side="left", padx=10)
-
-        self.save_btn = tk.Button(self.top_frame, text="💾 Save", command=self.save_data,
-                                  font=("Segoe UI", 10, "bold"), bg="#2196F3", fg="white", padx=10, pady=5)
-        self.save_btn.pack(side="left", padx=10)
-
-        self.canvas = tk.Canvas(root, cursor="cross", bg="white", highlightthickness=0)
-        self.canvas.pack(fill="both", expand=True)
-
-        self.image = None
-        self.image_path = None
-        self.tk_image = None
-        self.center_point = None
-        self.second_point = None
-        self.pixel_to_unit_ratio = None
-        self.rect = None
-        self.rect_coords = None
-        self.handles = []
-        self.active_handle = None
-        self.resize_handle_size = 6
-
-        self.canvas.bind("<Button-1>", self.click_event)
-        self.canvas.bind("<B1-Motion>", self.drag_rectangle)
-        self.canvas.bind("<ButtonRelease-1>", self.stop_drag)
-
-    def upload_image(self):
-        file_path = filedialog.askopenfilename(filetypes=[("Image files", "*.png;*.jpg;*.jpeg;*.bmp")])
-        if file_path:
-            self.image_path = file_path
-            self.image = Image.open(file_path)
-            self.tk_image = ImageTk.PhotoImage(self.image)
-            self.canvas.delete("all")
-            self.canvas.config(scrollregion=(0, 0, self.tk_image.width(), self.tk_image.height()))
-            self.canvas.create_image(0, 0, image=self.tk_image, anchor="nw", tags="image")
-            self.reset_state()
-
-    def reset_state(self):
-        self.center_point = None
-        self.second_point = None
-        self.pixel_to_unit_ratio = None
-        self.rect = None
-        self.rect_coords = None
-        self.canvas.delete("point")
-        self.canvas.delete("rect")
-        self.canvas.delete("label")
-        self.remove_handles()
-
-    def click_event(self, event):
-        x, y = event.x, event.y
-
-        # Vérifie si clic sur un handle pour redimensionnement
-        for i, handle in enumerate(self.handles):
-            x0, y0, x1, y1 = self.canvas.coords(handle)
-            if x0 <= x <= x1 and y0 <= y <= y1:
-                self.active_handle = i
-                return
-
-        if not self.center_point:
-            self.center_point = (x, y)
-            self.canvas.create_oval(x-4, y-4, x+4, y+4, fill="red", tags="point")
-        elif not self.second_point:
-            self.second_point = (x, y)
-            self.canvas.create_oval(x-4, y-4, x+4, y+4, fill="green", tags="point")
-            self.draw_distance_line()
-            self.pixel_to_unit_ratio = 3.1 / self.compute_distance(self.center_point, self.second_point)
-        else:
-            if not self.rect:
-                w, h = 100, 80
-                x0, y0 = x - w//2, y - h//2
-                x1, y1 = x + w//2, y + h//2
-                self.rect_coords = [x0, y0, x1, y1]
-                self.rect = self.canvas.create_rectangle(*self.rect_coords, outline="#2196F3", width=2, tags="rect")
-                self.update_rectangle_info()
-
-    def draw_distance_line(self):
-        x0, y0 = self.center_point
-        x1, y1 = self.second_point
-        self.canvas.create_line(x0, y0, x1, y1, fill="purple", width=2, tags="point")
-        distance_px = self.compute_distance(self.center_point, self.second_point)
-        self.canvas.create_text((x0 + x1)//2, (y0 + y1)//2 - 12,
-                                text=f"{distance_px:.1f} px = 3.1 units", fill="black",
-                                font=("Segoe UI", 10, "bold"), tags="label")
-
-    def compute_distance(self, p1, p2):
-        return math.hypot(p2[0] - p1[0], p2[1] - p1[1])
-
-    def drag_rectangle(self, event):
-        x, y = event.x, event.y
-        if self.rect_coords and self.rect:
-            if self.active_handle is not None:
-                x0, y0, x1, y1 = self.rect_coords
-                coords = [x0, y0, x1, y1]
-                idx = self.active_handle
-                if idx == 0:  # top-left
-                    coords[0], coords[1] = x, y
-                elif idx == 1:  # top-right
-                    coords[2], coords[1] = x, y
-                elif idx == 2:  # bottom-right
-                    coords[2], coords[3] = x, y
-                elif idx == 3:  # bottom-left
-                    coords[0], coords[3] = x, y
-                self.rect_coords = coords
-                self.canvas.coords(self.rect, *self.rect_coords)
-                self.update_rectangle_info()
-            else:
-                # Déplacement du rectangle
-                x0, y0, x1, y1 = self.rect_coords
-                w, h = x1 - x0, y1 - y0
-                new_x0, new_y0 = x - w//2, y - h//2
-                new_x1, new_y1 = x + w//2, y + h//2
-                self.rect_coords = [new_x0, new_y0, new_x1, new_y1]
-                self.canvas.coords(self.rect, *self.rect_coords)
-                self.update_rectangle_info()
-
-    def stop_drag(self, event):
-        self.active_handle = None
-
-    def draw_resize_handles(self):
-        self.remove_handles()
-        x0, y0, x1, y1 = self.rect_coords
-        corners = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
-        for x, y in corners:
-            handle = self.canvas.create_oval(
-                x - self.resize_handle_size, y - self.resize_handle_size,
-                x + self.resize_handle_size, y + self.resize_handle_size,
-                fill="orange", outline="black", tags="rect"
-            )
-            self.handles.append(handle)
-
-    def remove_handles(self):
-        for handle in self.handles:
-            self.canvas.delete(handle)
-        self.handles = []
-
-    def update_rectangle_info(self):
-        self.canvas.delete("label")
-        if self.center_point and self.rect_coords:
-            cx, cy = self.center_point
-            x0, y0, x1, y1 = self.rect_coords
-            corners = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
-            for x, y in corners:
-                dx = (x - cx) * (self.pixel_to_unit_ratio or 1)
-                dy = (y - cy) * (self.pixel_to_unit_ratio or 1)
-                self.canvas.create_text(x + 10, y - 10, text=f"{dx:.2f}, {dy:.2f}",
-                                        fill="#333", font=("Segoe UI", 9, "bold"), tags="label")
-            self.draw_resize_handles()
-
-    def save_data(self):
-        if not self.rect_coords or not self.image_path:
-            messagebox.showwarning("Erreur", "Veuillez d'abord charger une image et dessiner un rectangle.")
-            return
-
-        x0, y0, x1, y1 = self.rect_coords
-        corners = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
-
-        # Crée le classeur Excel
-        wb = openpyxl.Workbook()
-        ws = wb.active
-        ws.title = "Rectangle Coordinates"
-        ws.append(["Point", "X", "Y"])
-
-        for i, (x, y) in enumerate(corners, start=1):
-            ws.append([f"P{i}", round(x), round(y)])
-
-        # Sauvegarde dans le même dossier que l'image
-        base, ext = os.path.splitext(os.path.basename(self.image_path))
-        folder = os.path.dirname(self.image_path)
-        excel_path = os.path.join(folder, f"{base}.xlsx")
-
-        try:
-            wb.save(excel_path)
-            messagebox.showinfo("Succès", f"Coordonnées sauvegardées :\n{excel_path}")
-        except Exception as e:
-            messagebox.showerror("Erreur", f"Impossible de sauvegarder le fichier :\n{e}")
-
-
-if __name__ == "__main__":
-    root = tk.Tk()
-    app = ImageAnnotator(root)
-    root.mainloop()
-
-
-
-
-import tkinter as tk
-from tkinter import filedialog, messagebox
-from PIL import Image, ImageTk
-import math
-import os
-import openpyxl
-
-class ImageAnnotator:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("Image Annotator")
-        self.root.state('zoomed')
-        self.root.configure(bg="#f0f0f0")
-
-        self.top_frame = tk.Frame(root, bg="#333")
-        self.top_frame.pack(side="top", anchor="center", pady=10)
-
-        self.upload_btn = tk.Button(self.top_frame, text="📂 Upload Image", command=self.upload_image,
-                                    font=("Segoe UI", 10, "bold"), bg="#4CAF50", fg="white", padx=10, pady=5)
-        self.upload_btn.pack(side="left", padx=10)
-
-        self.add_rect_btn = tk.Button(self.top_frame, text="➕ Ajouter Rectangle", command=self.add_new_rectangle_mode,
-                                      font=("Segoe UI", 10, "bold"), bg="#FF9800", fg="white", padx=10, pady=5)
-        self.add_rect_btn.pack(side="left", padx=10)
-
-        self.save_btn = tk.Button(self.top_frame, text="💾 Save", command=self.save_data,
-                                  font=("Segoe UI", 10, "bold"), bg="#2196F3", fg="white", padx=10, pady=5)
-        self.save_btn.pack(side="left", padx=10)
-
-        self.canvas = tk.Canvas(root, cursor="cross", bg="white", highlightthickness=0)
-        self.canvas.pack(fill="both", expand=True)
-
-        self.image = None
-        self.image_path = None
-        self.tk_image = None
-
-        self.center_point = None
-        self.second_point = None
-        self.pixel_to_unit_ratio = None
-
-        self.rectangles = []  # Liste des rectangles
-        self.current_rect = None
-        self.active_handle = None
-        self.resize_handle_size = 6
-        self.adding_new_rect = False
-
-        self.zoom_factor = 1.0
-        self.min_zoom = 0.2
-        self.max_zoom = 5.0
-
-        self.canvas.bind("<Button-1>", self.click_event)
-        self.canvas.bind("<B1-Motion>", self.drag_rectangle)
-        self.canvas.bind("<ButtonRelease-1>", self.stop_drag)
-        self.canvas.tag_bind("handle", "<Button-1>", self.select_handle)
-
-        # Bind molette souris (Windows/macOS/Linux)
-        self.canvas.bind("<MouseWheel>", self.zoom)        # Windows/macOS
-        self.canvas.bind("<Button-4>", self.zoom)          # Linux scroll up
-        self.canvas.bind("<Button-5>", self.zoom)          # Linux scroll down
-
-    def upload_image(self):
-        file_path = filedialog.askopenfilename(filetypes=[("Image files", "*.png;*.jpg;*.jpeg;*.bmp")])
-        if file_path:
-            self.image_path = file_path
-            self.image = Image.open(file_path)
-            self.zoom_factor = 1.0
-            self.display_image()
-            self.reset_state()
-
-    def display_image(self):
-        w, h = self.image.size
-        resized = self.image.resize((int(w * self.zoom_factor), int(h * self.zoom_factor)), Image.LANCZOS)
-        self.tk_image = ImageTk.PhotoImage(resized)
-        self.canvas.delete("all")
-        self.canvas.config(scrollregion=(0, 0, self.tk_image.width(), self.tk_image.height()))
-        self.canvas.create_image(self.tk_image.width()//2, self.tk_image.height()//2,
-                                 image=self.tk_image, anchor="center", tags="image")
-        self.redraw_points_and_rectangles()
-
-    def redraw_points_and_rectangles(self):
-        self.canvas.delete("point")
-        self.canvas.delete("label")
-        self.canvas.delete("handle")
-        self.canvas.delete("rect")
-
-        if self.center_point:
-            cx, cy = self.transform_coords(self.center_point)
-            self.canvas.create_oval(cx-4, cy-4, cx+4, cy+4, fill="red", tags="point")
-        if self.second_point:
-            sx, sy = self.transform_coords(self.second_point)
-            self.canvas.create_oval(sx-4, sy-4, sx+4, sy+4, fill="green", tags="point")
-            self.draw_distance_line()
-
-        for rect in self.rectangles:
-            x0, y0, x1, y1 = rect["coords"]
-            zx0, zy0 = self.transform_coords((x0, y0))
-            zx1, zy1 = self.transform_coords((x1, y1))
-            rect_id = self.canvas.create_rectangle(zx0, zy0, zx1, zy1, outline="#2196F3", width=2, tags="rect")
-            rect["id"] = rect_id
-            self.update_rectangle_info(rect)
-
-    def transform_coords(self, point):
-        x, y = point
-        return x * self.zoom_factor, y * self.zoom_factor
-
-    def inverse_transform_coords(self, point):
-        x, y = point
-        return x / self.zoom_factor, y / self.zoom_factor
-
-    def zoom(self, event):
-        if event.num == 4 or event.delta > 0:
-            factor = 1.1
-        elif event.num == 5 or event.delta < 0:
-            factor = 0.9
-        else:
-            return
-
-        new_zoom = self.zoom_factor * factor
-        if new_zoom < self.min_zoom or new_zoom > self.max_zoom:
-            return
-        self.zoom_factor = new_zoom
-
-        self.display_image()
-
-    def add_new_rectangle_mode(self):
-        self.adding_new_rect = True
-
-    def click_event(self, event):
-        x, y = self.inverse_transform_coords((event.x, event.y))
-
-        if not self.center_point:
-            self.center_point = (x, y)
-            self.canvas.create_oval(event.x-4, event.y-4, event.x+4, event.y+4, fill="red", tags="point")
-        elif not self.second_point:
-            self.second_point = (x, y)
-            self.canvas.create_oval(event.x-4, event.y-4, event.x+4, event.y+4, fill="green", tags="point")
-            self.draw_distance_line()
-            self.pixel_to_unit_ratio = 3.1 / self.compute_distance(self.center_point, self.second_point)
-        elif self.adding_new_rect:
-            w, h = 100, 80
-            x0, y0 = x - w//2, y - h//2
-            x1, y1 = x + w//2, y + h//2
-            rect_id = self.canvas.create_rectangle(
-                *(self.transform_coords((x0, y0)) + self.transform_coords((x1, y1))),
-                outline="#2196F3", width=2, tags="rect")
-            rect_info = {
-                "id": rect_id,
-                "coords": [x0, y0, x1, y1],
-                "handles": []
-            }
-            self.rectangles.append(rect_info)
-            self.current_rect = rect_info
-            self.update_rectangle_info(rect_info)
-            self.adding_new_rect = False
-        else:
-            for rect in self.rectangles:
-                x0, y0, x1, y1 = rect["coords"]
-                if x0 <= x <= x1 and y0 <= y <= y1:
-                    self.current_rect = rect
-                    self.update_rectangle_info(rect)
-                    break
-
-    def select_handle(self, event):
-        x, y = event.x, event.y
-        for rect in self.rectangles:
-            for idx, handle_id in enumerate(rect["handles"]):
-                coords = self.canvas.coords(handle_id)
-                if len(coords) != 4:
-                    continue
-                x0, y0, x1, y1 = coords
-                if x0 <= x <= x1 and y0 <= y <= y1:
-                    self.current_rect = rect
-                    self.active_handle = idx
-                    return
-
-    def compute_distance(self, p1, p2):
-        return math.hypot(p2[0] - p1[0], p2[1] - p1[1])
-
-    def draw_distance_line(self):
-        if not self.center_point or not self.second_point:
-            return
-        cx, cy = self.transform_coords(self.center_point)
-        sx, sy = self.transform_coords(self.second_point)
-        self.canvas.delete("point_line")
-        self.canvas.create_line(cx, cy, sx, sy, fill="purple", width=2, tags=("point", "point_line"))
-        distance_px = self.compute_distance(self.center_point, self.second_point)
-        self.canvas.delete("label_distance")
-        self.canvas.create_text((cx + sx)//2, (cy + sy)//2 - 12,
-                                text=f"{distance_px:.1f} px = 3.1 units", fill="black",
-                                font=("Segoe UI", 10, "bold"), tags=("label", "label_distance"))
-
-    def drag_rectangle(self, event):
-        if not self.current_rect:
-            return
-
-        x, y = self.inverse_transform_coords((event.x, event.y))
-        coords = self.current_rect["coords"]
-
-        if self.active_handle is not None:
-            idx = self.active_handle
-            if idx == 0:
-                coords[0], coords[1] = x, y
-            elif idx == 1:
-                coords[2], coords[1] = x, y
-            elif idx == 2:
-                coords[2], coords[3] = x, y
-            elif idx == 3:
-                coords[0], coords[3] = x, y
-        else:
-            x0, y0, x1, y1 = coords
-            w, h = x1 - x0, y1 - y0
-            coords[0], coords[1], coords[2], coords[3] = x - w//2, y - h//2, x + w//2, y + h//2
-
-        x0, y0, x1, y1 = coords
-        if x0 > x1:
-            x0, x1 = x1, x0
-        if y0 > y1:
-            y0, y1 = y1, y0
-        self.current_rect["coords"] = [x0, y0, x1, y1]
-
-        zx0, zy0 = self.transform_coords((x0, y0))
-        zx1, zy1 = self.transform_coords((x1, y1))
-        self.canvas.coords(self.current_rect["id"], zx0, zy0, zx1, zy1)
-        self.update_rectangle_info(self.current_rect)
-
-    def stop_drag(self, event):
-        self.active_handle = None
-
-    def update_rectangle_info(self, rect):
-        self.canvas.delete("label")
-        self.canvas.delete("handle")
-        for handle in rect["handles"]:
-            self.canvas.delete(handle)
-        rect["handles"].clear()
-
-        x0, y0, x1, y1 = rect["coords"]
-        corners = [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
-
-        for i, (x, y) in enumerate(corners):
-            zx, zy = self.transform_coords((x, y))
-            dx = (x - self.center_point[0]) * (self.pixel_to_unit_ratio or 1)
-            dy = (y - self.center_point[1]) * (self.pixel_to_unit_ratio or 1)
-            self.canvas.create_text(zx + 10, zy - 10, text=f"{dx:.2f}, {dy:.2f}",
-                                    fill="#333", font=("Segoe UI", 9, "bold"), tags="label")
-            handle = self.canvas.create_oval(
-                zx - self.resize_handle_size, zy - self.resize_handle_size,
-                zx + self.resize_handle_size, zy + self.resize_handle_size,
-                fill="orange", outline="black", tags=("handle",)
-            )
-            rect["handles"].append(handle)
-
-    def save_data(self):
-        if not self.rectangles:
-            messagebox.showwarning("Warning", "Aucun rectangle à sauvegarder.")
-            return
-    
-        if not self.image_path:
-            messagebox.showwarning("Warning", "Aucune image chargée.")
-            return
-    
-        # Construire chemin Excel avec même nom que l'image
-        base_dir = os.path.dirname(self.image_path)
-        base_name = os.path.splitext(os.path.basename(self.image_path))[0]
-        excel_path = os.path.join(base_dir, base_name + ".xlsx")
-    
-        wb = openpyxl.Workbook()
-        ws = wb.active
-        ws.title = "Annotations"
-    
-        # En-têtes
-        ws.append([
-            "Rectangle",
-            "Top-Left (units)", 
-            "Top-Right (units)",
-            "Bottom-Right (units)", 
-            "Bottom-Left (units)"
-        ])
-    
-        for i, rect in enumerate(self.rectangles, 1):
-            x0, y0, x1, y1 = rect["coords"]
-            corners = [
-                (x0, y0),  # Top-left
-                (x1, y0),  # Top-right
-                (x1, y1),  # Bottom-right
-                (x0, y1)   # Bottom-left
-            ]
-    
-            # Conversion en unités relatives au center_point
-            corners_units = [
-                (
-                    (x - self.center_point[0]) * (self.pixel_to_unit_ratio or 1),
-                    (y - self.center_point[1]) * (self.pixel_to_unit_ratio or 1)
-                )
-                for x, y in corners
-            ]
-    
-            # Formatage string (x, y) pour chaque coin
-            corners_str = [f"({cx:.2f}, {cy:.2f})" for cx, cy in corners_units]
-    
-            ws.append([i] + corners_str)
-    
-        try:
-            wb.save(excel_path)
-            messagebox.showinfo("Success", f"Données sauvegardées dans\n{excel_path}")
-        except Exception as e:
-            messagebox.showerror("Error", f"Erreur lors de la sauvegarde:\n{e}")
-
-
-    def reset_state(self):
-        self.center_point = None
-        self.second_point = None
-        self.pixel_to_unit_ratio = None
-        self.rectangles.clear()
-        self.current_rect = None
-        self.active_handle = None
-        self.adding_new_rect = False
-
-if __name__ == "__main__":
-    root = tk.Tk()
-    app = ImageAnnotator(root)
-    root.mainloop()
-
-
-
-import tkinter as tk 
-from tkinter import filedialog, simpledialog, messagebox
-from PIL import Image, ImageTk
-import math
-
-HANDLE_SIZE = 8
-
-class HoleAnnotator:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("Positionneur de Trous")
-        self.root.geometry("1000x700")
-
-        self.upload_btn = tk.Button(root, text="📂 Upload Image", command=self.upload_image,
-                                    bg="#4CAF50", fg="white", font=("Segoe UI", 10, "bold"))
-        self.upload_btn.pack(pady=10)
-
-        self.angle_btn = tk.Button(root, text="🧭 Calculer angle de rotation", command=self.calculate_rotation_angle,
-                                   bg="#2196F3", fg="white", font=("Segoe UI", 10, "bold"))
-        self.angle_btn.pack(pady=5)
-
-        self.rect_btn = tk.Button(root, text="⬛ Dessiner Rectangle", command=self.start_rectangle_mode,
-                                  bg="#FF9800", fg="white", font=("Segoe UI", 10, "bold"))
-        self.rect_btn.pack(pady=5)
-
-        self.coord_btn = tk.Button(root, text="📏 Coordonnées rectangle", command=self.show_rect_coords_relative_to_hole,
-                                   bg="#9C27B0", fg="white", font=("Segoe UI", 10, "bold"))
-        self.coord_btn.pack(pady=5)
-
-        self.canvas = tk.Canvas(root, bg="white")
-        self.canvas.pack(fill="both", expand=True)
-
-        self.canvas.bind("<Button-1>", self.on_click)
-        self.canvas.bind("<ButtonRelease-1>", self.on_release)
-        self.canvas.bind("<B1-Motion>", self.on_drag)
-
-        self.image = None
-        self.tk_image = None
-        self.holes = []
-
-        self.rectangles = []
-        self.current_rect = None
-        self.drawing_rect = False
-        self.selected_rect = None
-        self.selected_handle = None
-        self.drag_start = None
-        self.mode = "holes"
-
-    def start_rectangle_mode(self):
-        self.mode = "rectangles"
-        messagebox.showinfo("Mode Rectangle", "Clique et glisse pour dessiner un rectangle.\n"
-                                              "Clique sur un rectangle pour le sélectionner.")
-
-    def upload_image(self):
-        path = filedialog.askopenfilename(filetypes=[("Image Files", "*.png *.jpg *.jpeg *.bmp")])
-        if not path:
-            return
-
-        self.image = Image.open(path)
-        self.tk_image = ImageTk.PhotoImage(self.image)
-
-        self.canvas.delete("all")
-        self.canvas.create_image(0, 0, anchor="nw", image=self.tk_image)
-        self.holes.clear()
-        self.rectangles.clear()
-        self.selected_rect = None
-        self.selected_handle = None
-
-    def on_click(self, event):
-        if self.mode == "holes":
-            self.add_hole(event)
-        elif self.mode == "rectangles":
-            self.select_or_start_rect(event)
-
-    def add_hole(self, event):
-        if len(self.holes) >= 9:
-            messagebox.showinfo("Info", "Vous avez déjà sélectionné 9 trous.")
-            return
-
-        try:
-            x_theo = float(simpledialog.askstring("Coordonnée Théorique X", "Entrer la coordonnée X théorique :"))
-            y_theo = float(simpledialog.askstring("Coordonnée Théorique Y", "Entrer la coordonnée Y théorique :"))
-        except (TypeError, ValueError):
-            messagebox.showerror("Erreur", "Coordonnées invalides. Veuillez réessayer.")
-            return
-
-        index = len(self.holes)
-        self.holes.append((event.x, event.y, x_theo, y_theo))
-        self.draw_point(event.x, event.y, x_theo, y_theo, index)
-
-    def select_or_start_rect(self, event):
-        x, y = event.x, event.y
-        if self.selected_rect is not None:
-            handle = self.get_handle_at_pos(self.selected_rect, x, y)
-            if handle is not None:
-                self.selected_handle = handle
-                self.drag_start = (x, y)
-                return
-
-        clicked_rect = None
-        for rect in reversed(self.rectangles):
-            if self.point_in_rect(x, y, rect):
-                clicked_rect = rect
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+
+# 🔹 Fonction pour calculer la diagonale d'une bbox et la convertir en nm
+def compute_bbox_diagonal(bbox, resolution=0.0657):
+    x, y, w, h, *_ = bbox
+    diagonal_pixels = np.sqrt(w**2 + h**2)
+    diagonal_nm = diagonal_pixels * resolution
+    return diagonal_nm
+
+# 🔹 Fonction pour générer les données Excel pour une image donnée
+def process_image_bboxes(image_name, bboxes, output_dir):
+    lengths_nm = [compute_bbox_diagonal(bbox) for bbox in bboxes]
+    feuille_counts = [1 for _ in bboxes]  # Si chaque BBox représente un feuillet
+
+    total_feuillets = len(bboxes)
+    total_length = sum(lengths_nm)
+    nb_empilements = count_empilements(bboxes)  # À définir selon ta logique
+
+    # 🔹 Création du DataFrame pour Excel
+    data = {
+        "Index BBox": list(range(len(bboxes))),
+        "Nombre de feuillets": feuille_counts,
+        "Longueur moyenne (nm)": lengths_nm,
+    }
+
+    df = pd.DataFrame(data)
+    summary = pd.DataFrame({
+        "Total feuillets": [total_feuillets],
+        "Total longueur (nm)": [total_length],
+        "Nombre empilements": [nb_empilements]
+    })
+
+    # 🔹 Enregistrement dans un fichier Excel
+    output_path = os.path.join(output_dir, f"{os.path.splitext(image_name)[0]}.xlsx")
+    with pd.ExcelWriter(output_path) as writer:
+        summary.to_excel(writer, sheet_name="Résumé", index=False)
+        df.to_excel(writer, sheet_name="Détails par BBox", index=False)
+
+# 🔹 Exemple de fonction pour compter les empilements (logique à adapter)
+def count_empilements(bboxes):
+    # Exemple : considère comme un empilement si des BBoxes se superposent
+    count = 0
+    for i, bbox1 in enumerate(bboxes):
+        x1, y1, w1, h1 = bbox1[:4]
+        for j, bbox2 in enumerate(bboxes):
+            if i >= j:
+                continue
+            x2, y2, w2, h2 = bbox2[:4]
+            if (
+                x1 < x2 + w2 and x1 + w1 > x2 and
+                y1 < y2 + h2 and y1 + h1 > y2
+            ):
+                count += 1
                 break
+    return count
 
-        if clicked_rect:
-            self.selected_rect = clicked_rect
-            self.selected_handle = None
-            self.drag_start = (x, y)
-            self.redraw()
-            return
+# 🔹 Parcours du dossier d’images et traitement
+def process_folder(folder_path, bbox_data_per_image, output_dir):
+    os.makedirs(output_dir, exist_ok=True)
+    for image_file in os.listdir(folder_path):
+        if image_file.lower().endswith((".png", ".jpg", ".jpeg", ".tiff")):
+            image_path = os.path.join(folder_path, image_file)
+            # Ici on récupère les BBoxes associées à l'image
+            bboxes = bbox_data_per_image.get(image_file, [])
+            process_image_bboxes(image_file, bboxes, output_dir)
 
-        self.drawing_rect = True
-        self.current_rect = {"x1": x, "y1": y, "x2": x, "y2": y, "handle_ids": []}
-        self.redraw()
+# 🔹 Exemple de structure pour bbox_data_per_image (à adapter selon ta source)
+# Chaque BBox est une liste : [x, y, w, h]
+bbox_data_per_image = {
+    "image1.jpg": [[10, 20, 30, 40], [50, 60, 20, 30]],
+    "image2.jpg": [[15, 25, 35, 45], [100, 150, 50, 70]],
+    # etc.
+}
 
-    def on_drag(self, event):
-        x, y = event.x, event.y
-        if self.mode == "holes":
-            return
-
-        if self.drawing_rect and self.current_rect is not None:
-            self.current_rect["x2"] = x
-            self.current_rect["y2"] = y
-            self.redraw()
-            return
-
-        if self.selected_rect is not None and self.drag_start is not None:
-            dx = x - self.drag_start[0]
-            dy = y - self.drag_start[1]
-
-            if self.selected_handle is not None:
-                self.resize_rect(self.selected_rect, self.selected_handle, dx, dy)
-            else:
-                self.move_rect(self.selected_rect, dx, dy)
-
-            self.drag_start = (x, y)
-            self.redraw()
-
-    def on_release(self, event):
-        if self.mode == "rectangles":
-            if self.drawing_rect:
-                self.drawing_rect = False
-                if abs(self.current_rect["x2"] - self.current_rect["x1"]) > 5 and abs(self.current_rect["y2"] - self.current_rect["y1"]) > 5:
-                    self.rectangles.append(self.current_rect)
-                    self.selected_rect = self.current_rect
-                self.current_rect = None
-                self.redraw()
-            else:
-                self.selected_handle = None
-                self.drag_start = None
-
-    def resize_rect(self, rect, handle, dx, dy):
-        if handle == "nw":
-            rect["x1"] += dx
-            rect["y1"] += dy
-        elif handle == "ne":
-            rect["x2"] += dx
-            rect["y1"] += dy
-        elif handle == "sw":
-            rect["x1"] += dx
-            rect["y2"] += dy
-        elif handle == "se":
-            rect["x2"] += dx
-            rect["y2"] += dy
-
-        if rect["x1"] > rect["x2"]:
-            rect["x1"], rect["x2"] = rect["x2"], rect["x1"]
-        if rect["y1"] > rect["y2"]:
-            rect["y1"], rect["y2"] = rect["y2"], rect["y1"]
-
-    def move_rect(self, rect, dx, dy):
-        rect["x1"] += dx
-        rect["x2"] += dx
-        rect["y1"] += dy
-        rect["y2"] += dy
-
-    def get_handle_at_pos(self, rect, x, y):
-        for handle_name, (hx, hy) in self.get_handles_positions(rect).items():
-            if abs(x - hx) <= HANDLE_SIZE and abs(y - hy) <= HANDLE_SIZE:
-                return handle_name
-        return None
-
-    def get_handles_positions(self, rect):
-        return {
-            "nw": (rect["x1"], rect["y1"]),
-            "ne": (rect["x2"], rect["y1"]),
-            "sw": (rect["x1"], rect["y2"]),
-            "se": (rect["x2"], rect["y2"]),
-        }
-
-    def point_in_rect(self, x, y, rect):
-        return rect["x1"] <= x <= rect["x2"] and rect["y1"] <= y <= rect["y2"]
-
-    def redraw(self):
-        self.canvas.delete("all")
-        if self.tk_image:
-            self.canvas.create_image(0, 0, anchor="nw", image=self.tk_image)
-
-        for i, (x_img, y_img, x_theo, y_theo) in enumerate(self.holes):
-            self.draw_point(x_img, y_img, x_theo, y_theo, i)
-
-        for rect in self.rectangles:
-            self.draw_rectangle(rect, selected=(rect == self.selected_rect))
-
-        if self.drawing_rect and self.current_rect is not None:
-            self.draw_rectangle(self.current_rect, selected=True)
-
-    def draw_rectangle(self, rect, selected=False):
-        x1, y1, x2, y2 = rect["x1"], rect["y1"], rect["x2"], rect["y2"]
-        self.canvas.create_rectangle(x1, y1, x2, y2, outline="blue", width=2)
-
-        rect_index = self.rectangles.index(rect) if rect in self.rectangles else len(self.rectangles)
-        self.canvas.create_text((x1 + x2) / 2, y1 - 10, text=f"Rect {rect_index}", fill="blue", font=("Segoe UI", 10, "bold"))
-
-        if selected:
-            for (hx, hy) in self.get_handles_positions(rect).values():
-                self.canvas.create_rectangle(hx - HANDLE_SIZE//2, hy - HANDLE_SIZE//2,
-                                             hx + HANDLE_SIZE//2, hy + HANDLE_SIZE//2,
-                                             fill="white", outline="black")
-
-    def draw_point(self, x, y, x_theo, y_theo, index, x_corr=None, y_corr=None):
-        self.canvas.create_oval(x - 4, y - 4, x + 4, y + 4, fill="red", outline="black")
-        self.canvas.create_text(x + 10, y - 10, anchor="w",
-                                text=f"{index}: ({x_theo:.2f}, {y_theo:.2f})",
-                                fill="red", font=("Segoe UI", 10, "bold"))
-        if x_corr is not None and y_corr is not None:
-            self.canvas.create_text(x + 10, y + 10, anchor="w",
-                                    text=f"→ ({x_corr:.2f}, {y_corr:.2f})",
-                                    fill="green", font=("Segoe UI", 10, "italic"))
-
-    def calculate_rotation_angle(self):
-        if len(self.holes) < 3:
-            messagebox.showwarning("Attention", "Il faut au moins 3 trous définis (trou 1 et un autre pour comparaison).")
-            return
-
-        try:
-            trou_index = int(simpledialog.askstring("Trou cible", "Entrer le numéro du trou (≠ 1) à comparer avec le trou 1 :"))
-            if trou_index == 1 or trou_index >= len(self.holes):
-                raise ValueError
-        except:
-            messagebox.showerror("Erreur", "Numéro de trou invalide.")
-            return
-
-        try:
-            x_real = float(simpledialog.askstring("X Réel", f"Entrer la position RÉELLE en X du trou {trou_index} :"))
-            y_real = float(simpledialog.askstring("Y Réel", f"Entrer la position RÉELLE en Y du trou {trou_index} :"))
-        except:
-            messagebox.showerror("Erreur", "Coordonnées réelles invalides.")
-            return
-
-        _, _, x1_theo, y1_theo = self.holes[1]
-        _, _, x2_theo, y2_theo = self.holes[trou_index]
-
-        dx_theo = x2_theo - x1_theo
-        dy_theo = y2_theo - y1_theo
-        angle_theo = math.atan2(dy_theo, dx_theo)
-
-        dx_real = x_real - x1_theo
-        dy_real = y_real - y1_theo
-        angle_real = math.atan2(dy_real, dx_real)
-
-        angle_rad = angle_real - angle_theo
-        angle_deg = math.degrees(angle_rad)
-        angle_deg = (angle_deg + 180) % 360 - 180
-
-        messagebox.showinfo("Résultat", f"Angle de rotation : {angle_deg:.2f}°")
-
-        cos_a = math.cos(angle_rad)
-        sin_a = math.sin(angle_rad)
-        self.holes_corrected = []
-
-        self.canvas.delete("all")
-        self.canvas.create_image(0, 0, anchor="nw", image=self.tk_image)
-
-        for i, (x_img, y_img, x_theo, y_theo) in enumerate(self.holes):
-            dx = x_theo - x1_theo
-            dy = y_theo - y1_theo
-            x_corr = cos_a * dx - sin_a * dy + x1_theo
-            y_corr = sin_a * dx + cos_a * dy + y1_theo
-            self.holes_corrected.append((x_corr, y_corr))
-            self.draw_point(x_img, y_img, x_theo, y_theo, i, x_corr, y_corr)
-
-    def show_rect_coords_relative_to_hole(self):
-        if len(self.holes) < 2:
-            messagebox.showwarning("Pas assez de trous", "Il faut au moins 2 trous définis.")
-            return
-        if not self.rectangles:
-            messagebox.showwarning("Pas de rectangles", "Aucun rectangle n'a été dessiné.")
-            return
-
-        try:
-            rect_num = int(simpledialog.askstring("Rectangle", "Numéro du rectangle à afficher :"))
-            hole_num = int(simpledialog.askstring("Trou de référence", "Numéro du trou de référence :"))
-
-            if rect_num < 0 or rect_num >= len(self.rectangles):
-                raise ValueError("Rectangle hors limites.")
-            if hole_num < 0 or hole_num >= len(self.holes):
-                raise ValueError("Trou hors limites.")
-        except Exception as e:
-            messagebox.showerror("Erreur", f"Entrée invalide : {e}")
-            return
-
-        x0, y0, *_ = self.holes[0]
-        x1, y1, *_ = self.holes[1]
-        pixel_dist = math.hypot(x1 - x0, y1 - y0)
-        if pixel_dist == 0:
-            messagebox.showerror("Erreur", "Les trous 0 et 1 sont confondus.")
-            return
-        scale = 31 / pixel_dist  # mm / pixel
-
-        if not hasattr(self, "holes_corrected") or len(self.holes_corrected) != len(self.holes):
-            messagebox.showwarning("Attention", "Veuillez d'abord calculer l'angle de rotation (bouton 🧭).")
-            return
-        
-        hx, hy = self.holes_corrected[hole_num]
-        rect = self.rectangles[rect_num]
-        x1, y1, x2, y2 = rect["x1"], rect["y1"], rect["x2"], rect["y2"]
-
-        corners = [
-            ("Coin haut-gauche", x1, y1),
-            ("Coin haut-droit", x2, y1),
-            ("Coin bas-gauche", x1, y2),
-            ("Coin bas-droit", x2, y2),
-        ]
-
-        result = f"Rectangle {rect_num} (par rapport au trou {hole_num}) :\n"
-        for label, cx, cy in corners:
-            dx = (cx - hx) * scale
-            dy = (cy - hy) * scale
-            result += f"{label} : ΔX = {dx:.2f} mm, ΔY = {dy:.2f} mm\n"
-
-        messagebox.showinfo("Coordonnées relatives", result)
+# 🔹 Utilisation
+input_folder = "chemin/vers/dossier_images"
+output_folder = "chemin/vers/sortie_excel"
+process_folder(input_folder, bbox_data_per_image, output_folder)
 
 
+
+
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+from skimage.measure import regionprops, label
+from detectron2.engine import DefaultPredictor
+from detectron2.config import get_cfg
+from detectron2 import model_zoo
+
+# === Conversion pixels → nanomètres ===
+PIXEL_TO_NM = 7.774  # nm / pixel
+
+# === Configuration du modèle Detectron2 ===
+def setup_predictor(weights_path):
+    cfg = get_cfg()
+    cfg.merge_from_file(model_zoo.get_config_file(
+        "COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml"
+    ))
+    cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5
+    cfg.MODEL.WEIGHTS = weights_path
+    cfg.MODEL.DEVICE = "cuda"  # ou "cpu"
+    return DefaultPredictor(cfg)
+
+# === Fonction pour l'analyse morphologique ===
+def analyze_masks(masks):
+    diameters_nm = []
+    perimeters_nm = []
+    feret_ratios = []
+
+    for i in range(masks.shape[0]):
+        mask = masks[i].cpu().numpy().astype(np.uint8)
+        labeled = label(mask)
+        props = regionprops(labeled)
+
+        for prop in props:
+            perimeter_px = prop.perimeter
+            equiv_diameter_px = prop.equivalent_diameter
+            feret_diam_max_px = prop.major_axis_length
+            feret_diam_min_px = prop.minor_axis_length
+
+            # Convertir en nm
+            diameter_nm = equiv_diameter_px * PIXEL_TO_NM
+            perimeter_nm = perimeter_px * PIXEL_TO_NM
+            feret_ratio = feret_diam_min_px / feret_diam_max_px if feret_diam_max_px > 0 else 0
+
+            diameters_nm.append(diameter_nm)
+            perimeters_nm.append(perimeter_nm)
+            feret_ratios.append(feret_ratio)
+
+    return diameters_nm, perimeters_nm, feret_ratios
+
+# === Fonction pour afficher les histogrammes ===
+def plot_histogram(data, title, xlabel):
+    plt.figure()
+    plt.hist(data, bins=20, edgecolor='black', alpha=0.7)
+    plt.title(title)
+    plt.xlabel(xlabel)
+    plt.ylabel("Nombre d'objets")
+    plt.grid(True)
+    plt.show()
+
+# === Main ===
+def main(image_path, weights_path):
+    predictor = setup_predictor(weights_path)
+
+    image = cv2.imread(image_path)
+    outputs = predictor(image)
+
+    if "instances" not in outputs or len(outputs["instances"]) == 0:
+        print("Aucun objet détecté.")
+        return
+
+    masks = outputs["instances"].pred_masks
+    diameters_nm, perimeters_nm, feret_ratios = analyze_masks(masks)
+
+    # Affichage des histogrammes en nm
+    plot_histogram(diameters_nm, "Histogramme des diamètres équivalents", "Diamètre moyen (nm)")
+    plot_histogram(perimeters_nm, "Histogramme des périmètres", "Périmètre (nm)")
+    plot_histogram(feret_ratios, "Histogramme des rapports Feret min / max", "Rapport (min / max)")
+
+# === Exemple d'utilisation ===
 if __name__ == "__main__":
-    root = tk.Tk()
-    app = HoleAnnotator(root)
-    root.mainloop()
+    image_path = "chemin/vers/image.jpg"
+    weights_path = "chemin/vers/model_final.pth"  # Modèle entraîné Detectron2
+    main(image_path, weights_path)
 
 
-import tkinter as tk 
-from tkinter import filedialog, simpledialog, messagebox
-from PIL import Image, ImageTk
-import math
+import pandas as pd
+import numpy as np
+from collections import defaultdict
+import itertools
 
-HANDLE_SIZE = 8
+# === Étape 1 : Lecture Excel et détection des paires ayant le même temps ===
+excel_path = "composants_ref.xlsx"
+df_excel = pd.read_excel(excel_path)
 
-class HoleAnnotator:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("Positionneur de Trous")
-        self.root.geometry("1000x700")
+# Nettoyer les noms (sans suffixes)
+df_excel['Composant'] = df_excel['Composant'].astype(str).str.strip().str.upper()
 
-        self.upload_btn = tk.Button(root, text="📂 Upload Image", command=self.upload_image,
-                                    bg="#4CAF50", fg="white", font=("Segoe UI", 10, "bold"))
-        self.upload_btn.pack(pady=10)
+# Trouver les paires ayant exactement le même temps
+time_groups = df_excel.groupby('Temps de rétention')['Composant'].apply(list)
+duplicate_time_pairs = []
 
-        self.angle_btn = tk.Button(root, text="🧭 Calculer angle de rotation", command=self.calculate_rotation_angle,
-                                   bg="#2196F3", fg="white", font=("Segoe UI", 10, "bold"))
-        self.angle_btn.pack(pady=5)
+for comps in time_groups:
+    if len(comps) > 1:
+        duplicate_time_pairs.extend(list(itertools.combinations(comps, 2)))
 
-        self.rect_btn = tk.Button(root, text="⬛ Dessiner Rectangle", command=self.start_rectangle_mode,
-                                  bg="#FF9800", fg="white", font=("Segoe UI", 10, "bold"))
-        self.rect_btn.pack(pady=5)
+# === Étape 2 : Lecture JSON et extraction des composants par chromatogramme ===
+json_path = "chromatogrammes.json"
+df_json = pd.read_json(json_path).dropna(subset=['pics'])
 
-        self.coord_btn = tk.Button(root, text="📏 Coordonnées rectangle", command=self.show_rect_coords_relative_to_hole,
-                                   bg="#9C27B0", fg="white", font=("Segoe UI", 10, "bold"))
-        self.coord_btn.pack(pady=5)
+# Pour stocker les composants et leurs temps par chromatogramme
+all_chromatograms = []
 
-        self.canvas = tk.Canvas(root, bg="white")
-        self.canvas.pack(fill="both", expand=True)
+for _, row in df_json.iterrows():
+    current_components = []
+    sorted_pics = sorted(row['pics'].items(), key=lambda x: float(x[0]))
 
-        self.canvas.bind("<Button-1>", self.on_click)
-        self.canvas.bind("<ButtonRelease-1>", self.on_release)
-        self.canvas.bind("<B1-Motion>", self.on_drag)
+    for time_str, data in sorted_pics:
+        time = float(time_str)
+        if time <= 150:
+            comp_name = str(data[0]).strip().upper()
+            current_components.append((comp_name, time))
 
-        self.image = None
-        self.tk_image = None
-        self.holes = []
+    all_chromatograms.append(current_components)
 
-        self.rectangles = []
-        self.current_rect = None
-        self.drawing_rect = False
-        self.selected_rect = None
-        self.selected_handle = None
-        self.drag_start = None
-        self.mode = "holes"
+# === Étape 3 : Analyse de l’ordre d’apparition des paires ===
+pair_results = defaultdict(lambda: {"a_precedes_b": 0, "b_precedes_a": 0, "times": []})
 
-    def start_rectangle_mode(self):
-        self.mode = "rectangles"
-        messagebox.showinfo("Mode Rectangle", "Clique et glisse pour dessiner un rectangle.\n"
-                                              "Clique sur un rectangle pour le sélectionner.")
+for comp_a, comp_b in duplicate_time_pairs:
+    for chrom in all_chromatograms:
+        names_in_chrom = [c[0] for c in chrom]
+        if comp_a in names_in_chrom and comp_b in names_in_chrom:
+            idx_a = names_in_chrom.index(comp_a)
+            idx_b = names_in_chrom.index(comp_b)
+            time_a = chrom[idx_a][1]
+            time_b = chrom[idx_b][1]
 
-    def upload_image(self):
-        path = filedialog.askopenfilename(filetypes=[("Image Files", "*.png *.jpg *.jpeg *.bmp")])
-        if not path:
-            return
-
-        self.image = Image.open(path)
-        self.tk_image = ImageTk.PhotoImage(self.image)
-
-        self.canvas.delete("all")
-        self.canvas.create_image(0, 0, anchor="nw", image=self.tk_image)
-        self.holes.clear()
-        self.rectangles.clear()
-        self.selected_rect = None
-        self.selected_handle = None
-
-    def on_click(self, event):
-        if self.mode == "holes":
-            self.add_hole(event)
-        elif self.mode == "rectangles":
-            self.select_or_start_rect(event)
-
-    def add_hole(self, event):
-        if len(self.holes) >= 9:
-            messagebox.showinfo("Info", "Vous avez déjà sélectionné 9 trous.")
-            return
-
-        try:
-            x_theo = float(simpledialog.askstring("Coordonnée Théorique X", "Entrer la coordonnée X théorique :"))
-            y_theo = float(simpledialog.askstring("Coordonnée Théorique Y", "Entrer la coordonnée Y théorique :"))
-        except (TypeError, ValueError):
-            messagebox.showerror("Erreur", "Coordonnées invalides. Veuillez réessayer.")
-            return
-
-        index = len(self.holes)
-        self.holes.append((event.x, event.y, x_theo, y_theo))
-        self.draw_point(event.x, event.y, x_theo, y_theo, index)
-
-    def select_or_start_rect(self, event):
-        x, y = event.x, event.y
-        if self.selected_rect is not None:
-            handle = self.get_handle_at_pos(self.selected_rect, x, y)
-            if handle is not None:
-                self.selected_handle = handle
-                self.drag_start = (x, y)
-                return
-
-        clicked_rect = None
-        for rect in reversed(self.rectangles):
-            if self.point_in_rect(x, y, rect):
-                clicked_rect = rect
-                break
-
-        if clicked_rect:
-            self.selected_rect = clicked_rect
-            self.selected_handle = None
-            self.drag_start = (x, y)
-            self.redraw()
-            return
-
-        self.drawing_rect = True
-        self.current_rect = {"x1": x, "y1": y, "x2": x, "y2": y, "handle_ids": []}
-        self.redraw()
-
-    def on_drag(self, event):
-        x, y = event.x, event.y
-        if self.mode == "holes":
-            return
-
-        if self.drawing_rect and self.current_rect is not None:
-            self.current_rect["x2"] = x
-            self.current_rect["y2"] = y
-            self.redraw()
-            return
-
-        if self.selected_rect is not None and self.drag_start is not None:
-            dx = x - self.drag_start[0]
-            dy = y - self.drag_start[1]
-
-            if self.selected_handle is not None:
-                self.resize_rect(self.selected_rect, self.selected_handle, dx, dy)
+            if idx_a < idx_b:
+                pair_results[(comp_a, comp_b)]["a_precedes_b"] += 1
             else:
-                self.move_rect(self.selected_rect, dx, dy)
+                pair_results[(comp_a, comp_b)]["b_precedes_a"] += 1
 
-            self.drag_start = (x, y)
-            self.redraw()
+            pair_results[(comp_a, comp_b)]["times"].append((time_a, time_b))
 
-    def on_release(self, event):
-        if self.mode == "rectangles":
-            if self.drawing_rect:
-                self.drawing_rect = False
-                if abs(self.current_rect["x2"] - self.current_rect["x1"]) > 5 and abs(self.current_rect["y2"] - self.current_rect["y1"]) > 5:
-                    self.rectangles.append(self.current_rect)
-                    self.selected_rect = self.current_rect
-                self.current_rect = None
-                self.redraw()
-            else:
-                self.selected_handle = None
-                self.drag_start = None
-
-    def resize_rect(self, rect, handle, dx, dy):
-        if handle == "nw":
-            rect["x1"] += dx
-            rect["y1"] += dy
-        elif handle == "ne":
-            rect["x2"] += dx
-            rect["y1"] += dy
-        elif handle == "sw":
-            rect["x1"] += dx
-            rect["y2"] += dy
-        elif handle == "se":
-            rect["x2"] += dx
-            rect["y2"] += dy
-
-        if rect["x1"] > rect["x2"]:
-            rect["x1"], rect["x2"] = rect["x2"], rect["x1"]
-        if rect["y1"] > rect["y2"]:
-            rect["y1"], rect["y2"] = rect["y2"], rect["y1"]
-
-    def move_rect(self, rect, dx, dy):
-        rect["x1"] += dx
-        rect["x2"] += dx
-        rect["y1"] += dy
-        rect["y2"] += dy
-
-    def get_handle_at_pos(self, rect, x, y):
-        for handle_name, (hx, hy) in self.get_handles_positions(rect).items():
-            if abs(x - hx) <= HANDLE_SIZE and abs(y - hy) <= HANDLE_SIZE:
-                return handle_name
-        return None
-
-    def get_handles_positions(self, rect):
-        return {
-            "nw": (rect["x1"], rect["y1"]),
-            "ne": (rect["x2"], rect["y1"]),
-            "sw": (rect["x1"], rect["y2"]),
-            "se": (rect["x2"], rect["y2"]),
-        }
-
-    def point_in_rect(self, x, y, rect):
-        return rect["x1"] <= x <= rect["x2"] and rect["y1"] <= y <= rect["y2"]
-
-    def redraw(self):
-        self.canvas.delete("all")
-        if self.tk_image:
-            self.canvas.create_image(0, 0, anchor="nw", image=self.tk_image)
-
-        for i, (x_img, y_img, x_theo, y_theo) in enumerate(self.holes):
-            self.draw_point(x_img, y_img, x_theo, y_theo, i)
-
-        for rect in self.rectangles:
-            self.draw_rectangle(rect, selected=(rect == self.selected_rect))
-
-        if self.drawing_rect and self.current_rect is not None:
-            self.draw_rectangle(self.current_rect, selected=True)
-
-    def draw_rectangle(self, rect, selected=False):
-        x1, y1, x2, y2 = rect["x1"], rect["y1"], rect["x2"], rect["y2"]
-        self.canvas.create_rectangle(x1, y1, x2, y2, outline="blue", width=2)
-
-        rect_index = self.rectangles.index(rect) if rect in self.rectangles else len(self.rectangles)
-        self.canvas.create_text((x1 + x2) / 2, y1 - 10, text=f"Rect {rect_index}", fill="blue", font=("Segoe UI", 10, "bold"))
-
-        if selected:
-            for (hx, hy) in self.get_handles_positions(rect).values():
-                self.canvas.create_rectangle(hx - HANDLE_SIZE//2, hy - HANDLE_SIZE//2,
-                                             hx + HANDLE_SIZE//2, hy + HANDLE_SIZE//2,
-                                             fill="white", outline="black")
-
-    def draw_point(self, x, y, x_theo, y_theo, index, x_corr=None, y_corr=None):
-        self.canvas.create_oval(x - 4, y - 4, x + 4, y + 4, fill="red", outline="black")
-        self.canvas.create_text(x + 10, y - 10, anchor="w",
-                                text=f"{index}: ({x_theo:.2f}, {y_theo:.2f})",
-                                fill="red", font=("Segoe UI", 10, "bold"))
-        if x_corr is not None and y_corr is not None:
-            self.canvas.create_text(x + 10, y + 10, anchor="w",
-                                    text=f"→ ({x_corr:.2f}, {y_corr:.2f})",
-                                    fill="green", font=("Segoe UI", 10, "italic"))
-
-    def calculate_rotation_angle(self):
-        if len(self.holes) < 3:
-            messagebox.showwarning("Attention", "Il faut au moins 3 trous définis (trou 1 et un autre pour comparaison).")
-            return
-
-        try:
-            trou_index = int(simpledialog.askstring("Trou cible", "Entrer le numéro du trou (≠ 1) à comparer avec le trou 1 :"))
-            if trou_index == 1 or trou_index >= len(self.holes):
-                raise ValueError
-        except:
-            messagebox.showerror("Erreur", "Numéro de trou invalide.")
-            return
-
-        try:
-            x_real = float(simpledialog.askstring("X Réel", f"Entrer la position RÉELLE en X du trou {trou_index} :"))
-            y_real = float(simpledialog.askstring("Y Réel", f"Entrer la position RÉELLE en Y du trou {trou_index} :"))
-        except:
-            messagebox.showerror("Erreur", "Coordonnées réelles invalides.")
-            return
-
-        _, _, x1_theo, y1_theo = self.holes[1]
-        _, _, x2_theo, y2_theo = self.holes[trou_index]
-
-        dx_theo = x2_theo - x1_theo
-        dy_theo = y2_theo - y1_theo
-        angle_theo = math.atan2(dy_theo, dx_theo)
-
-        dx_real = x_real - x1_theo
-        dy_real = y_real - y1_theo
-        angle_real = math.atan2(dy_real, dx_real)
-
-        angle_rad = angle_real - angle_theo
-        angle_deg = math.degrees(angle_rad)
-        angle_deg = (angle_deg + 180) % 360 - 180
-
-        messagebox.showinfo("Résultat", f"Angle de rotation : {angle_deg:.2f}°")
-
-        cos_a = math.cos(angle_rad)
-        sin_a = math.sin(angle_rad)
-
-        self.canvas.delete("all")
-        self.canvas.create_image(0, 0, anchor="nw", image=self.tk_image)
-
-        for i, (x_img, y_img, x_theo, y_theo) in enumerate(self.holes):
-            dx = x_theo - x1_theo
-            dy = y_theo - y1_theo
-            x_corr = cos_a * dx - sin_a * dy + x1_theo
-            y_corr = sin_a * dx + cos_a * dy + y1_theo
-            self.draw_point(x_img, y_img, x_theo, y_theo, i, x_corr, y_corr)
-
-    def show_rect_coords_relative_to_hole(self):
-        if len(self.holes) < 2:
-            messagebox.showwarning("Pas assez de trous", "Il faut au moins 2 trous définis.")
-            return
-        if not self.rectangles:
-            messagebox.showwarning("Pas de rectangles", "Aucun rectangle n'a été dessiné.")
-            return
-
-        try:
-            rect_num = int(simpledialog.askstring("Rectangle", "Numéro du rectangle à afficher :"))
-            hole_num = int(simpledialog.askstring("Trou de référence", "Numéro du trou de référence :"))
-
-            if rect_num < 0 or rect_num >= len(self.rectangles):
-                raise ValueError("Rectangle hors limites.")
-            if hole_num < 0 or hole_num >= len(self.holes):
-                raise ValueError("Trou hors limites.")
-        except Exception as e:
-            messagebox.showerror("Erreur", f"Entrée invalide : {e}")
-            return
-
-        x0, y0, *_ = self.holes[0]
-        x1, y1, *_ = self.holes[1]
-        pixel_dist = math.hypot(x1 - x0, y1 - y0)
-        if pixel_dist == 0:
-            messagebox.showerror("Erreur", "Les trous 0 et 1 sont confondus.")
-            return
-        scale = 31 / pixel_dist  # mm / pixel
-
-        hx, hy, *_ = self.holes[hole_num]
-        rect = self.rectangles[rect_num]
-        x1, y1, x2, y2 = rect["x1"], rect["y1"], rect["x2"], rect["y2"]
-
-        corners = [
-            ("Coin haut-gauche", x1, y1),
-            ("Coin haut-droit", x2, y1),
-            ("Coin bas-gauche", x1, y2),
-            ("Coin bas-droit", x2, y2),
-        ]
-
-        result = f"Rectangle {rect_num} (par rapport au trou {hole_num}) :\n"
-        for label, cx, cy in corners:
-            dx = (cx - hx) * scale
-            dy = (cy - hy) * scale
-            result += f"{label} : ΔX = {dx:.2f} mm, ΔY = {dy:.2f} mm\n"
-
-        messagebox.showinfo("Coordonnées relatives", result)
-
-
-if __name__ == "__main__":
-    root = tk.Tk()
-    app = HoleAnnotator(root)
-    root.mainloop()
+# === Étape 4 : Affichage des résultats ===
+for (comp_a, comp_b), info in pair_results.items():
+    print(f"🧪 Paire : {comp_a} / {comp_b}")
+    print(f"   ➤ {comp_a} précède {comp_b} : {info['a_precedes_b']} fois")
+    print(f"   ➤ {comp_b} précède {comp_a} : {info['b_precedes_a']} fois")
+    print(f"   ➤ Temps observés :")
+    for t_a, t_b in info["times"]:
+        print(f"     - {comp_a} : {t_a:.2f} | {comp_b} : {t_b:.2f}")
+    print("-" * 50)
