@@ -236,3 +236,224 @@ for (comp_a, comp_b), info in pair_results.items():
     for t_a, t_b in info["times"]:
         print(f"     - {comp_a} : {t_a:.2f} | {comp_b} : {t_b:.2f}")
     print("-" * 50)
+
+
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+from skimage.measure import regionprops, label
+from detectron2.engine import DefaultPredictor
+from detectron2.config import get_cfg
+from detectron2 import model_zoo
+
+# === Conversion pixels → nanomètres ===
+PIXEL_TO_NM = 7.774  # nm / pixel
+
+# === Configuration du modèle Detectron2 ===
+def setup_predictor(weights_path):
+    cfg = get_cfg()
+    cfg.merge_from_file(model_zoo.get_config_file(
+        "COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml"
+    ))
+    cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5
+    cfg.MODEL.WEIGHTS = weights_path
+    cfg.MODEL.DEVICE = "cuda"  # ou "cpu"
+    return DefaultPredictor(cfg)
+
+# === Fonction pour l'analyse morphologique ===
+def analyze_masks(masks):
+    diameters_nm = []
+    perimeters_nm = []
+    feret_ratios = []
+
+    for i in range(masks.shape[0]):
+        mask = masks[i].cpu().numpy().astype(np.uint8)
+        labeled = label(mask)
+        props = regionprops(labeled)
+
+        for prop in props:
+            perimeter_px = prop.perimeter
+            equiv_diameter_px = prop.equivalent_diameter
+            feret_diam_max_px = prop.major_axis_length
+            feret_diam_min_px = prop.minor_axis_length
+
+            # Convertir en nm
+            diameter_nm = equiv_diameter_px * PIXEL_TO_NM
+            perimeter_nm = perimeter_px * PIXEL_TO_NM
+            feret_ratio = feret_diam_min_px / feret_diam_max_px if feret_diam_max_px > 0 else 0
+
+            diameters_nm.append(diameter_nm)
+            perimeters_nm.append(perimeter_nm)
+            feret_ratios.append(feret_ratio)
+
+    return diameters_nm, perimeters_nm, feret_ratios
+
+# === Fonction pour afficher les histogrammes ===
+def plot_histogram(data, title, xlabel):
+    plt.figure()
+    plt.hist(data, bins=20, edgecolor='black', alpha=0.7)
+    plt.title(title)
+    plt.xlabel(xlabel)
+    plt.ylabel("Nombre d'objets")
+    plt.grid(True)
+    plt.show()
+
+# === Main ===
+def main(image_path, weights_path):
+    predictor = setup_predictor(weights_path)
+
+    image = cv2.imread(image_path)
+    outputs = predictor(image)
+
+    if "instances" not in outputs or len(outputs["instances"]) == 0:
+        print("Aucun objet détecté.")
+        return
+
+    masks = outputs["instances"].pred_masks
+    diameters_nm, perimeters_nm, feret_ratios = analyze_masks(masks)
+
+    # Affichage des histogrammes en nm
+    plot_histogram(diameters_nm, "Histogramme des diamètres équivalents", "Diamètre moyen (nm)")
+    plot_histogram(perimeters_nm, "Histogramme des périmètres", "Périmètre (nm)")
+    plot_histogram(feret_ratios, "Histogramme des rapports Feret min / max", "Rapport (min / max)")
+
+# === Exemple d'utilisation ===
+if __name__ == "__main__":
+    image_path = "chemin/vers/image.jpg"
+    weights_path = "chemin/vers/model_final.pth"  # Modèle entraîné Detectron2
+    main(image_path, weights_path)
+
+
+
+import cv2
+import numpy as np
+
+def calculer_taux_vide_et_cristaux(mask_path):
+    # Charger l'image binaire en niveaux de gris
+    mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
+
+    if mask is None:
+        raise ValueError(f"Image non trouvée : {mask_path}")
+
+    # Assurer que les pixels sont bien binaires (0 et 255)
+    _, mask_bin = cv2.threshold(mask, 127, 255, cv2.THRESH_BINARY)
+
+    # Nombre total de pixels
+    total_pixels = mask_bin.size
+
+    # Nombre de pixels blancs (cristaux) et noirs (vide)
+    white_pixels = np.sum(mask_bin == 255)
+    black_pixels = np.sum(mask_bin == 0)
+
+    taux_cristaux = white_pixels / total_pixels
+    taux_vide = black_pixels / total_pixels
+
+    print(f"Taux de cristaux (pixels blancs) : {taux_cristaux * 100:.2f} %")
+    print(f"Taux de vide (pixels noirs)     : {taux_vide * 100:.2f} %")
+
+    return taux_vide, taux_cristaux
+
+# === Exemple d'utilisation ===
+if __name__ == "__main__":
+    chemin_masque = "chemin/vers/masque_binaire.png"
+    calculer_taux_vide_et_cristaux(chemin_masque)
+
+
+
+import os
+import xml.etree.ElementTree as ET
+
+def voc_to_dota(xml_folder, output_folder, difficulty=0):
+    """
+    Convertit des fichiers XML VOC (LabelImg) en format DOTA.
+    
+    :param xml_folder: Dossier contenant les fichiers XML.
+    :param output_folder: Dossier où enregistrer les fichiers DOTA .txt.
+    :param difficulty: Niveau de difficulté DOTA (0 = facile par défaut).
+    """
+    os.makedirs(output_folder, exist_ok=True)
+    
+    for xml_file in os.listdir(xml_folder):
+        if not xml_file.endswith('.xml'):
+            continue
+
+        xml_path = os.path.join(xml_folder, xml_file)
+        tree = ET.parse(xml_path)
+        root = tree.getroot()
+
+        image_filename = root.find('filename').text
+        image_name = os.path.splitext(image_filename)[0]
+        txt_path = os.path.join(output_folder, image_name + '.txt')
+
+        with open(txt_path, 'w') as f_out:
+            for obj in root.findall('object'):
+                name = obj.find('name').text
+                bndbox = obj.find('bndbox')
+                xmin = float(bndbox.find('xmin').text)
+                ymin = float(bndbox.find('ymin').text)
+                xmax = float(bndbox.find('xmax').text)
+                ymax = float(bndbox.find('ymax').text)
+
+                # Conversion HBB → OBB (sans rotation)
+                # x1, y1: top-left
+                # x2, y2: top-right
+                # x3, y3: bottom-right
+                # x4, y4: bottom-left
+                x1, y1 = xmin, ymin
+                x2, y2 = xmax, ymin
+                x3, y3 = xmax, ymax
+                x4, y4 = xmin, ymax
+
+                # Format DOTA
+                line = f"{x1:.1f} {y1:.1f} {x2:.1f} {y2:.1f} {x3:.1f} {y3:.1f} {x4:.1f} {y4:.1f} {name} {difficulty}\n"
+                f_out.write(line)
+
+    print(f"[✓] Conversion terminée. Résultats enregistrés dans : {output_folder}")
+
+voc_folder = 'annotations_xml/'     # dossier contenant les .xml générés par LabelImg
+dota_output = 'dota_annfiles/'      # dossier de sortie .txt format DOTA
+
+voc_to_dota(voc_folder, dota_output)
+
+
+import os
+import json
+
+def convert_labelme_to_dota(json_folder, output_folder, difficulty=0):
+    os.makedirs(output_folder, exist_ok=True)
+
+    for json_file in os.listdir(json_folder):
+        if not json_file.endswith('.json'):
+            continue
+
+        json_path = os.path.join(json_folder, json_file)
+        with open(json_path, 'r') as f:
+            data = json.load(f)
+
+        img_name = os.path.splitext(json_file)[0]
+        txt_path = os.path.join(output_folder, img_name + '.txt')
+
+        with open(txt_path, 'w') as f_out:
+            for shape in data['shapes']:
+                label = shape['label']
+                points = shape['points']
+
+                # On ne garde que les polygones avec 4 points
+                if len(points) != 4:
+                    print(f"[!] Ignoré : {json_file}, objet '{label}' n'a pas 4 points")
+                    continue
+
+                # Flatten les coordonnées
+                coords = [f"{x:.1f} {y:.1f}" for x, y in points]
+                coords_str = " ".join(coords)
+
+                # Écrire en format DOTA
+                line = f"{coords_str} {label} {difficulty}\n"
+                f_out.write(line)
+
+    print(f"[✓] Conversion terminée. Annotations DOTA enregistrées dans : {output_folder}")
+
+labelme_json_folder = 'annotations_labelme/'
+dota_output_folder = 'dota_annfiles/'
+
+convert_labelme_to_dota(labelme_json_folder, dota_output_folder)
