@@ -1,58 +1,126 @@
+import pandas as pd  # On importe pandas pour manipuler les fichiers Excel et les DataFrames
+import numpy as np  # On importe numpy pour les opérations numériques
+from collections import defaultdict  # On importe defaultdict pour compter les noms de composants sans erreurs de clé
+from sklearn.neighbors import NearestNeighbors  # On importe l'algorithme de plus proches voisins
+import matplotlib.pyplot as plt  # On importe matplotlib pour d’éventuels graphiques
+
+# On lit le fichier Excel contenant les références de composants
+excel_path = "composants_ref.xlsx"
+df_excel = pd.read_excel(excel_path)
+
+# On nettoie les noms de composants : on retire les espaces et on met en majuscules
+df_excel['Composant'] = df_excel['Composant'].astype(str).str.strip().str.upper()
+
+# On initialise un compteur pour gérer les noms dupliqués
+name_counts = defaultdict(int)
+new_names = []
+
+# On ajoute un suffixe (_1, _2, ...) à chaque nom pour éviter les doublons
+for name in df_excel['Composant']:
+    name_counts[name] += 1
+    suffixed_name = f"{name}_{name_counts[name]}"
+    new_names.append(suffixed_name)
+
+# On ajoute la colonne "Composant_Suffixe" dans le DataFrame
+df_excel['Composant_Suffixe'] = new_names
+
+# On définit la valeur expérimentale du toluène (pic mesuré sur l’échantillon)
+tol_value = 85.0
+
+# On récupère l’index de la première ligne contenant "TOLUENE" dans la colonne originale (sans suffixe)
+tol_index = df_excel[df_excel['Composant'] == "TOLUENE"].index[0]
+
+# On récupère le temps de rétention de référence du toluène
+toluene_ref_time = df_excel.loc[tol_index, 'Temps de rétention']
+
+# On calcule l’écart entre le temps mesuré et celui de référence
+delta = tol_value - toluene_ref_time
+
+# On ajuste tous les temps de rétention pour les aligner avec la valeur expérimentale
+df_excel['AdjustedTime'] = df_excel['Temps de rétention'] + delta
+
+# On extrait les noms avec suffixes dans une liste
+component_names = df_excel['Composant_Suffixe'].tolist()
+
+# On crée une matrice X contenant les temps ajustés normalisés pour NearestNeighbors
+X = df_excel['AdjustedTime'].values.reshape(-1, 1) / 150.0
+
+# On initialise le modèle des k-plus proches voisins avec 5 voisins
+nbrs = NearestNeighbors(n_neighbors=5)
+nbrs.fit(X)  # On entraîne le modèle sur les temps ajustés
+
+# On prépare un dictionnaire pour savoir si un composant a déjà été attribué
+component_assigned_flags = {name: False for name in component_names}
+
+# On prépare une liste pour stocker les indices des pics détectés
+detected_peaks = []
+
+# On initialise un dictionnaire pour stocker les infos des pics détectés
+pic_info_dict = {}
+
+# On prépare une liste pour les résultats à sauvegarder dans Excel
 results = []
 
+# On fixe un seuil de détection pour les probabilités de pics
+threshold = 0.4
+i = 0  # On initialise un compteur pour parcourir les données
+
+# On parcourt les probabilités pour détecter les pics significatifs
 while i < len(probs_full) - 3:
     if probs_full[i] > threshold:
+        # On regarde une fenêtre autour du point courant
         window = probs_full[i - 3:i + 4]
         if np.any(window > threshold):
+            # On identifie l’index de la plus forte intensité dans la fenêtre
             idx_window = np.arange(i - 3, i + 4)
             idx_max_intensity = idx_window[np.argmax(y_full[idx_window])]
             detected_peaks.append(idx_max_intensity)
 
+            # On récupère le temps exact du pic détecté
             pic_time_detected = x_full[idx_max_intensity]
+            # On normalise ce temps pour la recherche de voisins
             pic_time_normalized = pic_time_detected / 150.0
 
-            # Trouver les voisins les plus proches
+            # On cherche les 5 composants les plus proches de ce pic
             _, indices = nbrs.kneighbors([[pic_time_normalized]])
-            assigned_name = "UNKNOWN"
-            alternatives = []
+            assigned_name = "UNKNOWN"  # Par défaut, si aucun n'est trouvé
+            alternatives = []  # Pour stocker les composants proches non assignés
 
+            # On parcourt les voisins pour assigner le premier composant non utilisé
             for idx in indices[0]:
                 proposed_name = component_names[idx]
                 if not component_assigned_flags[proposed_name] and assigned_name == "UNKNOWN":
                     assigned_name = proposed_name
-                    component_assigned_flags[proposed_name] = True
+                    component_assigned_flags[proposed_name] = True  # On le marque comme utilisé
                 else:
-                    alternatives.append(proposed_name)
+                    alternatives.append(proposed_name)  # Sinon on le stocke comme alternative
 
-            # Ajouter au dictionnaire
+            # On enregistre le nom du composant assigné avec le temps du pic
             pic_info_dict[pic_time_detected * 150.0] = assigned_name
 
-            # Ajouter aux résultats Excel
-            results.append({
-                "Temps du pic (s)": round(pic_time_detected * 150.0, 2),
-                "Composant assigné": assigned_name,
-                "Alternative 1": alternatives[0] if len(alternatives) > 0 else "",
-                "Alternative 2": alternatives[1] if len(alternatives) > 1 else ""
-            })
-
-            i += 4
-        else:
-            i += 1
-    else:
-        i += 1
-
-# Sauvegarder dans un fichier Excel
-df_results = pd.DataFrame(results)
-df_results.to_excel("resultats_pics.xlsx", index=False)
-
-print("Résultats sauvegardés dans resultats_pics.xlsx")
-
+            # On définit une fonction pour enlever les suffixes (_1, _2, ...)
             def clean_name(name):
                 return name.split("_")[0] if "_" in name else name
 
+            # On ajoute une ligne de résultat pour Excel, sans les suffixes
             results.append({
                 "Temps du pic (s)": round(pic_time_detected * 150.0, 2),
                 "Composant assigné": clean_name(assigned_name),
                 "Alternative 1": clean_name(alternatives[0]) if len(alternatives) > 0 else "",
                 "Alternative 2": clean_name(alternatives[1]) if len(alternatives) > 1 else ""
             })
+
+            i += 4  # On saute quelques points pour éviter les doublons
+        else:
+            i += 1  # Aucun vrai pic trouvé, on avance d’un point
+    else:
+        i += 1  # Valeur trop faible, on avance
+
+# On transforme les résultats en DataFrame
+df_results = pd.DataFrame(results)
+
+# On sauvegarde les résultats dans un fichier Excel
+df_results.to_excel("resultats_pics.xlsx", index=False)
+
+# On indique que la sauvegarde est terminée
+print("Résultats sauvegardés dans resultats_pics.xlsx")
