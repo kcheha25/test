@@ -46,3 +46,13 @@ df_results = pd.DataFrame(results)
 df_results.to_excel("resultats_pics.xlsx", index=False)
 
 print("Résultats sauvegardés dans resultats_pics.xlsx")
+
+            def clean_name(name):
+                return name.split("_")[0] if "_" in name else name
+
+            results.append({
+                "Temps du pic (s)": round(pic_time_detected * 150.0, 2),
+                "Composant assigné": clean_name(assigned_name),
+                "Alternative 1": clean_name(alternatives[0]) if len(alternatives) > 0 else "",
+                "Alternative 2": clean_name(alternatives[1]) if len(alternatives) > 1 else ""
+            })
