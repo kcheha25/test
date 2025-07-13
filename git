@@ -152,6 +152,26 @@ glab pipeline run
 
 ---
 
+Bonjour, j’espère que tu vas bien.
+Je voulais t’informer que j’ai déposé dans GitLab les différentes parties du code.
+
+Le fichier IPA_architecture.py contient le modèle IPA.
+
+Le fichier IPA_train.py correspond au script d'entraînement du modèle sur les chromatogrammes.
+
+Le fichier detect_peaks.py permet de détecter les pics sur un chromatogramme issu de la base de données, d’attribuer un nom de composant à chaque pic, et de proposer deux alternatives si nécessaire.
+
+Les résultats sont sauvegardés dans un fichier Excel listant :
+
+le temps de chaque pic détecté,
+
+le composant assigné,
+
+ainsi que deux suggestions alternatives.
+
+Je reste disponible si besoin.
+Bonne journée !
+
 ## 🛠️ 4. **Actions GitLab spécifiques via Web**
 
 Certaines actions se font depuis l’interface GitLab :
@@ -172,3 +192,5 @@ Si tu veux :
 * De l’aide pour configurer un **GitLab Runner auto-hébergé** ?
 
 Je peux te le faire rapidement. Fais-moi signe !
+
+
