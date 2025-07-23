@@ -228,7 +228,7 @@ for class_id in [0, 1, 2]:
             considered_objects_mask[component_mask == 1] = 255
 
 # === Calcul du pourcentage d’occupation par classe ===
-total_pixels = np.sum(considered_objects_mask > 0)
+total_pixels = np.sum(bille_dilated_mask > 0)
 fractions = {}
 
 for class_id in [0, 1, 2]:
@@ -271,3 +271,58 @@ plt.imshow(cv2.cvtColor(image_with_contours, cv2.COLOR_BGR2RGB))
 plt.title("Image complète avec prédictions + contours de bille")
 plt.axis("off")
 plt.show()
+
+
+# === Interface pour dessiner les polygones à la main ===
+drawing = False
+polygon_points = []
+all_polygons = []
+
+def draw_polygon(event, x, y, flags, param):
+    global drawing, polygon_points, all_polygons
+
+    if event == cv2.EVENT_LBUTTONDOWN:
+        polygon_points.append((x, y))
+
+    elif event == cv2.EVENT_RBUTTONDOWN:
+        if len(polygon_points) >= 3:
+            all_polygons.append(polygon_points[:])
+            polygon_points = []
+
+# Affichage de l'image et dessin
+temp_image = output_image.copy()
+cv2.namedWindow("Dessine les polygones (clic gauche: points, clic droit: fermer)")
+cv2.setMouseCallback("Dessine les polygones (clic gauche: points, clic droit: fermer)", draw_polygon)
+
+while True:
+    img_copy = temp_image.copy()
+    for poly in all_polygons:
+        cv2.polylines(img_copy, [np.array(poly, dtype=np.int32)], isClosed=True, color=(0, 255, 0), thickness=2)
+    if polygon_points:
+        cv2.polylines(img_copy, [np.array(polygon_points, dtype=np.int32)], isClosed=False, color=(255, 0, 0), thickness=1)
+
+    cv2.imshow("Dessine les polygones (clic gauche: points, clic droit: fermer)", img_copy)
+    key = cv2.waitKey(10)
+    if key == 13:  # ENTER pour terminer
+        break
+
+cv2.destroyAllWindows()
+
+# === Création du masque à partir des polygones dessinés ===
+zone_mask = np.zeros((height, width), dtype=np.uint8)
+for poly in all_polygons:
+    cv2.fillPoly(zone_mask, [np.array(poly, dtype=np.int32)], 255)
+
+
+# === Calcul du pourcentage d’occupation par classe dans les polygones dessinés ===
+total_pixels = np.sum(zone_mask > 0)
+fractions = {}
+
+for class_id in [0, 1, 2]:
+    pixels = np.sum((final_class_map == class_id) & (zone_mask > 0))
+    fractions[class_id] = round(100 * pixels / total_pixels, 2) if total_pixels else 0
+
+# === Affichage des résultats ===
+print("Fraction d’occupation (à l’intérieur des polygones dessinés) :")
+for cid, perc in fractions.items():
+    print(f"  Classe {cid} : {perc} %")
