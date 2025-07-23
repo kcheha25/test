@@ -326,3 +326,52 @@ for class_id in [0, 1, 2]:
 print("Fraction d’occupation (à l’intérieur des polygones dessinés) :")
 for cid, perc in fractions.items():
     print(f"  Classe {cid} : {perc} %")
+
+
+import tkinter as tk
+from PIL import ImageTk
+
+polygon_points = []
+all_polygons = []
+zone_mask = np.zeros((height, width), dtype=np.uint8)
+
+def on_click(event):
+    x, y = event.x, event.y
+    polygon_points.append((x, y))
+    r = 2
+    canvas.create_oval(x - r, y - r, x + r, y + r, fill='red')
+
+def close_polygon():
+    global polygon_points
+    if len(polygon_points) >= 3:
+        all_polygons.append(polygon_points[:])
+        canvas.create_polygon(polygon_points, outline='green', fill='', width=2)
+        polygon_points = []
+
+def finish():
+    root.destroy()
+
+# === Créer interface Tkinter ===
+root = tk.Tk()
+root.title("Dessine les polygones (clic: points, bouton: fermer)")
+
+# Convertir image pour Tkinter
+image_tk = ImageTk.PhotoImage(Image.fromarray(output_image))
+
+canvas = tk.Canvas(root, width=width, height=height)
+canvas.pack()
+canvas.create_image(0, 0, anchor=tk.NW, image=image_tk)
+canvas.bind("<Button-1>", on_click)
+
+# Boutons
+btn_frame = tk.Frame(root)
+btn_frame.pack()
+tk.Button(btn_frame, text="Fermer polygone", command=close_polygon).pack(side=tk.LEFT, padx=10)
+tk.Button(btn_frame, text="Terminer", command=finish).pack(side=tk.RIGHT, padx=10)
+
+root.mainloop()
+
+# === Création du masque à partir des polygones dessinés ===
+zone_mask = np.zeros((height, width), dtype=np.uint8)
+for poly in all_polygons:
+    cv2.fillPoly(zone_mask, [np.array(poly, dtype=np.int32)], 255)
