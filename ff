@@ -1,38 +1,43 @@
 import cv2
 import numpy as np
 
-# === 1. Charger l'image en niveaux de gris ===
-image = cv2.imread('bille.png', cv2.IMREAD_GRAYSCALE)
+# 1. Charger l’image en niveaux de gris
+img = cv2.imread('bille.png', cv2.IMREAD_GRAYSCALE)
 
-# === 2. Appliquer un flou pour réduire le bruit ===
-blur = cv2.GaussianBlur(image, (5, 5), 0)
+# 2. Flouter légèrement
+blur = cv2.GaussianBlur(img, (5, 5), 0)
 
-# === 3. Seuillage automatique avec Otsu ===
-_, thresh = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+# 3. Seuillage avec Otsu (bille claire = blanc, fond = noir)
+_, binary = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
-# === 4. Trouver les contours ===
-contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+# 4. Inverser : la bille devient noire, fond = blanc (facilite le remplissage)
+binary_inv = cv2.bitwise_not(binary)
 
-# === 5. Filtrer les contours avec a >= 100 (a = nombre de points dans le contour)
-filtered_contours = [cnt for cnt in contours if cnt.shape[0] >= 100]
+# 5. Remplir les zones connectées au fond (flood fill)
+floodfill = binary_inv.copy()
+h, w = floodfill.shape[:2]
+mask = np.zeros((h + 2, w + 2), np.uint8)
 
-# === 6. Sélection des bons contours à garder
-if len(filtered_contours) == 1:
-    selected_contours = filtered_contours
-elif len(filtered_contours) >= 2:
-    # Trier par aire décroissante et prendre les deux plus gros
-    sorted_contours = sorted(filtered_contours, key=cv2.contourArea, reverse=True)
-    selected_contours = sorted_contours[:2]
-else:
-    selected_contours = []  # Aucun contour valide
+# Remplir depuis un pixel du fond (coin par ex.)
+cv2.floodFill(floodfill, mask, (0, 0), 255)
 
-# === 7. Dessiner les contours sélectionnés ===
-output = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+# 6. Trou noir = fond, on récupère la bille entière : inversion + OU logique
+bille_filled = cv2.bitwise_not(floodfill) | binary_inv
 
-for i, cnt in enumerate(selected_contours):
-    cv2.drawContours(output, [cnt], -1, (0, 0, 255), 2)  # Rouge
+# 7. Détection des contours sur l’image nettoyée
+contours, _ = cv2.findContours(bille_filled, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-# === 8. Affichage
-cv2.imshow("Contours sélectionnés", output)
+# 8. Filtrer contours avec taille a >= 100
+filtered = [cnt for cnt in contours if cnt.shape[0] >= 100]
+
+# 9. Sélection des 1 ou 2 plus gros
+selected = sorted(filtered, key=cv2.contourArea, reverse=True)[:2]
+
+# 10. Affichage
+output = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+for c in selected:
+    cv2.drawContours(output, [c], -1, (0, 0, 255), 2)
+
+cv2.imshow("Bille avec trous latéraux détectée", output)
 cv2.waitKey(0)
 cv2.destroyAllWindows()
