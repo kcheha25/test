@@ -5,27 +5,14 @@ import numpy as np
 img = cv2.imread('bille.png', cv2.IMREAD_GRAYSCALE)
 
 # 2. Flouter légèrement
-blur = cv2.GaussianBlur(img, (5, 5), 0)
+blur = cv2.GaussianBlur(img, (15, 15), 0)
 
 # 3. Seuillage avec Otsu (bille claire = blanc, fond = noir)
 _, binary = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
-# 4. Inverser : la bille devient noire, fond = blanc (facilite le remplissage)
-binary_inv = cv2.bitwise_not(binary)
-
-# 5. Remplir les zones connectées au fond (flood fill)
-floodfill = binary_inv.copy()
-h, w = floodfill.shape[:2]
-mask = np.zeros((h + 2, w + 2), np.uint8)
-
-# Remplir depuis un pixel du fond (coin par ex.)
-cv2.floodFill(floodfill, mask, (0, 0), 255)
-
-# 6. Trou noir = fond, on récupère la bille entière : inversion + OU logique
-bille_filled = cv2.bitwise_not(floodfill) | binary_inv
 
 # 7. Détection des contours sur l’image nettoyée
-contours, _ = cv2.findContours(bille_filled, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
 # 8. Filtrer contours avec taille a >= 100
 filtered = [cnt for cnt in contours if cnt.shape[0] >= 100]
@@ -40,7 +27,7 @@ for c in selected:
     cv2.drawContours(mask, [c], -1, 255, thickness=1)
 
     # Dilater le masque (élargissement du contour)
-    dilated = cv2.dilate(mask, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (21, 21)))  # ≈10 px de rayon
+    dilated = cv2.dilate(mask, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (30, 30)))  # ≈10 px de rayon
     dilated = cv2.subtract(dilated, mask)  # Garde uniquement la bordure externe
 
     # Appliquer le contour élargi en bleu
@@ -136,3 +123,151 @@ plt.show()
 
 # Pour enregistrer le résultat, tu peux utiliser cv2.imwrite :
 # cv2.imwrite("image_pred_complete.png", output_image)
+
+
+import os
+import cv2
+import numpy as np
+from PIL import Image
+import matplotlib.pyplot as plt
+
+from detectron2.engine import DefaultPredictor
+from detectron2.config import get_cfg
+from detectron2.utils.visualizer import Visualizer, ColorMode
+from detectron2.data import MetadataCatalog
+
+# === Paramètres ===
+image_path = "chemin/vers/image_complete.png"  # À modifier
+config_path = "chemin/vers/config.yaml"         # À modifier
+weights_path = "chemin/vers/model_final.pth"    # À modifier
+
+patch_size = (512, 350)
+resized_size = (512, 400)
+overlap = 50
+
+# === Initialisation du modèle Detectron2 ===
+cfg = get_cfg()
+cfg.merge_from_file(config_path)
+cfg.MODEL.WEIGHTS = weights_path
+cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5
+predictor = DefaultPredictor(cfg)
+metadata = MetadataCatalog.get(cfg.DATASETS.TRAIN[0])
+
+# === Charger l’image ===
+image = Image.open(image_path).convert("RGB")
+width, height = image.size
+full_image_np = np.array(image)
+output_image = full_image_np.copy()
+
+# Masque pour objets pris en compte
+considered_objects_mask = np.zeros((height, width), dtype=np.uint8)
+class_map = np.full((height, width), fill_value=255, dtype=np.uint8)  # 255 = fond
+
+# === Découpage en patchs et inférence ===
+patch_id = 0
+pw, ph = patch_size
+
+for y in range(0, height, ph - overlap):
+    for x in range(0, width, pw - overlap):
+        crop_w = min(pw + (overlap if x + pw < width else 0), width - x)
+        crop_h = min(ph + (overlap if y + ph < height else 0), height - y)
+
+        patch = image.crop((x, y, x + crop_w, y + crop_h)).resize(resized_size)
+        patch_np = np.array(patch)
+
+        outputs = predictor(patch_np)
+        instances = outputs["instances"].to("cpu")
+
+        for i in range(len(instances)):
+            class_id = int(instances.pred_classes[i])
+            mask = instances.pred_masks[i].numpy().astype(np.uint8) * 255
+            mask_resized = cv2.resize(mask, (crop_w, crop_h), interpolation=cv2.INTER_NEAREST)
+
+            # Position de l’objet dans l’image complète
+            y1, y2 = y, y + crop_h
+            x1, x2 = x, x + crop_w
+
+            # Fusion sur class_map
+            class_map[y1:y2, x1:x2][mask_resized > 127] = class_id
+
+# === Détection des contours de la bille ===
+img_gray = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+blur = cv2.GaussianBlur(img_gray, (15, 15), 0)
+_, binary = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+# Prendre les 2 plus gros contours
+filtered = [cnt for cnt in contours if cnt.shape[0] >= 100]
+selected = sorted(filtered, key=cv2.contourArea, reverse=True)[:2]
+
+# Masque original + masque dilaté (pour inclure objets touchants les bords)
+bille_mask = np.zeros_like(img_gray, dtype=np.uint8)
+bille_dilated_mask = np.zeros_like(img_gray, dtype=np.uint8)
+
+for c in selected:
+    temp_mask = np.zeros_like(img_gray, dtype=np.uint8)
+    cv2.drawContours(temp_mask, [c], -1, 255, thickness=-1)
+    bille_mask = cv2.bitwise_or(bille_mask, temp_mask)
+    dilated = cv2.dilate(temp_mask, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (61, 61)))  # ≈ 30 px
+    bille_dilated_mask = cv2.bitwise_or(bille_dilated_mask, dilated)
+
+# === Sélectionner uniquement les objets touchant la bille (ou bord) ===
+considered_objects_mask[:] = 0
+final_class_map = np.full_like(class_map, fill_value=255)
+
+for class_id in [0, 1, 2]:
+    mask = (class_map == class_id).astype(np.uint8)
+    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
+
+    for i in range(1, num_labels):  # 0 = fond
+        component_mask = (labels == i).astype(np.uint8)
+        overlap = np.logical_and(component_mask, bille_dilated_mask).any()
+
+        if overlap:
+            final_class_map[component_mask == 1] = class_id
+            considered_objects_mask[component_mask == 1] = 255
+
+# === Calcul du pourcentage d’occupation par classe ===
+total_pixels = np.sum(considered_objects_mask > 0)
+fractions = {}
+
+for class_id in [0, 1, 2]:
+    pixels = np.sum((final_class_map == class_id) & (considered_objects_mask > 0))
+    fractions[class_id] = round(100 * pixels / total_pixels, 2) if total_pixels else 0
+
+# === Affichage des résultats ===
+print("Fraction d’occupation (objets touchant ou dans bille élargie) :")
+for cid, perc in fractions.items():
+    print(f"  Classe {cid} : {perc} %")
+
+# === Affichages visuels ===
+# 1. Image avec contours de billes
+image_with_contours = output_image.copy()
+for c in selected:
+    cv2.drawContours(image_with_contours, [c], -1, (0, 255, 255), 2)
+
+# 2. Masque des bordures dilatées
+plt.figure(figsize=(10, 6))
+plt.imshow(bille_dilated_mask, cmap='gray')
+plt.title("Masque dilaté des billes (zone d'inclusion)")
+plt.axis("off")
+plt.show()
+
+# 3. Image des objets pris en compte
+objects_image = full_image_np.copy()
+objects_image[considered_objects_mask == 0] = 0  # Masquer le fond
+for c in selected:
+    cv2.drawContours(objects_image, [c], -1, (255, 255, 0), 2)
+
+plt.figure(figsize=(10, 6))
+plt.imshow(cv2.cvtColor(objects_image, cv2.COLOR_BGR2RGB))
+plt.title("Objets pris en compte avec bordure de la bille")
+plt.axis("off")
+plt.show()
+
+# 4. Image avec toutes les prédictions et contours
+plt.figure(figsize=(12, 8))
+plt.imshow(cv2.cvtColor(image_with_contours, cv2.COLOR_BGR2RGB))
+plt.title("Image complète avec prédictions + contours de bille")
+plt.axis("off")
+plt.show()
