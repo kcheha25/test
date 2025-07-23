@@ -51,14 +51,13 @@ import matplotlib.pyplot as plt
 
 from detectron2.engine import DefaultPredictor
 from detectron2.config import get_cfg
-from detectron2.utils.visualizer import Visualizer, ColorMode
 from detectron2.data import MetadataCatalog
 
 # === Paramètres ===
 image_path = "chemin/vers/image_complete.png"
-patch_size = (512, 350)      # taille de base du patch
-resized_size = (512, 400)    # taille du patch après redimensionnement
-overlap = 50                 # recouvrement entre patchs
+patch_size = (512, 350)
+resized_size = (512, 400)
+overlap = 50
 
 # === Initialiser le modèle Detectron2 ===
 cfg = get_cfg()
@@ -68,11 +67,17 @@ cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5
 predictor = DefaultPredictor(cfg)
 metadata = MetadataCatalog.get(cfg.DATASETS.TRAIN[0])
 
+# === Couleurs des classes (à adapter si tu as plus de 2 classes) ===
+class_colors = {
+    0: (255, 0, 0),     # Classe 0 : Rouge (zones creuses)
+    1: (0, 255, 0),     # Classe 1 : Vert (zones denses)
+}
+
 # === Charger l'image complète ===
 image = Image.open(image_path).convert("RGB")
 width, height = image.size
 full_image_np = np.array(image)
-output_image = full_image_np.copy()  # copie pour superposer les prédictions
+output_image = full_image_np.copy()
 
 # === Générer les patchs et lancer l'inférence ===
 patch_id = 0
@@ -81,7 +86,7 @@ rw, rh = resized_size
 
 for y in range(0, height, ph - overlap):
     for x in range(0, width, pw - overlap):
-        # Définir dynamiquement la taille du patch en fonction de patch_id
+        # Taille dynamique du crop
         if patch_id == 0:
             crop_w, crop_h = pw, ph
         elif patch_id == 1:
@@ -91,37 +96,50 @@ for y in range(0, height, ph - overlap):
         else:
             crop_w, crop_h = pw + overlap, ph + overlap
 
-        # Empêcher le dépassement de l'image
         crop_w = min(crop_w, width - x)
         crop_h = min(crop_h, height - y)
 
-        # Extraction et redimensionnement du patch
+        # Extraction et resizing du patch
         patch = image.crop((x, y, x + crop_w, y + crop_h)).resize(resized_size)
         patch_np = np.array(patch)
 
-        # Lancer l'inférence sur le patch
         outputs = predictor(patch_np)
+        instances = outputs["instances"].to("cpu")
 
-        # Visualisation des prédictions sur le patch
-        v = Visualizer(patch_np, metadata=metadata, scale=1.0, instance_mode=ColorMode.IMAGE)
-        out = v.draw_instance_predictions(outputs["instances"].to("cpu"))
+        # Créer un masque vide (resized_size)
+        mask_overlay = np.zeros((resized_size[1], resized_size[0], 3), dtype=np.uint8)
 
-        # Remettre à l'échelle le patch prédit vers la taille d'origine du patch (crop_w, crop_h)
-        overlay = cv2.resize(out.get_image(), (crop_w, crop_h))
+        # Appliquer chaque masque avec une couleur selon la classe
+        for i in range(len(instances)):
+            mask = instances.pred_masks[i].numpy()
+            class_id = int(instances.pred_classes[i])
+            color = class_colors.get(class_id, (255, 255, 255))
 
-        # Fusionner les prédictions avec l'image de sortie (blending)
+            # Colorer les pixels du masque
+            colored_mask = np.zeros_like(mask_overlay)
+            for c in range(3):
+                colored_mask[:, :, c] = mask.astype(np.uint8) * color[c]
+
+            # Ajouter le masque au résultat final (superposition)
+            mask_overlay = cv2.addWeighted(mask_overlay, 1.0, colored_mask, 0.5, 0)
+
+        # Resize le masque coloré à la taille originale du patch
+        mask_resized = cv2.resize(mask_overlay, (crop_w, crop_h))
+
+        # Fusionner avec l'image finale (superposition 50%)
         output_image[y:y + crop_h, x:x + crop_w] = cv2.addWeighted(
-            output_image[y:y + crop_h, x:x + crop_w], 0.5, overlay, 0.5, 0
+            output_image[y:y + crop_h, x:x + crop_w], 0.5, mask_resized, 0.5, 0
         )
 
         patch_id += 1
 
-# === Afficher le résultat avec Matplotlib ===
+# === Affichage final avec Matplotlib ===
 plt.figure(figsize=(10, 8))
 plt.imshow(cv2.cvtColor(output_image, cv2.COLOR_BGR2RGB))
-plt.title("Image complète avec prédictions")
+plt.title("Masques colorés (sans BBox ni Labels)")
 plt.axis('off')
+plt.tight_layout()
 plt.show()
 
-# Pour enregistrer le résultat, tu peux utiliser cv2.imwrite :
-# cv2.imwrite("image_pred_complete.png", output_image)
+# Pour sauvegarder :
+# cv2.imwrite("output_mask_overlay.png", output_image)
