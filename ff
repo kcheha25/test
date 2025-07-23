@@ -375,3 +375,143 @@ root.mainloop()
 zone_mask = np.zeros((height, width), dtype=np.uint8)
 for poly in all_polygons:
     cv2.fillPoly(zone_mask, [np.array(poly, dtype=np.int32)], 255)
+
+
+# === Calcul du volume estimé par classe (en supposant sphères) ===
+import math
+
+volume_par_classe = {}
+diametre_moyen = {}
+nb_objets = {}
+
+for class_id in [0, 1, 2]:
+    mask = (class_map == class_id).astype(np.uint8)
+    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
+
+    diam_list = []
+    volumes = []
+
+    for i in range(1, num_labels):  # i=0 = fond
+        area = stats[i, cv2.CC_STAT_AREA]
+        if area < 5:
+            continue
+        # Diamètre équivalent circulaire
+        ecd = 2 * np.sqrt(area / np.pi)
+        diam_list.append(ecd)
+
+        # Volume d'une sphère : V = 4/3 * pi * (r^3)
+        radius = ecd / 2
+        volume = (4 / 3) * np.pi * (radius ** 3)
+        volumes.append(volume)
+
+    if diam_list:
+        diametre_moyen[class_id] = np.mean(diam_list)
+        volume_par_classe[class_id] = np.sum(volumes)
+        nb_objets[class_id] = len(volumes)
+    else:
+        diametre_moyen[class_id] = 0
+        volume_par_classe[class_id] = 0
+        nb_objets[class_id] = 0
+
+# === Affichage des résultats volumétriques ===
+print("\nVolume estimé par classe (sphères équivalentes) :")
+for cid in [0, 1, 2]:
+    print(f"  Classe {cid} :")
+    print(f"    - Nombre de particules : {nb_objets[cid]}")
+    print(f"    - Diamètre moyen ≈ {diametre_moyen[cid]:.2f} px")
+    print(f"    - Volume total estimé ≈ {volume_par_classe[cid]:.2f} px³")
+
+# === Calcul du Vcube et L ===
+# Convertir les fractions (%) en décimales
+fractions_decimales = {cid: fractions[cid] / 100 for cid in [0, 1, 2]}
+
+# Éviter division par zéro
+Vcube = 0
+for cid in [0, 1, 2]:
+    f = fractions_decimales[cid]
+    v = volume_par_classe[cid]
+    if f > 0:
+        Vcube += v / f
+
+# Calcul de L = racine cubique du volume
+if Vcube > 0:
+    L = Vcube ** (1 / 3)
+    print(f"\nVolume du cube estimé : Vcube ≈ {Vcube:.2f} px³")
+    print(f"Longueur caractéristique (L) ≈ {L:.2f} px")
+else:
+    print("\nImpossible de calculer Vcube (aucune fraction détectée).")
+
+
+Exemple numérique
+Imaginons 3 phases (hors matrice):
+
+Phase	Volume estimé 
+𝑉
+𝑖
+V 
+i
+​
+ 	Fraction 
+𝑓
+𝑖
+f 
+i
+​
+ 
+Dense	5000	0.15
+Creux	3000	0.20
+Intermédiaire	1000	0.05
+
+Calcul du volume du cube :
+
+𝑉
+cube
+=
+5000
+0.15
++
+3000
+0.20
++
+1000
+0.05
+=
+33333.3
++
+15000
++
+20000
+=
+68333.3
+V 
+cube
+​
+ = 
+0.15
+5000
+​
+ + 
+0.20
+3000
+​
+ + 
+0.05
+1000
+​
+ =33333.3+15000+20000=68333.3
+Calcul de 
+𝐿
+L :
+
+𝐿
+=
+68333.3
+3
+≈
+40.8
+L= 
+3
+  
+68333.3
+​
+ ≈40.8
