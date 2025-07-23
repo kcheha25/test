@@ -1,0 +1,35 @@
+import cv2
+import numpy as np
+
+# === 1. Charger l'image en niveaux de gris ===
+image = cv2.imread('bille.png', cv2.IMREAD_GRAYSCALE)
+
+# === 2. Appliquer un flou pour réduire le bruit ===
+blur = cv2.GaussianBlur(image, (5, 5), 0)
+
+# === 3. Seuillage automatique avec Otsu ===
+_, thresh = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+# === 4. Inverser si la bille est sombre sur fond clair ===
+# thresh = cv2.bitwise_not(thresh)
+
+# === 5. Trouver les contours ===
+contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+# === 6. Garder le plus grand contour (la bille) ===
+largest_contour = max(contours, key=cv2.contourArea)
+
+# === 7. Dessiner un cercle autour de la bille ===
+output = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+(x, y), radius = cv2.minEnclosingCircle(largest_contour)
+center = (int(x), int(y))
+radius = int(radius)
+
+cv2.circle(output, center, radius, (0, 255, 0), 2)  # Vert
+cv2.drawContours(output, [largest_contour], -1, (0, 0, 255), 1)  # Rouge
+
+# === 8. Afficher les résultats ===
+cv2.imshow("Seuillage", thresh)
+cv2.imshow("Bille détectée", output)
+cv2.waitKey(0)
+cv2.destroyAllWindows()
