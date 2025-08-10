@@ -102,12 +102,32 @@ def g_contributions(cx, cy, a, b, theta, d=1.0, y_steps=50):
     return T0, T1, T2
 
 def ellipsoid_axes(T0, T1, T2):
+    if T0 == 0:
+        # Évite division par zéro
+        return np.array([0.0, 0.0, 0.0])
+    
     M = T2 - np.outer(T1, T1) / (2*T0)
-    eigvals, _ = np.linalg.eigh(M)
+    
+    # Vérifier NaN ou Inf
+    if np.any(np.isnan(M)) or np.any(np.isinf(M)):
+        print("M contient NaN ou Inf")
+        return np.array([0.0, 0.0, 0.0])
+    
+    # Rendre M symétrique (parfois utile)
+    M = (M + M.T) / 2
+    
+    try:
+        eigvals, _ = np.linalg.eigh(M)
+    except np.linalg.LinAlgError:
+        print("Erreur de convergence des valeurs propres")
+        return np.array([0.0, 0.0, 0.0])
+    
     eigvals = np.maximum(eigvals, 1e-9)  # éviter négatif
+    
     alpha = ((3*T0) / (4*np.pi*np.sqrt(np.prod(eigvals))))**(1/3)
     axes = alpha * np.sqrt(eigvals)
     return axes
+
 
 # ==========================
 # TRAITEMENT CLASSES
