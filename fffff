@@ -134,12 +134,30 @@ for class_id in [0, 1]:
         features = (a, b, area, ratio)
         objects_info.append((features, ellipse_params))
 
-    if len(objects_info) >= 2:
-        feature_data = np.array([obj[0] for obj in objects_info])
+if len(objects_info) >= 2:
+    # Extraire les aires
+    areas = np.array([obj[0][2] for obj in objects_info])
+    # Trouver les indices valides (pas NaN)
+    valid_indices = ~np.isnan(areas)
+    
+    # Filtrer les objets et aires valides
+    filtered_objects = [obj for i, obj in enumerate(objects_info) if valid_indices[i]]
+    feature_data = areas[valid_indices].reshape(-1, 1)
+    
+    if len(filtered_objects) >= 2:
         km = KMeans(n_clusters=2, random_state=42)
-        sub_labels = km.fit_predict(feature_data)
+        sub_labels_filtered = km.fit_predict(feature_data)
+        
+        # Créer un tableau sub_labels complet (taille originale) avec -1 pour les invalides
+        sub_labels = np.full(len(objects_info), -1, dtype=int)
+        for i, valid in enumerate(valid_indices):
+            if valid:
+                sub_labels[i] = sub_labels_filtered[np.where(valid_indices)[0].tolist().index(i)]
     else:
+        # Pas assez d'objets valides pour clusteriser
         sub_labels = np.zeros(len(objects_info), dtype=int)
+else:
+    sub_labels = np.zeros(len(objects_info), dtype=int)
 
     for sub_id in np.unique(sub_labels):
         axes_list = []
@@ -202,9 +220,6 @@ for cid in range(5):
         print(f"Classe {cid} : aucune donnée")
 
 
-############################################################3
-
-# --- Après ton bloc 'results_final' qui contient les 5 classes finales ---
 
 import numpy as np
 import math
