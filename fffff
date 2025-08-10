@@ -1,0 +1,281 @@
+import numpy as np
+import cv2
+import math
+from PIL import Image
+from detectron2.engine import DefaultPredictor
+from detectron2.config import get_cfg
+from detectron2.data import MetadataCatalog
+from sklearn.cluster import KMeans
+
+# ==========================
+# PARAMÈTRES À MODIFIER
+# ==========================
+image_path = "chemin/vers/image_complete.png"
+config_path = "chemin/vers/config.yaml"
+weights_path = "chemin/vers/model_final.pth"
+
+patch_size = (512, 350)
+resized_size = (512, 400)
+overlap = 50
+
+# ==========================
+# INIT Detectron2
+# ==========================
+cfg = get_cfg()
+cfg.merge_from_file(config_path)
+cfg.MODEL.WEIGHTS = weights_path
+cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5
+predictor = DefaultPredictor(cfg)
+metadata = MetadataCatalog.get(cfg.DATASETS.TRAIN[0])
+
+# ==========================
+# Charger image complète
+# ==========================
+image = Image.open(image_path).convert("RGB")
+width, height = image.size
+class_map = np.full((height, width), fill_value=255, dtype=np.uint8)
+
+# ==========================
+# Découpage en patchs et inférence
+# ==========================
+pw, ph = patch_size
+for y in range(0, height, ph - overlap):
+    for x in range(0, width, pw - overlap):
+        crop_w = min(pw + (overlap if x + pw < width else 0), width - x)
+        crop_h = min(ph + (overlap if y + ph < height else 0), height - y)
+
+        patch = image.crop((x, y, x + crop_w, y + crop_h)).resize(resized_size)
+        patch_np = np.array(patch)
+
+        outputs = predictor(patch_np)
+        instances = outputs["instances"].to("cpu")
+
+        for i in range(len(instances)):
+            class_id = int(instances.pred_classes[i])
+            mask = instances.pred_masks[i].numpy().astype(np.uint8) * 255
+            mask_resized = cv2.resize(mask, (crop_w, crop_h), interpolation=cv2.INTER_NEAREST)
+
+            y1, y2 = y, y + crop_h
+            x1, x2 = x, x + crop_w
+            class_map[y1:y2, x1:x2][mask_resized > 127] = class_id
+
+# ==========================
+# FONCTIONS CSGB
+# ==========================
+def ellipse_from_contour(contour):
+    if len(contour) >= 5:
+        ellipse = cv2.fitEllipse(contour)
+        (cx, cy), (MA, ma), angle = ellipse
+        a = MA / 2.0  # demi-grand axe
+        b = ma / 2.0  # demi-petit axe
+        theta = np.deg2rad(angle)
+        return cx, cy, a, b, theta
+    return None
+
+def g_contributions(cx, cy, a, b, theta, d=1.0, y_steps=50):
+    T0 = 0.0
+    T1 = np.zeros(3)
+    T2 = np.zeros((3,3))
+
+    y_min, y_max = -b, b
+    ys = np.linspace(y_min, y_max, y_steps)
+
+    for y_local in ys:
+        A = (math.cos(theta)**2 / a**2) + (math.sin(theta)**2 / b**2)
+        B = 2*y_local*( (math.cos(theta)*math.sin(theta))/a**2 - (math.cos(theta)*math.sin(theta))/b**2 )
+        C = ( (y_local**2)*(math.sin(theta)**2 / a**2 + math.cos(theta)**2 / b**2) ) - 1
+
+        disc = B**2 - 4*A*C
+        if disc < 0:
+            continue
+        x1 = (-B - math.sqrt(disc)) / (2*A)
+        x2 = (-B + math.sqrt(disc)) / (2*A)
+
+        for sign, x in enumerate(sorted([x1, x2], reverse=True)):
+            sgn = 1 if sign % 2 == 0 else -1
+            T0 += sgn * math.pi * d * (x**2)
+            T1[1] += sgn * math.pi * d * (x**2) * y_local
+            T2[0,0] += sgn * (math.pi/8) * d * (x**4)
+            T2[1,1] += sgn * (math.pi/2) * d * (x**2) * (y_local**2)
+            T2[2,2] += sgn * (math.pi/8) * d * (x**4)
+
+    return T0, T1, T2
+
+def ellipsoid_axes(T0, T1, T2):
+    M = T2 - np.outer(T1, T1) / (2*T0)
+    eigvals, _ = np.linalg.eigh(M)
+    eigvals = np.maximum(eigvals, 1e-9)  # éviter négatif
+    alpha = ((3*T0) / (4*np.pi*np.sqrt(np.prod(eigvals))))**(1/3)
+    axes = alpha * np.sqrt(eigvals)
+    return axes
+
+# ==========================
+# TRAITEMENT CLASSES
+# ==========================
+results_final = {}
+
+# Traiter classes 0 et 1 avec sous-classes
+for class_id in [0, 1]:
+    mask = (class_map == class_id).astype(np.uint8)
+    num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(mask, connectivity=8)
+
+    objects_info = []
+    for i in range(1, num_labels):
+        component_mask = (labels == i).astype(np.uint8)
+        contours, _ = cv2.findContours(component_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if not contours:
+            continue
+        ellipse_params = ellipse_from_contour(contours[0])
+        if ellipse_params is None:
+            continue
+        cx, cy, a, b, theta = ellipse_params
+        area = math.pi * a * b
+        ratio = a / b if b != 0 else 0
+        features = (a, b, area, ratio)
+        objects_info.append((features, ellipse_params))
+
+    if len(objects_info) >= 2:
+        feature_data = np.array([obj[0] for obj in objects_info])
+        km = KMeans(n_clusters=2, random_state=42)
+        sub_labels = km.fit_predict(feature_data)
+    else:
+        sub_labels = np.zeros(len(objects_info), dtype=int)
+
+    for sub_id in np.unique(sub_labels):
+        axes_list = []
+        for idx, (_, ellipse_params) in enumerate(objects_info):
+            if sub_labels[idx] != sub_id:
+                continue
+            cx, cy, a, b, theta = ellipse_params
+            T0, T1, T2 = g_contributions(cx, cy, a, b, theta)
+            axes_list.append(ellipsoid_axes(T0, T1, T2))
+
+        if axes_list:
+            axes_mean = np.mean(axes_list, axis=0)
+        else:
+            axes_mean = (0, 0, 0)
+
+        # Nouvelle classe ID : 0->0,1 / 1->2,3
+        new_class_id = class_id * 2 + sub_id
+        results_final[new_class_id] = {
+            "axes_mean": axes_mean,
+            "all_axes": axes_list
+        }
+
+# Traiter classe 2 normalement
+class_id = 2
+mask = (class_map == class_id).astype(np.uint8)
+num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(mask, connectivity=8)
+
+axes_list = []
+for i in range(1, num_labels):
+    component_mask = (labels == i).astype(np.uint8)
+    contours, _ = cv2.findContours(component_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        continue
+    ellipse_params = ellipse_from_contour(contours[0])
+    if ellipse_params is None:
+        continue
+    cx, cy, a, b, theta = ellipse_params
+    T0, T1, T2 = g_contributions(cx, cy, a, b, theta)
+    axes_list.append(ellipsoid_axes(T0, T1, T2))
+
+if axes_list:
+    axes_mean = np.mean(axes_list, axis=0)
+else:
+    axes_mean = (0, 0, 0)
+
+results_final[4] = {
+    "axes_mean": axes_mean,
+    "all_axes": axes_list
+}
+
+# ==========================
+# AFFICHAGE FINAL
+# ==========================
+print("\n=== Moyennes des axes pour les 5 classes finales ===")
+for cid in range(5):
+    if cid in results_final:
+        ax, ay, az = results_final[cid]["axes_mean"]
+        print(f"Classe {cid} : ax={ax:.2f}, ay={ay:.2f}, az={az:.2f}")
+    else:
+        print(f"Classe {cid} : aucune donnée")
+
+
+############################################################3
+
+# --- Après ton bloc 'results_final' qui contient les 5 classes finales ---
+
+import numpy as np
+import math
+
+# 1) Calcul des volumes ellipsoïdes pour chaque classe finale
+final_stats = {}
+for final_id in sorted(results_final.keys()):
+    all_axes = results_final[final_id].get("all_axes", [])
+    volumes = []
+    diam_eqs = []
+    for axes in all_axes:
+        ax, ay, az = axes
+        V = (4.0 / 3.0) * math.pi * (ax * ay * az)   # volume ellipsoïde
+        d_eq = 2.0 * (ax * ay * az) ** (1.0 / 3.0)   # diamètre sphère équivalente
+        volumes.append(V)
+        diam_eqs.append(d_eq)
+    final_stats[final_id] = {
+        "count": len(volumes),
+        "total_volume": np.sum(volumes) if volumes else 0.0,
+        "mean_diam_eq": np.mean(diam_eqs) if diam_eqs else 0.0,
+        "volumes_list": volumes,
+        "diam_list": diam_eqs
+    }
+
+# 2) Regrouper classes finales en classes originales 0, 1, 2
+orig_map = {
+    0: [0, 1],  # classe originale 0 = finales 0 & 1
+    1: [2, 3],  # classe originale 1 = finales 2 & 3
+    2: [4]      # classe originale 2 = finale 4
+}
+
+volume_par_classe = {}
+diametre_moyen = {}
+nb_objets = {}
+for orig in [0, 1, 2]:
+    vols = []
+    diams = []
+    cnt = 0
+    for f in orig_map[orig]:
+        vols.extend(final_stats.get(f, {}).get("volumes_list", []))
+        diams.extend(final_stats.get(f, {}).get("diam_list", []))
+        cnt += final_stats.get(f, {}).get("count", 0)
+    volume_par_classe[orig] = np.sum(vols) if vols else 0.0
+    diametre_moyen[orig] = np.mean(diams) if diams else 0.0
+    nb_objets[orig] = cnt
+
+# 3) Affichage des volumes par classe originale
+print("\nVolume estimé par classe (méthode T0 -> ellipsoïdes) :")
+for cid in [0, 1, 2]:
+    print(f"  Classe {cid} :")
+    print(f"    - Nombre de particules : {nb_objets[cid]}")
+    print(f"    - Diamètre équivalent sphère moyen ≈ {diametre_moyen[cid]:.2f} px")
+    print(f"    - Volume total estimé ≈ {volume_par_classe[cid]:.2f} px³")
+
+# 4) Calcul Vcube et L en utilisant fractions[] déjà calculé plus haut
+fractions_decimales = {cid: fractions[cid] / 100 for cid in [0, 1, 2]}
+volume_total_observe = sum(volume_par_classe.values())
+somme_fractions_obs = sum(fractions_decimales.values())
+
+if somme_fractions_obs > 0:
+    Vcube = volume_total_observe / somme_fractions_obs
+    L = Vcube ** (1 / 3)
+    print(f"\nVolume du cube estimé : Vcube ≈ {Vcube:.2f} px³")
+    print(f"Longueur caractéristique (L) ≈ {L:.2f} px")
+else:
+    print("\nImpossible de calculer Vcube (aucune fraction détectée).")
+
+# 5) (Optionnel) Affichage de toutes les stats finales
+print("\n--- Détail par classes finales (0..4) ---")
+for fid, stats in final_stats.items():
+    print(f"Classe finale {fid} :")
+    print(f"   n = {stats['count']}")
+    print(f"   Volume total = {stats['total_volume']:.2f} px³")
+    print(f"   Diam. équiv. sphère moyen = {stats['mean_diam_eq']:.2f} px")
