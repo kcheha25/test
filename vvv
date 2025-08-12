@@ -142,3 +142,70 @@ def calc_tensors_from_mask(mask, d=5):
             sign *= -1
 
     return T0, T1, T2
+
+
+
+import numpy as np
+from sklearn.cluster import KMeans
+from collections import defaultdict
+import cv2
+
+# Fonction pour extraire l'aire (nombre de pixels) d'un masque
+def extract_area(mask):
+    return np.count_nonzero(mask)
+
+# Séparer les indices des classes
+indices_0 = [i for i, c in enumerate(pred_classes) if c == 0]
+indices_1 = [i for i, c in enumerate(pred_classes) if c == 1]
+indices_2 = [i for i, c in enumerate(pred_classes) if c == 2]
+
+# Extraire les aires des particules pour classes 0 et 1
+areas_0 = np.array([[extract_area(masks[i])] for i in indices_0])  # 2D array pour sklearn
+areas_1 = np.array([[extract_area(masks[i])] for i in indices_1])
+
+# Appliquer KMeans avec 2 clusters (si on a au moins 2 particules)
+kmeans_0 = KMeans(n_clusters=2, random_state=0).fit(areas_0) if len(areas_0) > 1 else None
+kmeans_1 = KMeans(n_clusters=2, random_state=0).fit(areas_1) if len(areas_1) > 1 else None
+
+results = defaultdict(lambda: {"T0": [], "T1": [], "T2": []})
+
+def subclass_label(cls, cluster_idx):
+    return f"{cls}_{cluster_idx+1}"
+
+# Parcourir objets classe 0 avec sous-classes
+for i, mask_idx in enumerate(indices_0):
+    cluster_idx = kmeans_0.labels_[i] if kmeans_0 else 0
+    label = subclass_label(0, cluster_idx)
+    T0, T1, T2 = calc_tensors_from_mask(masks[mask_idx])
+    results[label]["T0"].append(T0)
+    results[label]["T1"].append(T1)
+    results[label]["T2"].append(T2)
+
+# Pareil pour classe 1
+for i, mask_idx in enumerate(indices_1):
+    cluster_idx = kmeans_1.labels_[i] if kmeans_1 else 0
+    label = subclass_label(1, cluster_idx)
+    T0, T1, T2 = calc_tensors_from_mask(masks[mask_idx])
+    results[label]["T0"].append(T0)
+    results[label]["T1"].append(T1)
+    results[label]["T2"].append(T2)
+
+# Classe 2 inchangée
+for mask_idx in indices_2:
+    label = "2"
+    T0, T1, T2 = calc_tensors_from_mask(masks[mask_idx])
+    results[label]["T0"].append(T0)
+    results[label]["T1"].append(T1)
+    results[label]["T2"].append(T2)
+
+# Calcul des moyennes par sous-classe
+mean_results = {}
+for label, vals in results.items():
+    mean_results[label] = {
+        "T0": np.mean(vals["T0"]),
+        "T1": np.mean(vals["T1"], axis=0),
+        "T2": np.mean(vals["T2"], axis=0)
+    }
+
+print(mean_results)
+
