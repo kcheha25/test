@@ -1,0 +1,144 @@
+from detectron2.engine import DefaultPredictor
+from detectron2.config import get_cfg
+from detectron2 import model_zoo
+import cv2
+
+# Configuration du modèle
+cfg = get_cfg()
+cfg.merge_from_file(model_zoo.get_config_file(
+    "COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml"
+))
+cfg.MODEL.ROI_HEADS.NUM_CLASSES = 3   # tes 3 classes
+cfg.MODEL.WEIGHTS = "model_final_3classes.pth"  # ton modèle entraîné
+cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5
+
+predictor = DefaultPredictor(cfg)
+
+image = cv2.imread("image.jpg")
+outputs = predictor(image)
+
+instances = outputs["instances"].to("cpu")
+pred_classes = instances.pred_classes.numpy()
+masks = instances.pred_masks.numpy()
+
+from collections import defaultdict
+
+results = defaultdict(lambda: {"T0": [], "T1": [], "T2": []})
+
+for cls_id, mask in zip(pred_classes, masks):
+    T0, T1, T2 = calc_tensors_from_mask(mask)
+    results[cls_id]["T0"].append(T0)
+    results[cls_id]["T1"].append(T1)
+    results[cls_id]["T2"].append(T2)
+
+# Moyenne par classe
+mean_results = {}
+for cls_id, vals in results.items():
+    mean_results[cls_id] = {
+        "T0": np.mean(vals["T0"]),
+        "T1": np.mean(vals["T1"], axis=0),
+        "T2": np.mean(vals["T2"], axis=0)
+    }
+
+print(mean_results)
+
+import numpy as np
+import cv2
+
+def calc_tensors_from_mask(mask, d=5):
+    """
+    Calcule T0, T1, T2 pour un masque binaire selon la méthode stéréologique,
+    avec demi-droites horizontales espacées verticalement par d, 
+    selon l'ordre d'alternance spécifique demandé,
+    et tracées uniquement aux niveaux verticaux présents dans la particule.
+    """
+    mask = mask.astype(np.uint8)
+    H, W = mask.shape
+
+    ys, xs = np.nonzero(mask)
+    if len(xs) == 0:
+        return 0, np.zeros(3), np.zeros((3, 3))
+
+    xO = xs.mean()
+    yO = ys.mean()
+
+    y_min = ys.min()
+    y_max = ys.max()
+
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    contour_points = set(tuple(pt[0]) for c in contours for pt in c)
+
+    T0 = 0.0
+    T1 = np.zeros(3)
+    T2 = np.zeros((3, 3))
+
+    max_offset = max(yO - y_min, y_max - yO)
+    max_steps = int(np.ceil(max_offset / d))
+
+    y_offsets = []
+    directions = []
+
+    for i in range(1, max_steps + 1):
+        for sign in [1, -1]:
+            y_candidate = int(round(yO + sign * i * d))
+            if y_candidate < y_min or y_candidate > y_max:
+                continue
+            if i % 2 == 1:
+                # i impair : y0 + i*d vers droite, y0 - i*d vers gauche
+                if sign == 1:
+                    direction = 'right'
+                else:
+                    direction = 'left'
+            else:
+                # i pair : y0 + i*d vers gauche, y0 - i*d vers droite
+                if sign == 1:
+                    direction = 'left'
+                else:
+                    direction = 'right'
+
+            y_offsets.append(sign * i * d)
+            directions.append(direction)
+
+    for offset, direction in zip(y_offsets, directions):
+        y = int(round(yO + offset))
+        if y < 0 or y >= H:
+            continue
+
+        intersections = []
+
+        if direction == 'right':
+            for x in range(int(np.ceil(xO)) + 1, W):
+                if (x, y) in contour_points:
+                    intersections.append((x, y))
+        else:  # gauche
+            for x in range(int(np.floor(xO)) - 1, -1, -1):
+                if (x, y) in contour_points:
+                    intersections.append((x, y))
+
+        if not intersections:
+            continue
+
+        intersections_sorted = sorted(intersections,
+                                      key=lambda p: np.hypot(p[0] - xO, p[1] - yO),
+                                      reverse=True)
+
+        sign = 1
+        for (x_int, y_int) in intersections_sorted:
+            xr = x_int - xO
+            yr = y_int - yO
+
+            g0 = np.pi * d * xr ** 2
+            g1 = np.array([0, np.pi * d * xr ** 2 * yr, 0])
+            g2 = np.array([
+                [np.pi / 8 * d * xr ** 4, 0, 0],
+                [0, np.pi / 2 * d * xr ** 2 * yr ** 2, 0],
+                [0, 0, np.pi / 8 * d * xr ** 4]
+            ])
+
+            T0 += sign * g0
+            T1 += sign * g1
+            T2 += sign * g2
+
+            sign *= -1
+
+    return T0, T1, T2
