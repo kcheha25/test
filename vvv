@@ -213,8 +213,6 @@ print(mean_results)
 import numpy as np
 import cv2
 import math
-import numpy as np
-import random
 
 # ---- Ta fonction calc_tensors_from_mask ----
 def calc_tensors_from_mask(mask, d=5):
@@ -308,53 +306,169 @@ def calc_tensors_from_mask(mask, d=5):
 
     return T0, T1, T2
 
-
 # ---- Génération d'une ellipse 2D ----
-def draw_ellipse_on_mask(mask, a, b, center):
-    cv2.ellipse(mask, center, (int(a), int(b)), angle=0, startAngle=0, endAngle=360, color=1, thickness=-1)
+def generate_ellipse_mask(a, b, img_size=500):
+    """
+    Génère une ellipse verticale (a = rayon horizontal, b = rayon vertical)
+    centrée dans une image binaire.
+    """
+    mask = np.zeros((img_size, img_size), dtype=np.uint8)
+    center = (img_size // 2, img_size // 2)
+    axes = (int(a), int(b))
+    cv2.ellipse(mask, center, axes, angle=0, startAngle=0, endAngle=360, color=1, thickness=-1)
+    return mask
+
+# ---- Paramètres de l'ellipsoïde ----
+a_real = 60   # rayon horizontal (x)
+b_real = 80   # rayon vertical (y)
+c_real = 50   # rayon profondeur (z)
+
+# Volume réel de l’ellipsoïde
+volume_real = (4/3) * math.pi * a_real * b_real * c_real
+print(f"Volume réel ellipsoïde = {volume_real:.2f} pixels³ (unités arbitraires)")
+
+# Générer la coupe verticale (ellipse a x b)
+mask = generate_ellipse_mask(a_real, b_real)
+
+# ---- Appliquer la méthode stéréologique ----
+T0, T1, T2 = calc_tensors_from_mask(mask, d=5)
+
+# Ici, on suppose que T0 correspond à une estimation liée au volume
+# mais comme ton algorithme n'est pas directement un calcul de volume pur,
+# il faudrait voir le facteur de conversion adapté.
+print(f"T0 estimé = {T0:.2f}")
+print(f"T1 estimé = {T1}")
+print(f"T2 estimé =\n{T2}")
 
 
-# ---- Simulation de plusieurs ellipses ----
-img_size = 800
-mask_total = np.zeros((img_size, img_size), dtype=np.uint8)
+import os
+import cv2
+import numpy as np
+from PIL import Image
+import matplotlib.pyplot as plt
 
-N = 10  # nombre d'ellipses
-volumes_real = []
-volumes_est = []
+from detectron2.engine import DefaultPredictor
+from detectron2.config import get_cfg
+from detectron2.data import MetadataCatalog
 
-for _ in range(N):
-    a_real = random.randint(30, 80)  # rayon horizontal
-    b_real = random.randint(30, 90)  # rayon vertical
-    c_real = random.randint(20, 70)  # rayon profondeur
+# === Paramètres ===
+image_path = "chemin/vers/image_complete.png"  # À modifier
+config_path = "chemin/vers/config.yaml"         # À modifier
+weights_path = "chemin/vers/model_final.pth"    # À modifier
 
-    # Volume réel de l’ellipsoïde
-    volume_real = (4/3) * math.pi * a_real * b_real * c_real
-    volumes_real.append(volume_real)
+patch_size = (512, 350)
+resized_size = (512, 400)
+overlap = 50
 
-    # Choisir position aléatoire sur l'image
-    cx = random.randint(a_real+5, img_size-a_real-5)
-    cy = random.randint(b_real+5, img_size-b_real-5)
+# === Initialisation du modèle Detectron2 ===
+cfg = get_cfg()
+cfg.merge_from_file(config_path)
+cfg.MODEL.WEIGHTS = weights_path
+cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5
+predictor = DefaultPredictor(cfg)
+metadata = MetadataCatalog.get(cfg.DATASETS.TRAIN[0])
 
-    draw_ellipse_on_mask(mask_total, a_real, b_real, (cx, cy))
+# === Charger l’image ===
+image = Image.open(image_path).convert("RGB")
+width, height = image.size
+full_image_np = np.array(image)
+output_image = full_image_np.copy()
 
-# ---- Extraire chaque ellipse individuellement ----
-contours, _ = cv2.findContours(mask_total, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+# Masque pour objets pris en compte
+class_map = np.full((height, width), fill_value=255, dtype=np.uint8)  # 255 = fond
+score_map = np.zeros((height, width), dtype=np.float32)  # score max par pixel
 
-for cnt in contours:
-    # Créer un masque individuel
-    mask_single = np.zeros_like(mask_total)
-    cv2.drawContours(mask_single, [cnt], -1, 1, -1)
+# === Découpage en patchs et inférence ===
+pw, ph = patch_size
 
-    # Calculer T0
-    T0, _, _ = calc_tensors_from_mask(mask_single, d=5)
-    volumes_est.append(T0)
+for y in range(0, height, ph - overlap):
+    for x in range(0, width, pw - overlap):
+        crop_w = min(pw + (overlap if x + pw < width else 0), width - x)
+        crop_h = min(ph + (overlap if y + ph < height else 0), height - y)
 
-# ---- Comparaison ----
-vol_mean_real = np.mean(volumes_real)
-vol_mean_est = np.mean(volumes_est)
-err_rel = (vol_mean_est - vol_mean_real) / vol_mean_real * 100
+        # Extraction patch + redimensionnement
+        patch = image.crop((x, y, x + crop_w, y + crop_h)).resize(resized_size)
+        patch_np = np.array(patch)
 
-print(f"Volume moyen réel   = {vol_mean_real:.2f}")
-print(f"Volume moyen estimé = {vol_mean_est:.2f}")
-print(f"Erreur relative moyenne = {err_rel:.2f} %")
+        outputs = predictor(patch_np)
+        instances = outputs["instances"].to("cpu")
 
+        for i in range(len(instances)):
+            class_id = int(instances.pred_classes[i])
+            score = float(instances.scores[i])
+            mask = instances.pred_masks[i].numpy().astype(np.uint8) * 255
+
+            # Remettre le masque à la taille du crop
+            mask_resized = cv2.resize(mask, (crop_w, crop_h), interpolation=cv2.INTER_NEAREST)
+
+            # Position de l’objet dans l’image complète
+            y1, y2 = y, y + crop_h
+            x1, x2 = x, x + crop_w
+
+            # Indices où le masque est présent
+            mask_pixels = mask_resized > 127
+
+            # Mise à jour seulement si score supérieur au score déjà enregistré
+            update_pixels = mask_pixels & (score > score_map[y1:y2, x1:x2])
+            class_map[y1:y2, x1:x2][update_pixels] = class_id
+            score_map[y1:y2, x1:x2][update_pixels] = score
+
+# ==========================================================
+# Interface Tkinter pour sélectionner les zones
+# ==========================================================
+import tkinter as tk
+from PIL import ImageTk
+
+polygon_points = []
+all_polygons = []
+
+def on_click(event):
+    x, y = event.x, event.y
+    polygon_points.append((x, y))
+    r = 2
+    canvas.create_oval(x - r, y - r, x + r, y + r, fill='red')
+
+def close_polygon():
+    global polygon_points
+    if len(polygon_points) >= 3:
+        all_polygons.append(polygon_points[:])
+        canvas.create_polygon(polygon_points, outline='green', fill='', width=2)
+        polygon_points = []
+
+def finish():
+    root.destroy()
+
+# Création interface
+root = tk.Tk()
+root.title("Dessine les polygones (clic: points, bouton: fermer)")
+
+image_tk = ImageTk.PhotoImage(Image.fromarray(output_image))
+canvas = tk.Canvas(root, width=width, height=height)
+canvas.pack()
+canvas.create_image(0, 0, anchor=tk.NW, image=image_tk)
+canvas.bind("<Button-1>", on_click)
+
+btn_frame = tk.Frame(root)
+btn_frame.pack()
+tk.Button(btn_frame, text="Fermer polygone", command=close_polygon).pack(side=tk.LEFT, padx=10)
+tk.Button(btn_frame, text="Terminer", command=finish).pack(side=tk.RIGHT, padx=10)
+
+root.mainloop()
+
+# === Création du masque à partir des polygones dessinés ===
+zone_mask = np.zeros((height, width), dtype=np.uint8)
+for poly in all_polygons:
+    cv2.fillPoly(zone_mask, [np.array(poly, dtype=np.int32)], 255)
+
+# === Calcul du pourcentage d’occupation par classe ===
+total_pixels = np.sum(zone_mask > 0)
+fractions = {}
+
+for class_id in np.unique(class_map[class_map != 255]):
+    pixels = np.sum((class_map == class_id) & (zone_mask > 0))
+    fractions[class_id] = round(100 * pixels / total_pixels, 2) if total_pixels else 0
+
+# === Affichage des résultats ===
+print("Fraction d’occupation (à l’intérieur des polygones dessinés) :")
+for cid, perc in fractions.items():
+    print(f"  Classe {cid} : {perc} %")
