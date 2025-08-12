@@ -213,6 +213,8 @@ print(mean_results)
 import numpy as np
 import cv2
 import math
+import numpy as np
+import random
 
 # ---- Ta fonction calc_tensors_from_mask ----
 def calc_tensors_from_mask(mask, d=5):
@@ -306,36 +308,53 @@ def calc_tensors_from_mask(mask, d=5):
 
     return T0, T1, T2
 
+
 # ---- Génération d'une ellipse 2D ----
-def generate_ellipse_mask(a, b, img_size=500):
-    """
-    Génère une ellipse verticale (a = rayon horizontal, b = rayon vertical)
-    centrée dans une image binaire.
-    """
-    mask = np.zeros((img_size, img_size), dtype=np.uint8)
-    center = (img_size // 2, img_size // 2)
-    axes = (int(a), int(b))
-    cv2.ellipse(mask, center, axes, angle=0, startAngle=0, endAngle=360, color=1, thickness=-1)
-    return mask
+def draw_ellipse_on_mask(mask, a, b, center):
+    cv2.ellipse(mask, center, (int(a), int(b)), angle=0, startAngle=0, endAngle=360, color=1, thickness=-1)
 
-# ---- Paramètres de l'ellipsoïde ----
-a_real = 60   # rayon horizontal (x)
-b_real = 80   # rayon vertical (y)
-c_real = 50   # rayon profondeur (z)
 
-# Volume réel de l’ellipsoïde
-volume_real = (4/3) * math.pi * a_real * b_real * c_real
-print(f"Volume réel ellipsoïde = {volume_real:.2f} pixels³ (unités arbitraires)")
+# ---- Simulation de plusieurs ellipses ----
+img_size = 800
+mask_total = np.zeros((img_size, img_size), dtype=np.uint8)
 
-# Générer la coupe verticale (ellipse a x b)
-mask = generate_ellipse_mask(a_real, b_real)
+N = 10  # nombre d'ellipses
+volumes_real = []
+volumes_est = []
 
-# ---- Appliquer la méthode stéréologique ----
-T0, T1, T2 = calc_tensors_from_mask(mask, d=5)
+for _ in range(N):
+    a_real = random.randint(30, 80)  # rayon horizontal
+    b_real = random.randint(30, 90)  # rayon vertical
+    c_real = random.randint(20, 70)  # rayon profondeur
 
-# Ici, on suppose que T0 correspond à une estimation liée au volume
-# mais comme ton algorithme n'est pas directement un calcul de volume pur,
-# il faudrait voir le facteur de conversion adapté.
-print(f"T0 estimé = {T0:.2f}")
-print(f"T1 estimé = {T1}")
-print(f"T2 estimé =\n{T2}")
+    # Volume réel de l’ellipsoïde
+    volume_real = (4/3) * math.pi * a_real * b_real * c_real
+    volumes_real.append(volume_real)
+
+    # Choisir position aléatoire sur l'image
+    cx = random.randint(a_real+5, img_size-a_real-5)
+    cy = random.randint(b_real+5, img_size-b_real-5)
+
+    draw_ellipse_on_mask(mask_total, a_real, b_real, (cx, cy))
+
+# ---- Extraire chaque ellipse individuellement ----
+contours, _ = cv2.findContours(mask_total, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+for cnt in contours:
+    # Créer un masque individuel
+    mask_single = np.zeros_like(mask_total)
+    cv2.drawContours(mask_single, [cnt], -1, 1, -1)
+
+    # Calculer T0
+    T0, _, _ = calc_tensors_from_mask(mask_single, d=5)
+    volumes_est.append(T0)
+
+# ---- Comparaison ----
+vol_mean_real = np.mean(volumes_real)
+vol_mean_est = np.mean(volumes_est)
+err_rel = (vol_mean_est - vol_mean_real) / vol_mean_real * 100
+
+print(f"Volume moyen réel   = {vol_mean_real:.2f}")
+print(f"Volume moyen estimé = {vol_mean_est:.2f}")
+print(f"Erreur relative moyenne = {err_rel:.2f} %")
+
