@@ -1,0 +1,246 @@
+import cv2
+import numpy as np
+from PIL import Image
+from collections import defaultdict
+from detectron2.engine import DefaultPredictor
+from detectron2.config import get_cfg
+
+# ========================
+# Fonction calcul T0 T1 T2
+# ========================
+def calc_tensors_from_mask(mask, d=5):
+    mask = mask.astype(np.uint8)
+    H, W = mask.shape
+    ys, xs = np.nonzero(mask)
+    if len(xs) == 0:
+        return 0, np.zeros(3), np.zeros((3, 3))
+
+    xO = xs.mean()
+    yO = ys.mean()
+    y_min = ys.min()
+    y_max = ys.max()
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    contour_points = set(tuple(pt[0]) for c in contours for pt in c)
+
+    T0 = 0.0
+    T1 = np.zeros(3)
+    T2 = np.zeros((3, 3))
+
+    max_offset = max(yO - y_min, y_max - yO)
+    max_steps = int(np.ceil(max_offset / d))
+    y_offsets, directions = [], []
+
+    for i in range(1, max_steps + 1):
+        for sign in [1, -1]:
+            y_candidate = int(round(yO + sign * i * d))
+            if y_candidate < y_min or y_candidate > y_max:
+                continue
+            if i % 2 == 1:
+                direction = 'right' if sign == 1 else 'left'
+            else:
+                direction = 'left' if sign == 1 else 'right'
+            y_offsets.append(sign * i * d)
+            directions.append(direction)
+
+    for offset, direction in zip(y_offsets, directions):
+        y = int(round(yO + offset))
+        if y < 0 or y >= H:
+            continue
+
+        intersections = []
+        if direction == 'right':
+            for x in range(int(np.ceil(xO)) + 1, W):
+                if (x, y) in contour_points:
+                    intersections.append((x, y))
+        else:
+            for x in range(int(np.floor(xO)) - 1, -1, -1):
+                if (x, y) in contour_points:
+                    intersections.append((x, y))
+
+        if not intersections:
+            continue
+
+        intersections_sorted = sorted(
+            intersections,
+            key=lambda p: np.hypot(p[0] - xO, p[1] - yO),
+            reverse=True
+        )
+
+        sign = 1
+        for (x_int, y_int) in intersections_sorted:
+            xr = x_int - xO
+            yr = y_int - yO
+            g0 = np.pi * d * xr ** 2
+            g1 = np.array([0, np.pi * d * xr ** 2 * yr, 0])
+            g2 = np.array([
+                [np.pi / 8 * d * xr ** 4, 0, 0],
+                [0, np.pi / 2 * d * xr ** 2 * yr ** 2, 0],
+                [0, 0, np.pi / 8 * d * xr ** 4]
+            ])
+            T0 += sign * g0
+            T1 += sign * g1
+            T2 += sign * g2
+            sign *= -1
+
+    return T0, T1, T2
+
+def extract_area(mask):
+    return np.count_nonzero(mask)
+
+def subclass_label(cls, part):
+    return f"{cls}_{part}"
+
+# ============================
+# Paramètres Detectron2 & data
+# ============================
+image_path = "chemin/vers/ton_image.png"  # <-- à modifier
+config_path = "chemin/vers/config.yaml"
+weights_path = "chemin/vers/model_final.pth"
+
+patch_size = (512, 350)
+resized_size = (512, 400)
+overlap = 50
+
+# Init modèle
+cfg = get_cfg()
+cfg.merge_from_file(config_path)
+cfg.MODEL.WEIGHTS = weights_path
+cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5
+predictor = DefaultPredictor(cfg)
+
+# Variables d'accumulation
+global_results = defaultdict(lambda: {"T0": [], "T1": [], "T2": []})
+count_per_class = defaultdict(int)
+count_subclass = defaultdict(int)
+area_per_class = defaultdict(int)
+area_subclass = defaultdict(int)
+
+# === Lecture image ===
+image = Image.open(image_path).convert("RGB")
+width, height = image.size
+
+# Cartes pour fusion
+class_map = np.full((height, width), fill_value=255, dtype=np.uint8)
+score_map = np.zeros((height, width), dtype=np.float32)
+masks_all = []
+pred_classes_all = []
+
+pw, ph = patch_size
+for y in range(0, height, ph - overlap):
+    for x in range(0, width, pw - overlap):
+        crop_w = min(pw + (overlap if x + pw < width else 0), width - x)
+        crop_h = min(ph + (overlap if y + ph < height else 0), height - y)
+
+        patch = image.crop((x, y, x + crop_w, y + crop_h)).resize(resized_size)
+        patch_np = np.array(patch)
+
+        outputs = predictor(patch_np)
+        instances = outputs["instances"].to("cpu")
+
+        for i in range(len(instances)):
+            class_id = int(instances.pred_classes[i])
+            score = float(instances.scores[i])
+            mask = instances.pred_masks[i].numpy().astype(np.uint8) * 255
+            mask_resized = cv2.resize(mask, (crop_w, crop_h), interpolation=cv2.INTER_NEAREST)
+
+            y1, y2 = y, y + crop_h
+            x1, x2 = x, x + crop_w
+            mask_pixels = mask_resized > 127
+            update_pixels = mask_pixels & (score > score_map[y1:y2, x1:x2])
+
+            class_map[y1:y2, x1:x2][update_pixels] = class_id
+            score_map[y1:y2, x1:x2][update_pixels] = score
+
+            full_mask = np.zeros((height, width), dtype=np.uint8)
+            full_mask[y1:y2, x1:x2][mask_pixels] = 1
+            masks_all.append(full_mask)
+            pred_classes_all.append(class_id)
+
+# ==== Calcul T0/T1/T2 par classe et sous-classe ====
+indices_0 = [i for i, c in enumerate(pred_classes_all) if c == 0]
+indices_1 = [i for i, c in enumerate(pred_classes_all) if c == 1]
+indices_2 = [i for i, c in enumerate(pred_classes_all) if c == 2]
+
+areas_0 = np.array([extract_area(masks_all[i]) for i in indices_0])
+areas_1 = np.array([extract_area(masks_all[i]) for i in indices_1])
+
+median_0 = np.median(areas_0) if len(areas_0) > 0 else 0
+median_1 = np.median(areas_1) if len(areas_1) > 0 else 0
+
+# Classe 0
+for i, idx in enumerate(indices_0):
+    part = 1 if areas_0[i] <= median_0 else 2
+    label = subclass_label(0, part)
+    T0, T1, T2 = calc_tensors_from_mask(masks_all[idx])
+    global_results[label]["T0"].append(T0)
+    global_results[label]["T1"].append(T1)
+    global_results[label]["T2"].append(T2)
+    area_per_class[0] += areas_0[i]
+    area_subclass[label] += areas_0[i]
+    count_per_class[0] += 1
+    count_subclass[label] += 1
+
+# Classe 1
+for i, idx in enumerate(indices_1):
+    part = 1 if areas_1[i] <= median_1 else 2
+    label = subclass_label(1, part)
+    T0, T1, T2 = calc_tensors_from_mask(masks_all[idx])
+    global_results[label]["T0"].append(T0)
+    global_results[label]["T1"].append(T1)
+    global_results[label]["T2"].append(T2)
+    area_per_class[1] += areas_1[i]
+    area_subclass[label] += areas_1[i]
+    count_per_class[1] += 1
+    count_subclass[label] += 1
+
+# Classe 2
+for idx in indices_2:
+    label = "2"
+    T0, T1, T2 = calc_tensors_from_mask(masks_all[idx])
+    global_results[label]["T0"].append(T0)
+    global_results[label]["T1"].append(T1)
+    global_results[label]["T2"].append(T2)
+    area = extract_area(masks_all[idx])
+    area_per_class[2] += area
+    area_subclass[label] += area
+    count_per_class[2] += 1
+
+# ============================
+# Moyennes finales et pourcentages
+# ============================
+mean_results = {
+    label: {
+        "T0": np.mean(vals["T0"]) if vals["T0"] else 0,
+        "T1": np.mean(vals["T1"], axis=0) if vals["T1"] else np.zeros(3),
+        "T2": np.mean(vals["T2"], axis=0) if vals["T2"] else np.zeros((3, 3))
+    }
+    for label, vals in global_results.items()
+}
+
+percentages = {}
+if count_per_class[0] > 0:
+    percentages["0_1"] = 100 * count_subclass["0_1"] / count_per_class[0]
+    percentages["0_2"] = 100 * count_subclass["0_2"] / count_per_class[0]
+if count_per_class[1] > 0:
+    percentages["1_1"] = 100 * count_subclass["1_1"] / count_per_class[1]
+    percentages["1_2"] = 100 * count_subclass["1_2"] / count_per_class[1]
+
+percentages_area = {}
+if area_per_class[0] > 0:
+    percentages_area["0_1"] = 100 * area_subclass["0_1"] / area_per_class[0]
+    percentages_area["0_2"] = 100 * area_subclass["0_2"] / area_per_class[0]
+if area_per_class[1] > 0:
+    percentages_area["1_1"] = 100 * area_subclass["1_1"] / area_per_class[1]
+    percentages_area["1_2"] = 100 * area_subclass["1_2"] / area_per_class[1]
+
+print("=== Moyennes T0/T1/T2 par sous-classe ===")
+for label, vals in mean_results.items():
+    print(label, vals)
+
+print("\n=== Pourcentages par sous-classe (nombre d'objets) ===")
+for label, perc in percentages.items():
+    print(f"{label}: {perc:.2f} %")
+
+print("\n=== Pourcentages par surface occupée ===")
+for label, perc in percentages_area.items():
+    print(f"{label}: {perc:.2f} %")
