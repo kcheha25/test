@@ -1,0 +1,149 @@
+import numpy as np
+import cv2
+import math
+
+# ---- Fonction pour calculer les demi-axes ----
+def calculate_semi_axes(T0, T1, T2):
+    """Calcule les longueurs des demi-axes à partir des tenseurs centrés."""
+    # 1. Centrage du tenseur T2 pour éliminer l'effet de position
+    T2_centered = T2 - np.outer(T1, T1) / (2 * T0)
+
+    # 2. Diagonalisation
+    eigenvalues, eigenvectors = np.linalg.eigh(T2_centered)
+
+    # 3. Constante pour d=3
+    kappa_3 = 4 * np.pi / 3
+    factor = (2 * (3 + 2) / kappa_3) ** (1/(3 + 2))  # (10 / (4π/3))^(1/5)
+
+    # Valeurs propres triées
+    lambda1, lambda2, lambda3 = eigenvalues
+
+    # Demi-axes
+    a1 = factor * (lambda1 ** 0.4) / ((lambda2 * lambda3) ** 0.1)
+    a2 = factor * (lambda2 ** 0.4) / ((lambda1 * lambda3) ** 0.1)
+    a3 = factor * (lambda3 ** 0.4) / ((lambda1 * lambda2) ** 0.1)
+
+    return np.array([a1, a2, a3]), eigenvectors
+
+# ---- Ta fonction existante ----
+def calc_tensors_from_mask(mask, d=5):
+    mask = mask.astype(np.uint8)
+    H, W = mask.shape
+
+    ys, xs = np.nonzero(mask)
+    if len(xs) == 0:
+        return 0, np.zeros(3), np.zeros((3, 3))
+
+    xO = xs.mean()
+    yO = ys.mean()
+
+    y_min = ys.min()
+    y_max = ys.max()
+
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    contour_points = set(tuple(pt[0]) for c in contours for pt in c)
+
+    T0 = 0.0
+    T1 = np.zeros(3)
+    T2 = np.zeros((3, 3))
+
+    max_offset = max(yO - y_min, y_max - yO)
+    max_steps = int(np.ceil(max_offset / d))
+
+    y_offsets = []
+    directions = []
+
+    for i in range(1, max_steps + 1):
+        for sign in [1, -1]:
+            y_candidate = int(round(yO + sign * i * d))
+            if y_candidate < y_min or y_candidate > y_max:
+                continue
+            if i % 2 == 1:
+                if sign == 1:
+                    direction = 'right'
+                else:
+                    direction = 'left'
+            else:
+                if sign == 1:
+                    direction = 'left'
+                else:
+                    direction = 'right'
+
+            y_offsets.append(sign * i * d)
+            directions.append(direction)
+
+    for offset, direction in zip(y_offsets, directions):
+        y = int(round(yO + offset))
+        if y < 0 or y >= H:
+            continue
+
+        intersections = []
+        if direction == 'right':
+            for x in range(int(np.ceil(xO)) + 1, W):
+                if (x, y) in contour_points:
+                    intersections.append((x, y))
+        else:
+            for x in range(int(np.floor(xO)) - 1, -1, -1):
+                if (x, y) in contour_points:
+                    intersections.append((x, y))
+
+        if not intersections:
+            continue
+
+        intersections_sorted = sorted(
+            intersections,
+            key=lambda p: np.hypot(p[0] - xO, p[1] - yO),
+            reverse=True
+        )
+
+        sign = 1
+        for (x_int, y_int) in intersections_sorted:
+            xr = x_int - xO
+            yr = y_int - yO
+
+            g0 = np.pi * d * xr ** 2
+            g1 = np.array([0, np.pi * d * xr ** 2 * yr, 0])
+            g2 = np.array([
+                [np.pi / 8 * d * xr ** 4, 0, 0],
+                [0, np.pi / 2 * d * xr ** 2 * yr ** 2, 0],
+                [0, 0, np.pi / 8 * d * xr ** 4]
+            ])
+
+            T0 += sign * g0
+            T1 += sign * g1
+            T2 += sign * g2
+
+            sign *= -1
+
+    return T0, T1, T2
+
+# ---- Génération d'une ellipse ----
+def generate_ellipse_mask(a, b, img_size=500):
+    mask = np.zeros((img_size, img_size), dtype=np.uint8)
+    center = (img_size // 2, img_size // 2)
+    axes = (int(a), int(b))
+    cv2.ellipse(mask, center, axes, 0, 0, 360, 1, -1)
+    return mask
+
+# ---- Paramètres réels ----
+a_real = 60
+b_real = 80
+c_real = 50
+
+volume_real = (4/3) * math.pi * a_real * b_real * c_real
+print(f"Volume réel ellipsoïde = {volume_real:.2f}")
+
+mask = generate_ellipse_mask(a_real, b_real)
+
+# ---- Calcul tenseurs ----
+T0, T1, T2 = calc_tensors_from_mask(mask, d=5)
+print(f"T0 = {T0:.2f}\nT1 = {T1}\nT2 =\n{T2}")
+
+# ---- Calcul des demi-axes estimés ----
+axes_calc, dirs_calc = calculate_semi_axes(T0, T1, T2)
+
+# ---- Affichage comparaison ----
+print("\n--- Comparaison demi-axes ---")
+print(f"Réels     : a={a_real}, b={b_real}, c={c_real}")
+print(f"Estimés   : a={axes_calc[0]:.2f}, b={axes_calc[1]:.2f}, c={axes_calc[2]:.2f}")
+print(f"\nDirections propres (colonnes) :\n{dirs_calc}")
