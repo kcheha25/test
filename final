@@ -405,16 +405,13 @@ else:
     print("\nAucun objet détecté pour la classe 2 (pas de KMeans possible).")
 
 
-from sklearn.cluster import KMeans
 import matplotlib.pyplot as plt
 
 # ============================
-# KMeans sur intensité des pixels pour la classe 2
+# Visualisation objets classe 2 avec clusters KMeans colorés
 # ============================
-gray_image = np.array(image.convert("L"))  # image en niveaux de gris
 
-proportions_cluster0 = []
-proportions_cluster1 = []
+gray_image = np.array(image.convert("L"))  # image en niveaux de gris
 
 for obj_id, idx in enumerate(indices_2, start=1):
     mask = masks_all[idx].astype(bool)  # masque binaire de l'objet
@@ -430,30 +427,54 @@ for obj_id, idx in enumerate(indices_2, start=1):
     kmeans = KMeans(n_clusters=2, n_init=10, random_state=0)
     labels = kmeans.fit_predict(pixels_reshaped)
 
-    # Créer une image des labels de même taille que l'image originale
-    label_img = np.zeros_like(gray_image, dtype=np.uint8)
-    label_img[mask] = labels + 1  # +1 pour différencier du fond (=0)
+    # Trier clusters par intensité (0 = sombre, 1 = clair)
+    centers = kmeans.cluster_centers_.flatten()
+    order = np.argsort(centers)  
+    labels_sorted = np.array([order[label] for label in labels])
 
-    # Calcul proportion de chaque cluster
-    cluster0_ratio = np.sum(labels == 0) / pixels.size * 100
-    cluster1_ratio = np.sum(labels == 1) / pixels.size * 100
+    # Créer une image RGB pour visualisation
+    cluster_img = np.zeros((*mask.shape, 3), dtype=np.uint8)
 
-    proportions_cluster0.append(cluster0_ratio)
-    proportions_cluster1.append(cluster1_ratio)
+    # Colorier chaque cluster (0 = rouge, 1 = bleu)
+    cluster_img[mask] = np.where(
+        labels_sorted[:, None] == 0,
+        [255, 0, 0],   # rouge
+        [0, 0, 255]    # bleu
+    )
 
-    # Affichage de l'objet segmenté en 2 clusters
+    # Afficher l'objet
     plt.figure(figsize=(4, 4))
-    plt.imshow(label_img, cmap="gray")
+    plt.imshow(cluster_img)
     plt.title(f"Objet {obj_id} (classe 2)")
     plt.axis("off")
     plt.show()
 
-# Moyennes globales
-if proportions_cluster0 and proportions_cluster1:
-    mean_cluster0 = np.mean(proportions_cluster0)
-    mean_cluster1 = np.mean(proportions_cluster1)
-    print("\n=== KMeans intensité pixels pour la classe 2 ===")
-    print(f"Proportion moyenne cluster 0 : {mean_cluster0:.2f} %")
-    print(f"Proportion moyenne cluster 1 : {mean_cluster1:.2f} %")
+# ============================
+# Pourcentage moyen de pixels gris/noir pour la classe 2
+# ============================
+gray_image = np.array(image.convert("L"))  # image en niveaux de gris
+
+percent_black_list = []
+percent_gray_list = []
+
+for idx in indices_2:
+    mask = masks_all[idx].astype(bool)  # masque de l'objet
+    pixels = gray_image[mask]
+
+    if pixels.size == 0:
+        continue
+
+    black_ratio = np.sum(pixels == 0) / pixels.size * 100
+    gray_ratio = np.sum((pixels > 0) & (pixels < 255)) / pixels.size * 100
+
+    percent_black_list.append(black_ratio)
+    percent_gray_list.append(gray_ratio)
+
+if percent_black_list and percent_gray_list:
+    mean_black = np.mean(percent_black_list)
+    mean_gray = np.mean(percent_gray_list)
+    print("\n=== Pourcentage moyen des pixels pour la classe 2 ===")
+    print(f"Pixels noirs : {mean_black:.2f} %")
+    print(f"Pixels gris  : {mean_gray:.2f} %")
 else:
-    print("\nAucun objet détecté pour la classe 2 (pas de KMeans possible).")
+    print("\nAucun objet détecté pour la classe 2 (pas de calcul possible).")
