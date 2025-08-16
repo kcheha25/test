@@ -216,7 +216,18 @@ mean_results = {
     }
     for label, vals in global_results.items()
 }
-
+for label in mean_results:
+    T0 = mean_results[label]["T0"]
+    T1 = mean_results[label]["T1"]
+    T2 = mean_results[label]["T2"]
+    
+    # Calcul des semi-axes pour cette classe
+    semi_axes, eigenvectors = calculate_semi_axes(T0, T1, T2)
+    
+    # Ajout des résultats
+    mean_results[label]["semi_axes"] = semi_axes
+    mean_results[label]["eigenvectors"] = eigenvectors
+    
 percentages = {}
 if count_per_class[0] > 0:
     percentages["0_1"] = 100 * count_subclass["0_1"] / count_per_class[0]
@@ -233,9 +244,15 @@ if area_per_class[1] > 0:
     percentages_area["1_1"] = 100 * area_subclass["1_1"] / area_per_class[1]
     percentages_area["1_2"] = 100 * area_subclass["1_2"] / area_per_class[1]
 
-print("=== Moyennes T0/T1/T2 par sous-classe ===")
+
+print("=== Moyennes T0/T1/T2 et semi-axes calculés par classe ===")
 for label, vals in mean_results.items():
-    print(label, vals)
+    print(f"\nClasse {label}:")
+    print(f"T0 moyen: {vals['T0']}")
+    print(f"T1 moyen: {vals['T1']}")
+    print(f"T2 moyen:\n{vals['T2']}")
+    print(f"Demi-axes calculés: {vals['semi_axes']}")
+    print(f"Directions principales:\n{vals['eigenvectors']}")
 
 print("\n=== Pourcentages par sous-classe (nombre d'objets) ===")
 for label, perc in percentages.items():
@@ -308,3 +325,39 @@ for label, perc in percentages.items():
 print("\n=== Pourcentages par surface occupée ===")
 for label, perc in percentages_area.items():
     print(f"{label}: {perc:.2f} %")
+
+
+# ============================
+# Volume par classe et calcul du cube
+# ============================
+
+# Volume total par classe (somme des T0)
+volume_par_classe = {cid: 0.0 for cid in [0, 1, 2]}
+for label, vals in global_results.items():
+    if label.startswith("0"):
+        volume_par_classe[0] += sum(vals["T0"])
+    elif label.startswith("1"):
+        volume_par_classe[1] += sum(vals["T0"])
+    elif label == "2":
+        volume_par_classe[2] += sum(vals["T0"])
+
+# Fractions en décimal (par ex. fractions = {0: 30, 1: 50, 2: 20})
+fractions = {0: 30, 1: 50, 2: 20}  # <-- à adapter selon ton cas
+fractions_decimales = {cid: fractions[cid] / 100 for cid in [0, 1, 2]}
+
+# Calcul du volume du cube estimé
+Vcube = 0
+for cid in [0, 1, 2]:
+    f = fractions_decimales[cid]
+    v = volume_par_classe[cid]
+    if f > 0:
+        Vcube += v / f
+
+# Longueur caractéristique
+if Vcube > 0:
+    L = Vcube ** (1 / 3)
+    print(f"\n=== Estimation du volume global ===")
+    print(f"Volume du cube estimé : Vcube ≈ {Vcube:.2f} px³")
+    print(f"Longueur caractéristique (L) ≈ {L:.2f} px")
+else:
+    print("\nImpossible de calculer Vcube (aucune fraction détectée).")
