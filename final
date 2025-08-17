@@ -449,32 +449,3 @@ for obj_id, idx in enumerate(indices_2, start=1):
     plt.axis("off")
     plt.show()
 
-# ============================
-# Pourcentage moyen de pixels gris/noir pour la classe 2
-# ============================
-gray_image = np.array(image.convert("L"))  # image en niveaux de gris
-
-percent_black_list = []
-percent_gray_list = []
-
-for idx in indices_2:
-    mask = masks_all[idx].astype(bool)  # masque de l'objet
-    pixels = gray_image[mask]
-
-    if pixels.size == 0:
-        continue
-
-    black_ratio = np.sum(pixels == 0) / pixels.size * 100
-    gray_ratio = np.sum((pixels > 0) & (pixels < 255)) / pixels.size * 100
-
-    percent_black_list.append(black_ratio)
-    percent_gray_list.append(gray_ratio)
-
-if percent_black_list and percent_gray_list:
-    mean_black = np.mean(percent_black_list)
-    mean_gray = np.mean(percent_gray_list)
-    print("\n=== Pourcentage moyen des pixels pour la classe 2 ===")
-    print(f"Pixels noirs : {mean_black:.2f} %")
-    print(f"Pixels gris  : {mean_gray:.2f} %")
-else:
-    print("\nAucun objet détecté pour la classe 2 (pas de calcul possible).")
