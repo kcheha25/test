@@ -84,6 +84,28 @@ def calc_tensors_from_mask(mask, d=5):
 
     return T0, T1, T2
 
+def calculate_semi_axes(T0, T1, T2):
+    """Calcule les longueurs des demi-axes à partir des tenseurs centrés."""
+    # 1. Centrage du tenseur T2 pour éliminer l'effet de position
+    T2_centered = T2 - np.outer(T1, T1) / (2 * T0)
+
+    # 2. Diagonalisation
+    eigenvalues, eigenvectors = np.linalg.eigh(T2_centered)
+
+    # 3. Constante pour d=3
+    kappa_3 = 4 * np.pi / 3
+    factor = (2 * (3 + 2) / kappa_3) ** (1/(3 + 2))  # (10 / (4π/3))^(1/5)
+
+    # Valeurs propres triées
+    lambda1, lambda2, lambda3 = eigenvalues
+
+    # Demi-axes
+    a1 = factor * (lambda1 ** 0.4) / ((lambda2 * lambda3) ** 0.1)
+    a2 = factor * (lambda2 ** 0.4) / ((lambda1 * lambda3) ** 0.1)
+    a3 = factor * (lambda3 ** 0.4) / ((lambda1 * lambda2) ** 0.1)
+
+    return np.array([a1, a2, a3]), eigenvectors
+
 def extract_area(mask):
     return np.count_nonzero(mask)
 
@@ -93,7 +115,7 @@ def subclass_label(cls, part):
 # ============================
 # Paramètres Detectron2 & data
 # ============================
-image_path = "chemin/vers/ton_image.png"  # <-- à modifier
+image_path = "chemin/vers/ton_image.png" 
 config_path = "chemin/vers/config.yaml"
 weights_path = "chemin/vers/model_final.pth"
 
@@ -449,3 +471,179 @@ for obj_id, idx in enumerate(indices_2, start=1):
     plt.axis("off")
     plt.show()
 
+
+import os
+import cv2
+import numpy as np
+from skimage.measure import regionprops, label
+from detectron2.engine import DefaultPredictor
+from detectron2.config import get_cfg
+from detectron2 import model_zoo
+
+
+def calc_tensors_from_mask(mask, d=5):
+    mask = mask.astype(np.uint8)
+    H, W = mask.shape
+    ys, xs = np.nonzero(mask)
+    if len(xs) == 0:
+        return 0, np.zeros(3), np.zeros((3, 3))
+
+    xO = xs.mean()
+    yO = ys.mean()
+    y_min = ys.min()
+    y_max = ys.max()
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    contour_points = set(tuple(pt[0]) for c in contours for pt in c)
+
+    T0 = 0.0
+    T1 = np.zeros(3)
+    T2 = np.zeros((3, 3))
+
+    max_offset = max(yO - y_min, y_max - yO)
+    max_steps = int(np.ceil(max_offset / d))
+    y_offsets, directions = [], []
+
+    for i in range(1, max_steps + 1):
+        for sign in [1, -1]:
+            y_candidate = int(round(yO + sign * i * d))
+            if y_candidate < y_min or y_candidate > y_max:
+                continue
+            if i % 2 == 1:
+                direction = 'right' if sign == 1 else 'left'
+            else:
+                direction = 'left' if sign == 1 else 'right'
+            y_offsets.append(sign * i * d)
+            directions.append(direction)
+
+    for offset, direction in zip(y_offsets, directions):
+        y = int(round(yO + offset))
+        if y < 0 or y >= H:
+            continue
+
+        intersections = []
+        if direction == 'right':
+            for x in range(int(np.ceil(xO)) + 1, W):
+                if (x, y) in contour_points:
+                    intersections.append((x, y))
+        else:
+            for x in range(int(np.floor(xO)) - 1, -1, -1):
+                if (x, y) in contour_points:
+                    intersections.append((x, y))
+
+        if not intersections:
+            continue
+
+        intersections_sorted = sorted(
+            intersections,
+            key=lambda p: np.hypot(p[0] - xO, p[1] - yO),
+            reverse=True
+        )
+
+        sign = 1
+        for (x_int, y_int) in intersections_sorted:
+            xr = x_int - xO
+            yr = y_int - yO
+            g0 = np.pi * d * xr ** 2
+            g1 = np.array([0, np.pi * d * xr ** 2 * yr, 0])
+            g2 = np.array([
+                [np.pi / 8 * d * xr ** 4, 0, 0],
+                [0, np.pi / 2 * d * xr ** 2 * yr ** 2, 0],
+                [0, 0, np.pi / 8 * d * xr ** 4]
+            ])
+            T0 += sign * g0
+            T1 += sign * g1
+            T2 += sign * g2
+            sign *= -1
+
+    return T0, T1, T2
+
+
+def calculate_semi_axes(T0, T1, T2):
+    T2_centered = T2 - np.outer(T1, T1) / (2 * T0)
+    eigenvalues, eigenvectors = np.linalg.eigh(T2_centered)
+
+    kappa_3 = 4 * np.pi / 3
+    factor = (2 * (3 + 2) / kappa_3) ** (1/(3 + 2))
+
+    lambda1, lambda2, lambda3 = eigenvalues
+    a1 = factor * (lambda1 ** 0.4) / ((lambda2 * lambda3) ** 0.1)
+    a2 = factor * (lambda2 ** 0.4) / ((lambda1 * lambda3) ** 0.1)
+    a3 = factor * (lambda3 ** 0.4) / ((lambda1 * lambda2) ** 0.1)
+
+    return np.array([a1, a2, a3]), eigenvectors
+
+
+
+IMAGE_FOLDER = "images_input"
+MODEL_CONFIG = "COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml"
+MODEL_WEIGHTS = "model_final.pth" 
+RESOLUTION = 7.443  # nm/pixel
+DIAMETER_THRESHOLD = 200  # nm
+
+# ========================
+# Initialisation Detectron2
+# ========================
+cfg = get_cfg()
+cfg.merge_from_file(model_zoo.get_config_file(MODEL_CONFIG))
+cfg.MODEL.WEIGHTS = MODEL_WEIGHTS
+cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5
+predictor = DefaultPredictor(cfg)
+
+# ========================
+# Accumulateurs globaux
+# ========================
+T0_all, T1_all, T2_all = [], [], []
+diameters_px, diameters_nm = [], []
+
+# ========================
+# Parcours des images
+# ========================
+for fname in os.listdir(IMAGE_FOLDER):
+    if not fname.lower().endswith((".png", ".jpg", ".jpeg", ".tif", ".tiff")):
+        continue
+
+    image_path = os.path.join(IMAGE_FOLDER, fname)
+    image = cv2.imread(image_path)
+
+    outputs = predictor(image)
+    instances = outputs["instances"].to("cpu")
+    masks = instances.pred_masks.numpy()
+
+    for mask in masks:
+        # Calculer diamètre avec regionprops
+        labeled_mask = label(mask)
+        props = regionprops(labeled_mask)
+        if not props:
+            continue
+
+        diameter_px = props[0].equivalent_diameter
+        diameter_nm = diameter_px * RESOLUTION
+
+        diameters_px.append(diameter_px)
+        diameters_nm.append(diameter_nm)
+
+        if diameter_nm > DIAMETER_THRESHOLD:
+            T0, T1, T2 = calc_tensors_from_mask(mask)
+            T0_all.append(T0)
+            T1_all.append(T1)
+            T2_all.append(T2)
+
+# ========================
+# Moyennes globales
+# ========================
+if len(T0_all) > 0:
+    T0_mean = np.mean(T0_all)
+    T1_mean = np.mean(T1_all, axis=0)
+    T2_mean = np.mean(T2_all, axis=0)
+
+    semi_axes, eigvecs = calculate_semi_axes(T0_mean, T1_mean, T2_mean)
+
+    diameter_mean_px = np.mean(diameters_px) if diameters_px else None
+    diameter_mean_nm = np.mean(diameters_nm) if diameters_nm else None
+
+    print("✅ Demi-axes moyens :", semi_axes)
+    print("📏 Diamètre moyen (px) :", diameter_mean_px)
+    print("📏 Diamètre moyen (nm) :", diameter_mean_nm)
+else:
+    semi_axes = None
+    print("⚠️ Aucun objet > 200 nm trouvé.")
