@@ -654,7 +654,8 @@ if len(T0_all) > 0:
     T1_mean = np.mean(T1_all, axis=0)
     T2_mean = np.mean(T2_all, axis=0)
 
-    semi_axes, eigvecs = calculate_semi_axes(T0_mean, T1_mean, T2_mean)
+    semi_axes_px, eigvecs = calculate_semi_axes(T0_mean, T1_mean, T2_mean)
+    semi_axes_nm = semi_axes_px * RESOLUTION  # conversion en nm
 
     diameter_mean_px = np.mean(diameters_px) if diameters_px else None
     diameter_mean_nm = np.mean(diameters_nm) if diameters_nm else None
@@ -672,23 +673,27 @@ if len(T0_all) > 0:
 
     # Diamètre moyen en pixels à 250×
     diameter_mean_px_250 = diameter_mean_px * scale if diameter_mean_px else None
-    # Diamètre moyen en nm ne change pas (objet réel identique)
+    # Diamètre moyen en nm ne change pas
     diameter_mean_nm_250 = diameter_mean_nm  
 
-    # Demi-axes en nm restent identiques, mais en pixels à 250×
-    semi_axes_px_ref = semi_axes / resolution_ref   # en pixels à 15000×
-    semi_axes_px_250 = semi_axes / resolution_target  # en pixels à 250×
+    # Semi-axes en pixels à 250×
+    semi_axes_px_250 = semi_axes_px * scale
+    # Semi-axes en nm restent identiques
+    semi_axes_nm_250 = semi_axes_nm  
 
     # ------------------------------
     # Affichage résultats
     # ------------------------------
-    print("✅ Demi-axes moyens (nm) :", semi_axes)
+    print("✅ Demi-axes moyens (px @15000×) :", semi_axes_px)
+    print("✅ Demi-axes moyens (nm @15000×) :", semi_axes_nm)
     print("📏 Diamètre moyen (px @15000×) :", diameter_mean_px)
     print("📏 Diamètre moyen (nm @15000×) :", diameter_mean_nm)
+
     print("📏 Diamètre moyen (px @250×) :", diameter_mean_px_250)
     print("📏 Diamètre moyen (nm @250×) :", diameter_mean_nm_250)
-    print("🔹 Semi-axes (px @15000×) :", semi_axes_px_ref)
     print("🔹 Semi-axes (px @250×) :", semi_axes_px_250)
+    print("🔹 Semi-axes (nm @250×) :", semi_axes_nm_250)
+
 else:
     semi_axes = None
     print("⚠️ Aucun objet > 200 nm trouvé.")
