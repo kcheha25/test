@@ -702,3 +702,29 @@ else:
 Dans ce contexte en pleine évolution technologique, l’alternance s’est déroulée au sein de l’entreprise IFP Énergies nouvelles. Faisant partie de la Direction Physique et Analyses, plus précisément dans le département Caractérisation des Matériaux, les projets avaient pour objectif le développement de modèles d’intelligence artificielle appliqués aux données de microscopie pour étudier les matériaux. L’alternance s’est articulée autour de quatre projets principaux. Dans un premier temps, l’objectif était de développer un modèle de segmentation d'instance permettant la détection des éléments de platine présents dans les images issues du microscope électronique à transmission à balayage en champ sombre annulaire à grand angle. Dans un second temps, le but était de concevoir un modèle capable d’identifier les phases actives catalytiques sous forme de feuillets déposés sur un support de catalyseur de type alumine. Ensuite, l’objectif du troisième projet était de développer un système de détection automatique des pics dans les données de chromatographie en phase gazeuse, et de pouvoir ensuite attribuer à chaque pic le nom du composé correspondant. Enfin, la finalité du quatrième projet était, d’une part, de développer un modèle de segmentation capable de détecter trois classes différentes dans les images à faible grandissement (les zones denses, les zones creuses et les zones intermédiaires), et, d’autre part, de concevoir un modèle capable de détecter des cristaux dans les images à fort grandissement. Il s’agissait ensuite, à partir des différents paramètres et statistiques extraits par ces deux modèles, d’utiliser un modèle de génération 3D booléen pour produire une microstructure 3D reflétant les différentes hétérogénéités des matériaux.
 
 Ce rapport est structuré en quatre parties : la première est consacrée à la présentation de l’entreprise, aborde également la demande initiale de l’alternance et examine l’état de l’égalité femmes-hommes au sein de l’entreprise ; la deuxième présente le contexte et les enjeux du projet ; la troisième détaille la méthodologie et les travaux réalisés ; et la quatrième conclut le rapport en résumant le travail réalisé durant cette année d’alternance. Cette section met en lumière les accomplissements, les défis rencontrés, les résultats obtenus, ainsi que les perspectives futures.
+
+
+# === Création du masque global (si besoin de visualiser) ===
+zone_mask = np.zeros((height, width), dtype=np.uint8)
+for poly in all_polygons:
+    cv2.fillPoly(zone_mask, [np.array(poly, dtype=np.int32)], 255)
+
+# === Calcul du volume total à partir de tous les polygones ===
+volume_bille = 0.0
+for poly in all_polygons:
+    mask_poly = np.zeros((height, width), dtype=np.uint8)
+    cv2.fillPoly(mask_poly, [np.array(poly, dtype=np.int32)], 1)
+
+    # Appel à ta fonction existante
+    T0, T1, T2 = calc_tensors_from_mask(mask_poly)
+
+    # Ici on prend T0 comme volume
+    volume_bille += T0
+
+print(f"\nVolume total des polygones dessinés : {volume_bille}")
+
+fraction_volumique = {cid: volume_par_classe[cid] / volume_bille for cid in volume_par_classe}
+
+print("\n=== Fractions volumiques par classe ===")
+for cid, frac in fraction_volumique.items():
+    print(f"Classe {cid}: {frac:.6f}")
