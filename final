@@ -820,3 +820,26 @@ if len(T0_all) > 0:
 else:
     semi_axes = None
     print("⚠️ Aucun objet > 200 nm trouvé.")
+
+
+mean_results = {}
+for label, vals in global_results.items():
+    if len(vals["T0"]) == 0:
+        mean_results[label] = {"T0": 0, "T1": np.zeros(3), "T2": np.zeros((3, 3))}
+        continue
+    
+    T0s = np.array(vals["T0"])
+    T1s = np.array(vals["T1"])
+    T2s = np.array(vals["T2"])
+
+    total_T0 = np.sum(T0s)
+    mean_T0 = np.mean(T0s)  # ou bien total_T0 si tu veux représenter le volume global
+    
+    if total_T0 > 0:
+        mean_T1 = np.sum(T1s * T0s[:, None], axis=0) / total_T0
+        mean_T2 = np.sum(T2s * T0s[:, None, None], axis=0) / total_T0
+    else:
+        mean_T1 = np.zeros(3)
+        mean_T2 = np.zeros((3, 3))
+    
+    mean_results[label] = {"T0": mean_T0, "T1": mean_T1, "T2": mean_T2}
