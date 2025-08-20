@@ -728,3 +728,95 @@ fraction_volumique = {cid: volume_par_classe[cid] / volume_bille for cid in volu
 print("\n=== Fractions volumiques par classe ===")
 for cid, frac in fraction_volumique.items():
     print(f"Classe {cid}: {frac:.6f}")
+
+
+# ========================
+# Accumulateurs globaux
+# ========================
+T0_all, T1_all, T2_all = [], [], []
+diameters_px, diameters_nm = [], []
+volumes_all = []
+
+# ========================
+# Parcours des images
+# ========================
+for fname in os.listdir(IMAGE_FOLDER): 
+    if not fname.lower().endswith((".png", ".jpg", ".jpeg", ".tif", ".tiff")):
+        continue
+
+    image_path = os.path.join(IMAGE_FOLDER, fname)
+    image = cv2.imread(image_path)
+
+    outputs = predictor(image)
+    instances = outputs["instances"].to("cpu")
+    masks = instances.pred_masks.numpy()
+
+    for mask in masks:
+        # Calculer diamètre avec regionprops
+        labeled_mask = label(mask)
+        props = regionprops(labeled_mask)
+        if not props:
+            continue
+
+        diameter_px = props[0].equivalent_diameter
+        diameter_nm = diameter_px * RESOLUTION
+
+        diameters_px.append(diameter_px)
+        diameters_nm.append(diameter_nm)
+
+        if diameter_nm > DIAMETER_THRESHOLD:
+            T0, T1, T2 = calc_tensors_from_mask(mask)
+            T0_all.append(T0)
+            T1_all.append(T1)
+            T2_all.append(T2)
+            volumes_all.append(T0)  # volume pondération
+
+# ========================
+# Moyennes globales
+# ========================
+if len(T0_all) > 0:
+    T0_mean = np.mean(T0_all)
+    T1_mean = np.mean(T1_all, axis=0)
+    T2_mean = np.mean(T2_all, axis=0)
+
+    semi_axes, eigvecs = calculate_semi_axes(T0_mean, T1_mean, T2_mean)
+
+    # Diamètre moyen pondéré par le volume
+    if volumes_all and diameters_nm:
+        diameter_mean_nm_weighted = np.sum(np.array(diameters_nm) * np.array(volumes_all)) / np.sum(volumes_all)
+        diameter_mean_px_weighted = diameter_mean_nm_weighted / RESOLUTION
+    else:
+        diameter_mean_nm_weighted = None
+        diameter_mean_px_weighted = None
+
+    # ------------------------------
+    # Conversion pour 250×
+    # ------------------------------
+    magnification_ref = 15000
+    magnification_target = 250
+    scale = magnification_target / magnification_ref  # = 1/60
+
+    # Nouvelle résolution en nm/px
+    resolution_target = RESOLUTION / scale  # nm/px à 250×
+
+    # Diamètre moyen pondéré en pixels à 250×
+    diameter_mean_px_250 = diameter_mean_nm_weighted / resolution_target if diameter_mean_nm_weighted else None
+    diameter_mean_nm_250 = diameter_mean_nm_weighted  # reste identique
+
+    # Demi-axes en pixels à 15000× et 250×
+    semi_axes_px_ref = semi_axes / RESOLUTION
+    semi_axes_px_250 = semi_axes / resolution_target
+
+    # ------------------------------
+    # Affichage résultats
+    # ------------------------------
+    print("✅ Demi-axes moyens (nm) :", semi_axes)
+    print("📏 Diamètre moyen pondéré (px @15000×) :", diameter_mean_px_weighted)
+    print("📏 Diamètre moyen pondéré (nm @15000×) :", diameter_mean_nm_weighted)
+    print("📏 Diamètre moyen pondéré (px @250×) :", diameter_mean_px_250)
+    print("📏 Diamètre moyen pondéré (nm @250×) :", diameter_mean_nm_250)
+    print("🔹 Semi-axes (px @15000×) :", semi_axes_px_ref)
+    print("🔹 Semi-axes (px @250×) :", semi_axes_px_250)
+else:
+    semi_axes = None
+    print("⚠️ Aucun objet > 200 nm trouvé.")
