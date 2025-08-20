@@ -1,0 +1,18 @@
+import xml.etree.ElementTree as ET
+
+# Charger et parser le fichier
+tree = ET.parse("fichier.xml")
+root = tree.getroot()   # Racine du XML
+
+# Afficher le nom de la balise racine
+print("Racine:", root.tag)
+
+# Parcourir les enfants
+for child in root:
+    print("Balise:", child.tag, " | Attributs:", child.attrib, " | Texte:", child.text)
+
+# Accéder à un élément particulier (par nom de balise)
+for elem in root.findall("Personne"):
+    nom = elem.find("Nom").text
+    age = elem.find("Age").text
+    print(f"{nom} a {age} ans")
