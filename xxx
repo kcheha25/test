@@ -1,18 +1,63 @@
 import xml.etree.ElementTree as ET
 
-# Charger et parser le fichier
 tree = ET.parse("fichier.xml")
-root = tree.getroot()   # Racine du XML
+root = tree.getroot()  
 
-# Afficher le nom de la balise racine
 print("Racine:", root.tag)
 
-# Parcourir les enfants
 for child in root:
     print("Balise:", child.tag, " | Attributs:", child.attrib, " | Texte:", child.text)
 
-# Accéder à un élément particulier (par nom de balise)
-for elem in root.findall("Personne"):
-    nom = elem.find("Nom").text
-    age = elem.find("Age").text
-    print(f"{nom} a {age} ans")
+import xml.etree.ElementTree as ET
+
+file_path = "fichier.xml"  
+tree = ET.parse(file_path)
+root = tree.getroot()
+
+cox = root.find(".//cox")
+
+if cox is not None:
+    print("Avant modification :", cox.attrib)
+
+    cox.set("value", "true")
+
+    print("Après modification :", cox.attrib)
+
+    tree.write(file_path, encoding="utf-8", xml_declaration=True)
+else:
+    print("Aucune balise <cox> trouvée")
+
+import subprocess
+
+exe_path = r"C:\chemin\vers\.exe"
+
+subprocess.run([exe_path])
+
+
+def calculate_semi_axes(T0, T1, T2, tol=1e-6):
+    """Calcule les longueurs des demi-axes à partir des tenseurs centrés."""
+    T2_centered = T2 - np.outer(T1, T1) / (2 * T0)
+
+    eigenvalues, eigenvectors = np.linalg.eigh(T2_centered)
+
+    kappa_3 = 4 * np.pi / 3
+    factor = (2 * (3 + 2) / kappa_3) ** (1/(3 + 2))  # (10 / (4π/3))^(1/5)
+
+    lambda1, lambda2, lambda3 = eigenvalues
+
+    a1 = factor * (lambda1 ** 0.4) / ((lambda2 * lambda3) ** 0.1)
+    a2 = factor * (lambda2 ** 0.4) / ((lambda1 * lambda3) ** 0.1)
+    a3 = factor * (lambda3 ** 0.4) / ((lambda1 * lambda2) ** 0.1)
+
+    semi_axes = np.array([a1, a2, a3])
+
+    if abs(a1 - a2) < tol and abs(a1 - a3) > tol:
+        semi_axes = np.array([a1, a3, a2])
+    elif abs(a1 - a3) < tol and abs(a1 - a2) > tol:
+        semi_axes = np.array([a1, a2, a3])
+    elif abs(a2 - a3) < tol and abs(a2 - a1) > tol:
+        semi_axes = np.array([a2, a1, a3])
+
+    semi_axes = np.rint(semi_axes).astype(int)
+
+    return semi_axes, eigenvectors
