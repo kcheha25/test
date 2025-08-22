@@ -843,3 +843,52 @@ for label, vals in global_results.items():
         mean_T2 = np.zeros((3, 3))
     
     mean_results[label] = {"T0": mean_T0, "T1": mean_T1, "T2": mean_T2}
+
+
+from sklearn.cluster import KMeans
+import numpy as np
+
+# ============================
+# KMeans sur intensité des pixels pour la classe 2
+# ============================
+gray_image = np.array(image.convert("L"))  # image en niveaux de gris
+
+proportions_cluster_dark = []
+proportions_cluster_bright = []
+
+for idx in indices_2:
+    mask = masks_all[idx].astype(bool)  # masque binaire de l'objet
+    pixels = gray_image[mask]
+
+    if pixels.size == 0:
+        continue
+
+    # Reshape en vecteur colonne pour KMeans
+    pixels_reshaped = pixels.reshape(-1, 1)
+
+    # Appliquer KMeans avec 2 clusters
+    kmeans = KMeans(n_clusters=2, n_init=10, random_state=0)
+    labels = kmeans.fit_predict(pixels_reshaped)
+
+    # Moyenne d’intensité dans chaque cluster
+    mean_intensity = [pixels[labels == c].mean() for c in range(2)]
+
+    # Identifier cluster sombre / clair
+    dark_cluster = np.argmin(mean_intensity)
+    bright_cluster = np.argmax(mean_intensity)
+
+    # Calcul proportion relative à chaque type (sombre / clair)
+    dark_ratio = np.sum(labels == dark_cluster) / pixels.size * 100
+    bright_ratio = np.sum(labels == bright_cluster) / pixels.size * 100
+
+    proportions_cluster_dark.append(dark_ratio)
+    proportions_cluster_bright.append(bright_ratio)
+
+if proportions_cluster_dark and proportions_cluster_bright:
+    mean_dark = np.mean(proportions_cluster_dark)
+    mean_bright = np.mean(proportions_cluster_bright)
+    print("\n=== KMeans intensité pixels pour la classe 2 ===")
+    print(f"Proportion moyenne cluster sombre : {mean_dark:.2f} %")
+    print(f"Proportion moyenne cluster clair  : {mean_bright:.2f} %")
+else:
+    print("\nAucun objet détecté pour la classe 2 (pas de KMeans possible).")
