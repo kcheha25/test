@@ -892,3 +892,41 @@ if proportions_cluster_dark and proportions_cluster_bright:
     print(f"Proportion moyenne cluster clair  : {mean_bright:.2f} %")
 else:
     print("\nAucun objet détecté pour la classe 2 (pas de KMeans possible).")
+
+
+
+import os
+import numpy as np
+from PIL import Image
+
+# --- Paramètres ---
+folder = "chemin/vers/ton/dossier"  # <--- mets le chemin de ton dossier
+extensions_valides = (".png", ".jpg", ".tif", ".bmp")
+
+# --- Variables globales ---
+total_pixels = 0
+total_white = 0
+
+# --- Parcours des fichiers ---
+for filename in os.listdir(folder):
+    if filename.lower().endswith(extensions_valides):
+        path = os.path.join(folder, filename)
+        
+        # Charger l'image en niveaux de gris (déjà binaire)
+        img = Image.open(path).convert("L")
+        arr = np.array(img)
+
+        # Ici, on suppose que blanc = 255 et noir = 0
+        white_pixels = np.count_nonzero(arr == 255)
+        black_pixels = np.count_nonzero(arr == 0)
+
+        total_white += white_pixels
+        total_pixels += white_pixels + black_pixels
+
+# --- Calculs ---
+total_black = total_pixels - total_white
+prop_white = total_white / total_pixels
+prop_black = total_black / total_pixels
+
+print(f"Proportion de blanc : {prop_white:.2%}")
+print(f"Proportion de noir  : {prop_black:.2%}")
