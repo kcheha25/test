@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <title>Parking access AI</title>
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+        <link rel="icon" href="{{ url_for('static', filename='assets/logo_parking.png') }}" type="image/icon">
+    </head>
+    <body>
+        <header id="headbar">
+            <a class="headbar-button" id="home-button" href="/">
+                <img src="{{ url_for('static', filename='assets/logo_parking.png') }}" alt="Home" class="headbar-button-img">
+            </a>
+            <a class="headbar-button" id="crop-cam-button" href="/camcrop_page">
+                <img src="{{ url_for('static', filename='assets/crop.png') }}" alt="Crop" class="headbar-button-img">
+            </a>
+            <a class="headbar-button" id="database-button" href="/database_page">
+                <img src="{{ url_for('static', filename='assets/database.png') }}" alt="Database" class="headbar-button-img">
+            </a>
+        </header>
+        <div class="main-content">
+            <div class="left-content left-right-main">
+                <div class="add-car main-block">
+                    <h2>Ajout d'un véhicule</h2>
+                    <form id="add-car-form" action="/add_vehicle" method="POST" enctype="multipart/form-data">
+                        <div class="form-input">
+                            <label for="first-name">Prénom</label>
+                            <input type="text" id="first-name" name="first_name" required>
+                        </div>
+                        <div class="form-input">
+                            <label for="last-name">Nom de famille</label>
+                            <input type="text" id="last-name" name="last_name" required>
+                        </div>
+                        <div class="form-input">
+                            <label for="phone">Téléphone</label>
+                            <input type="text" id="phone" name="phone" required>
+                        </div>
+                        <div class="form-input">
+                            <label for="license-plate">Numéro de plaque</label>
+                            <input type="text" id="license-plate" name="license_plate" required>
+                        </div>
+                        <div class="form-input">
+                            <label for="arrival">Date d'arrivée</label>
+                            <input type="date" id="arrival" name="arrival" required>
+                        </div>
+                        <div class="form-input">
+                            <label for="departure">Date de départ</label>
+                            <input type="date" id="departure" name="departure" required>
+                        </div>
+                        <div class="form-input">
+                            <label for="car-image" id="custom-upload">
+                                <img src="{{ url_for('static', filename='assets/upload.png') }}" class="big-icon" id="upload-car-icon">
+                                <span>Image de la voiture</span>
+                            </label>
+                            <input type="file" id="car-image" name="car_image" accept="image/*" required>
+                        </div>
+                        <button type="submit" id="submit-car">Envoyer</button>                    </form>
+                    </form>
+                </div>
+            </div>
+            <div class="right-content left-right-main">
+                <div class="ai-info main-block">
+                    <div id="ai-action-div">
+                        <img src="{{ url_for('static', filename='assets/pending.png') }}" alt="Pending" class="big-icon" id="ai-result-icon">
+                        <h2 id="ai-result">Aucune voiture détectée</h2>
+                    </div>
+                    <div>
+                        <img src="{{ url_for('static', filename='assets/ai.png') }}" alt="AI" class="small-icon">
+                        <h5 id="ai-instruct">En attente...</h5>
+                    </div>
+                </div>
+                <div class="main-block" id="video-feed-main">
+                    <img src="{{ url_for('static', filename='assets/videofeed.png') }}" alt="" class="cam-icon">
+                    <img src="" alt="Camera feed" class="video-feed-img" id="video-main">
+                    <span class="current-date">01-01-1990</span>
+                </div>
+            </div>
+        </div>
+        <script src="{{ url_for('static', filename='js/scripts.js') }}" async defer></script>
+        <script src="{{ url_for('static', filename='js/api-listeners.js') }}" defer></script>
+        <script src="{{ url_for('static', filename='js/main-page-scripts.js') }}" async defer></script>
+    </body>
+</html>

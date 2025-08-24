@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>AI Dashboard</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body>
+  <!-- HEADER -->
+  <header id="headbar">
+    <button class="headbar-button" onclick="selectModel('detectron2')">Detectron2 - Platine</button>
+    <button class="headbar-button" onclick="selectModel('mmrotate')">MMRotate - Feuillets</button>
+    <button class="headbar-button" onclick="selectModel('gen3d')">Génération 3D</button>
+  </header>
+
+  <!-- MAIN CONTENT -->
+  <div class="main-content">
+    <!-- LEFT CONTENT -->
+    <div class="left-content left-right-main">
+      <div class="main-block add-car">
+        <h2>Uploader une image</h2>
+        <form id="upload-form" enctype="multipart/form-data">
+          <div class="form-input">
+            <label for="model">Modèle choisi :</label>
+            <input type="text" id="model" name="model" readonly value="Aucun modèle">
+          </div>
+          <div class="form-input">
+            <label for="image-upload" id="custom-upload">
+              <span>Choisir une image</span>
+            </label>
+            <input type="file" id="image-upload" name="image" accept="image/*" required>
+          </div>
+          <button type="submit" id="submit-car">Lancer l'inférence</button>
+        </form>
+        <div id="preview-container">
+          <h3>Aperçu :</h3>
+          <img id="preview-img" src="" alt="Aperçu" style="max-width:100%;">
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT CONTENT -->
+    <div class="right-content left-right-main">
+      <div class="ai-info main-block">
+        <div id="ai-action-div">
+          <img src="{{ url_for('static', filename='assets/pending.png') }}"
+               alt="Pending" class="big-icon" id="ai-result-icon">
+          <h2 id="ai-result">En attente...</h2>
+        </div>
+        <div>
+          <img src="{{ url_for('static', filename='assets/ai.png') }}" alt="AI" class="small-icon">
+          <h5 id="ai-instruct">Veuillez sélectionner un modèle et uploader une image.</h5>
+        </div>
+      </div>
+      <div class="main-block" id="result-main">
+        <h3>Résultat :</h3>
+        <img src="" alt="Résultat" id="result-img" class="video-feed-img">
+      </div>
+      <div class="main-block" id="hist-main">
+        <h3>Histogrammes :</h3>
+        <img src="" alt="Histogramme" id="hist-img" class="video-feed-img">
+      </div>
+    </div>
+  </div>
+
+  <!-- JAVASCRIPT -->
+  <script>
+    let selectedModel = null;
+
+    function selectModel(modelName) {
+      selectedModel = modelName;
+      document.getElementById("model").value = modelName;
+      document.getElementById("ai-result").textContent = "Modèle sélectionné : " + modelName;
+      document.getElementById("ai-instruct").textContent = "Uploadez une image pour lancer l'inférence.";
+    }
+
+    // Prévisualisation
+    document.getElementById("image-upload").addEventListener("change", function(event) {
+      const file = event.target.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+          document.getElementById("preview-img").src = e.target.result;
+        }
+        reader.readAsDataURL(file);
+      }
+    });
+
+    // Soumission formulaire
+    document.getElementById("upload-form").addEventListener("submit", function(event) {
+      event.preventDefault();
+      if (!selectedModel) {
+        alert("Veuillez sélectionner un modèle !");
+        return;
+      }
+
+      const formData = new FormData();
+      formData.append("image", document.getElementById("image-upload").files[0]);
+      formData.append("model", selectedModel);
+
+      document.getElementById("ai-result").textContent = "Inférence en cours...";
+      document.getElementById("ai-instruct").textContent = "Veuillez patienter...";
+
+      fetch("/upload", {
+        method: "POST",
+        body: formData
+      })
+      .then(response => response.json())
+      .then(data => {
+        document.getElementById("ai-result").textContent = "Inférence terminée ✅";
+        document.getElementById("ai-instruct").textContent = "Résultat affiché à droite.";
+        document.getElementById("ai-result-icon").src = "static/assets/validate.png";
+        document.getElementById("result-img").src = data.result + "?ts=" + new Date().getTime();
+        document.getElementById("hist-img").src = data.hist + "?ts=" + new Date().getTime();
+      })
+      .catch(error => {
+        document.getElementById("ai-result").textContent = "Erreur ❌";
+        document.getElementById("ai-instruct").textContent = error.message;
+        document.getElementById("ai-result-icon").src = "static/assets/pending.png";
+      });
+    });
+  </script>
+</body>
+</html>
+
+
+import os
+import cv2
+import torch
+import matplotlib.pyplot as plt
+from flask import Flask, render_template, request, jsonify, send_from_directory
+
+# --- import de tes libs IA ---
+# Detectron2
+from detectron2.engine import DefaultPredictor
+from detectron2.config import get_cfg
+from detectron2 import model_zoo
+from detectron2.utils.visualizer import Visualizer
+from detectron2.data import MetadataCatalog
+
+# (Supposons que tu as aussi des fonctions custom pour mmrotate et 3D)
+# from mmrotate_inference import run_mmrotate
+# from gen3d_inference import run_gen3d
+
+app = Flask(__name__)
+
+RESULT_PATH = "static/result.png"
+HIST_PATH = "static/hist.png"
+
+predictors = {}
+
+def load_detectron2():
+    if "detectron2" in predictors:
+        return predictors["detectron2"]
+
+    cfg = get_cfg()
+    cfg.merge_from_file(model_zoo.get_config_file("COCO-Detection/faster_rcnn_R_50_FPN_3x.yaml"))
+    cfg.MODEL.WEIGHTS = model_zoo.get_checkpoint_url("COCO-Detection/faster_rcnn_R_50_FPN_3x.yaml")
+    cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5
+    cfg.MODEL.DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
+    predictor = DefaultPredictor(cfg)
+    predictors["detectron2"] = predictor
+    return predictor
+
+
+def generate_histogram(image_path):
+    """
+    Fonction simple : génère histogramme de niveaux de gris
+    """
+    img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+    plt.figure()
+    plt.hist(img.ravel(), bins=256, range=(0, 256), color="gray")
+    plt.title("Histogramme")
+    plt.savefig(HIST_PATH)
+    plt.close()
+
+
+@app.route("/")
+def index():
+    return render_template("index.html")
+
+
+@app.route("/upload", methods=["POST"])
+def upload():
+    if "image" not in request.files:
+        return jsonify({"error": "Aucune image reçue"}), 400
+    if "model" not in request.form:
+        return jsonify({"error": "Aucun modèle sélectionné"}), 400
+
+    file = request.files["image"]
+    model_name = request.form["model"]
+
+    input_path = os.path.join("static", "input.png")
+    file.save(input_path)
+
+    if model_name == "detectron2":
+        predictor = load_detectron2()
+        image = cv2.imread(input_path)
+        outputs = predictor(image)
+
+        v = Visualizer(image[:, :, ::-1], MetadataCatalog.get("coco_2017_train"))
+        out = v.draw_instance_predictions(outputs["instances"].to("cpu"))
+        cv2.imwrite(RESULT_PATH, out.get_image()[:, :, ::-1])
+
+    elif model_name == "mmrotate":
+        # Résultat fictif pour exemple
+        image = cv2.imread(input_path)
+        cv2.putText(image, "MMRotate détection", (30, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        cv2.imwrite(RESULT_PATH, image)
+
+    elif model_name == "gen3d":
+        # Résultat fictif pour exemple
+        image = cv2.imread(input_path)
+        cv2.putText(image, "3D Generation", (30, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
+        cv2.imwrite(RESULT_PATH, image)
+
+    else:
+        return jsonify({"error": "Modèle inconnu"}), 400
+
+    # Générer un histogramme simple
+    generate_histogram(input_path)
+
+    return jsonify({
+        "message": "Inférence terminée",
+        "result": "/result.png",
+        "hist": "/hist.png"
+    })
+
+
+@app.route("/result.png")
+def result():
+    return send_from_directory("static", "result.png")
+
+
+@app.route("/hist.png")
+def hist():
+    return send_from_directory("static", "hist.png")
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
+
+
+
+import os
+import cv2
+import torch
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from flask import Flask, render_template, request, jsonify, send_from_directory
+
+# --- import de tes libs IA ---
+# Detectron2
+from detectron2.engine import DefaultPredictor
+from detectron2.config import get_cfg
+from detectron2 import model_zoo
+from detectron2.utils.visualizer import Visualizer
+from detectron2.data import MetadataCatalog
+
+app = Flask(__name__)
+
+RESULT_PATH = "static/result.png"
+HIST_PATH = "static/hist.png"
+EXCEL_PATH = "static/hist.xlsx"
+
+predictors = {}
+
+def load_detectron2():
+    if "detectron2" in predictors:
+        return predictors["detectron2"]
+
+    cfg = get_cfg()
+    cfg.merge_from_file(model_zoo.get_config_file("COCO-Detection/faster_rcnn_R_50_FPN_3x.yaml"))
+    cfg.MODEL.WEIGHTS = model_zoo.get_checkpoint_url("COCO-Detection/faster_rcnn_R_50_FPN_3x.yaml")
+    cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5
+    cfg.MODEL.DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
+    predictor = DefaultPredictor(cfg)
+    predictors["detectron2"] = predictor
+    return predictor
+
+
+def generate_histogram(image_path):
+    """
+    Génère histogramme (png) + sauvegarde valeurs dans un Excel
+    """
+    img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+
+    # Calcul histogramme (256 niveaux de gris)
+    hist, bins = np.histogram(img.ravel(), bins=256, range=(0, 256))
+
+    # Sauvegarde graphique
+    plt.figure()
+    plt.hist(img.ravel(), bins=256, range=(0, 256), color="gray")
+    plt.title("Histogramme")
+    plt.savefig(HIST_PATH)
+    plt.close()
+
+    # Sauvegarde Excel avec pandas
+    df = pd.DataFrame({
+        "Niveau de gris": np.arange(256),
+        "Nombre de pixels": hist
+    })
+    df.to_excel(EXCEL_PATH, index=False)
+
+
+@app.route("/")
+def index():
+    return render_template("index.html")
+
+
+@app.route("/upload", methods=["POST"])
+def upload():
+    if "image" not in request.files:
+        return jsonify({"error": "Aucune image reçue"}), 400
+    if "model" not in request.form:
+        return jsonify({"error": "Aucun modèle sélectionné"}), 400
+
+    file = request.files["image"]
+    model_name = request.form["model"]
+
+    input_path = os.path.join("static", "input.png")
+    file.save(input_path)
+
+    if model_name == "detectron2":
+        predictor = load_detectron2()
+        image = cv2.imread(input_path)
+        outputs = predictor(image)
+
+        v = Visualizer(image[:, :, ::-1], MetadataCatalog.get("coco_2017_train"))
+        out = v.draw_instance_predictions(outputs["instances"].to("cpu"))
+        cv2.imwrite(RESULT_PATH, out.get_image()[:, :, ::-1])
+
+    elif model_name == "mmrotate":
+        image = cv2.imread(input_path)
+        cv2.putText(image, "MMRotate détection", (30, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+        cv2.imwrite(RESULT_PATH, image)
+
+    elif model_name == "gen3d":
+        image = cv2.imread(input_path)
+        cv2.putText(image, "3D Generation", (30, 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
+        cv2.imwrite(RESULT_PATH, image)
+
+    else:
+        return jsonify({"error": "Modèle inconnu"}), 400
+
+    # Générer histogramme + Excel
+    generate_histogram(input_path)
+
+    return jsonify({
+        "message": "Inférence terminée",
+        "result": "/result.png",
+        "hist": "/hist.png",
+        "excel": "/hist.xlsx"
+    })
+
+
+@app.route("/result.png")
+def result():
+    return send_from_directory("static", "result.png")
+
+
+@app.route("/hist.png")
+def hist():
+    return send_from_directory("static", "hist.png")
+
+
+@app.route("/hist.xlsx")
+def hist_excel():
+    return send_from_directory("static", "hist.xlsx")
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
+
+
+.then(data => {
+    document.getElementById("ai-result").textContent = "Inférence terminée ✅";
+    document.getElementById("ai-instruct").textContent = "Résultat affiché à droite.";
+    document.getElementById("ai-result-icon").src = "static/assets/validate.png";
+
+    document.getElementById("result-img").src = data.result + "?ts=" + new Date().getTime();
+    document.getElementById("hist-img").src = data.hist + "?ts=" + new Date().getTime();
+
+    // Ajouter bouton téléchargement Excel
+    let downloadLink = document.getElementById("download-excel");
+    if (!downloadLink) {
+        downloadLink = document.createElement("a");
+        downloadLink.id = "download-excel";
+        downloadLink.textContent = "Télécharger histogramme (Excel)";
+        downloadLink.style.display = "block";
+        downloadLink.style.marginTop = "10px";
+        document.getElementById("hist-main").appendChild(downloadLink);
+    }
+    downloadLink.href = data.excel;
+})
