@@ -2973,3 +2973,67 @@ for idx in selected_indices:
 print("\nTemps de rétention par composant parmi les chromatogrammes sélectionnés :")
 for comp, times in component_retention_times.items():
     print(f"{comp} : {sorted(times)}")
+
+
+
+    def run_inference(self):
+        if not self.image_path:
+            return
+
+        try:
+            self.resolution = float(self.res_entry.get())
+        except ValueError:
+            print("Résolution invalide.")
+            return
+
+        image = cv2.imread(self.image_path)
+        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+        outputs = predictor(image)
+        instances = outputs["instances"].to("cpu")
+        masks = instances.pred_masks.numpy()
+
+        # Visualisation
+        v = Visualizer(image_rgb, MetadataCatalog.get(cfg.DATASETS.TRAIN[0]), scale=1.2, instance_mode=ColorMode.IMAGE)
+        out = v.draw_instance_predictions(instances)
+        vis_image = out.get_image()
+
+        vis_pil = Image.fromarray(vis_image).resize((512, 512))
+        self.tk_image = ImageTk.PhotoImage(vis_pil)
+        self.img_label.config(image=self.tk_image)
+
+        # Calcul des métriques
+        diameters_nm = []
+        areas_nm2 = []
+
+        for mask in masks:
+            area_pixels = np.sum(mask)
+            if area_pixels == 0:
+                continue
+            area_nm2 = area_pixels * (self.resolution ** 2)
+            diameter_nm = 2 * np.sqrt(area_nm2 / np.pi)
+
+            diameters_nm.append(diameter_nm)
+            areas_nm2.append(area_nm2)
+
+        if diameters_nm:
+            df_all = pd.DataFrame({
+                "Diamètre (nm)": diameters_nm,
+                "Surface (nm²)": areas_nm2
+            })
+            df_all.to_excel("resultats_complets.xlsx", index=False)
+
+        seuil_diametre = 50
+        filtered_data = [(d, a) for d, a in zip(diameters_nm, areas_nm2) if d >= seuil_diametre]
+
+        if filtered_data:
+            diam_filt, areas_filt = zip(*filtered_data)
+            df_filtered = pd.DataFrame({
+                "Diamètre (nm)": diam_filt,
+                "Surface (nm²)": areas_filt
+            })
+            df_filtered.to_excel("resultats_filtrés.xlsx", index=False)
+
+        # Affichage des histogrammes
+        self.plot_histogram(diameters_nm, "Diamètre (nm)", "Histogramme des diamètres (tous)", canvas_index=1)
+        self.plot_histogram(areas_nm2, "Surface (nm²)", "Histogramme des surfaces (tous)", canvas_index=2)
