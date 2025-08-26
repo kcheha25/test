@@ -61,3 +61,11 @@ def calculate_semi_axes(T0, T1, T2, tol=1e-6):
     semi_axes = np.rint(semi_axes).astype(int)
 
     return semi_axes, eigenvectors
+
+
+  document.querySelectorAll('.headbar-button').forEach(btn => {
+    btn.classList.remove('active');
+  });
+
+  // Met le violet sur le bouton cliqué
+  element.classList.add('active');
