@@ -63,91 +63,36 @@ def calculate_semi_axes(T0, T1, T2, tol=1e-6):
     return semi_axes, eigenvectors
 
 
-@app.route("/preview", methods=["POST"])
-def preview():
-    if "image" not in request.files:
-        return jsonify({"error": "Aucune image reçue"}), 400
-
-    file = request.files["image"]
-
-    # Dossier de sauvegarde
-    upload_dir = os.path.join("static", "upload")
-    os.makedirs(upload_dir, exist_ok=True)
-
-    # Extension originale
-    ext = os.path.splitext(file.filename)[1].lower()
-
-    # Sauvegarde image originale (.tif, .jpg, etc.)
-    original_path = os.path.join(upload_dir, "uploadedimage" + ext)
-    file.save(original_path)
-
-    # Sauvegarde version PNG pour affichage
-    png_path = os.path.join(upload_dir, "uploadedimage.png")
-    img = cv2.imread(original_path, cv2.IMREAD_UNCHANGED)
-    if img is None:
-        return jsonify({"error": "Impossible de lire l’image"}), 400
-    cv2.imwrite(png_path, img)
-
-    return jsonify({
-        "message": "Image sauvegardée",
-        "uploaded": "/static/upload/uploadedimage.png"
-    })
-
-<div class="left-content left-right-main">
-  <div class="main-block add-car">
-    <h2 id="upload-title">Uploader une image</h2>
-
-    <form id="preview-form" enctype="multipart/form-data">
-      <div class="form-input">
-        <label for="image-upload" id="custom-upload">
-          <span>Choisir une image</span>
-        </label>
-        <input type="file" id="image-upload" name="image" accept="image/*,.tif,.tiff" required>
-      </div>
-
-      <!-- Aperçu de l’image uploadée -->
-      <div id="preview-container" style="margin:15px 0;">
-        <h3>Aperçu :</h3>
-        <img id="preview-img" src="" alt="Pas d’image encore"
-             style="max-width:100%; border:2px solid #ddd; display:none;">
-      </div>
-
-      <!-- Bouton lancer inference -->
-      <button type="button" id="btn-infer">Lancer l’inférence</button>
-    </form>
-  </div>
-</div>
-
+<script src="https://unpkg.com/utif@2.0.1/UTIF.js"></script>
 <script>
-  const formPreview = document.getElementById("preview-form");
-  const previewImg = document.getElementById("preview-img");
+const input = document.getElementById("image-upload");
+const preview = document.getElementById("preview-img");
 
-  // Upload vers Flask pour sauvegarder (PNG + original)
-  formPreview.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const formData = new FormData(formPreview);
+input.addEventListener("change", async function(event) {
+    const file = event.target.files[0];
+    if (!file) return;
 
-    const response = await fetch("/preview", {
-      method: "POST",
-      body: formData
-    });
+    const ext = file.name.split('.').pop().toLowerCase();
 
-    const data = await response.json();
-    if (data.error) {
-      alert("Erreur : " + data.error);
+    if (ext === "tif" || ext === "tiff") {
+        const buffer = await file.arrayBuffer();
+        const ifds = UTIF.decode(buffer);
+        UTIF.decodeImages(buffer, ifds);
+        const rgba = UTIF.toRGBA8(ifds[0]);
+
+        const canvas = document.createElement("canvas");
+        canvas.width = ifds[0].width;
+        canvas.height = ifds[0].height;
+        const ctx = canvas.getContext("2d");
+        const imgData = ctx.createImageData(canvas.width, canvas.height);
+        imgData.data.set(rgba);
+        ctx.putImageData(imgData, 0, 0);
+
+        preview.src = canvas.toDataURL("image/png"); // Aperçu PNG
     } else {
-      // Affiche image sauvegardée (toujours PNG pour compatibilité navigateur)
-      previewImg.style.display = "block";
-      previewImg.src = data.uploaded + "?t=" + new Date().getTime();
+        const reader = new FileReader();
+        reader.onload = e => preview.src = e.target.result;
+        reader.readAsDataURL(file);
     }
-  });
-
-  // Aperçu immédiat (local, avant sauvegarde serveur)
-  document.getElementById("image-upload").addEventListener("change", (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      previewImg.style.display = "block";
-      previewImg.src = URL.createObjectURL(file);
-    }
-  });
+});
 </script>
