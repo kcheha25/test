@@ -63,13 +63,84 @@ def calculate_semi_axes(T0, T1, T2, tol=1e-6):
     return semi_axes, eigenvectors
 
 
-  let title = document.getElementById("upload-title");
-  if (model === "detectron2") {
-    title.textContent = "Uploader une image pour Detectron2 - Platine";
-  } else if (model === "mmrotate") {
-    title.textContent = "Uploader une image pour MMRotate - Feuillets";
-  } else if (model === "gen3d") {
-    title.textContent = "Uploader une image pour la Génération 3D";
-  } else {
-    title.textContent = "Uploader une image";
+<div class="main-content">
+  <!-- LEFT CONTENT -->
+  <div class="left-content left-right-main">
+    <div class="main-block add-car">
+      <h2 id="upload-title">Uploader une image</h2>
+
+      <form id="upload-form" enctype="multipart/form-data" method="POST" action="/upload">
+        <!-- modèle choisi -->
+        <div class="form-input">
+          <label for="model">Modèle choisi :</label>
+          <input type="text" id="model" name="model" readonly value="Aucun modèle">
+        </div>
+
+        <!-- zone upload -->
+        <div class="form-input">
+          <label for="image-upload" id="custom-upload">
+            <img src="{{ url_for('static', filename='assets/upload-icon.png') }}" 
+                 alt="Upload" class="small-icon">
+            <span>Glissez-déposez une image<br>ou cliquez pour parcourir</span>
+          </label>
+          <input type="file" id="image-upload" name="image" accept="image/*" required>
+        </div>
+
+        <!-- aperçu -->
+        <div id="preview-container" style="text-align:center;">
+          <h3>Aperçu :</h3>
+          <img id="preview-img" src="" alt="Aperçu" 
+               style="max-width:100%; border-radius:10px; display:none;">
+        </div>
+
+        <!-- bouton centré -->
+        <div class="form-input" style="justify-content:center; display:flex;">
+          <button type="submit" id="submit-car">🚀 Lancer l'inférence</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+
+document.getElementById("image-upload").addEventListener("change", function(event) {
+  const file = event.target.files[0];
+  if (file) {
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      const preview = document.getElementById("preview-img");
+      preview.src = e.target.result;
+      preview.style.display = "block"; // rendre visible
+    };
+    reader.readAsDataURL(file);
   }
+});
+
+
+from flask import Flask, request, render_template, redirect, url_for
+import os
+
+app = Flask(__name__)
+
+# dossier d'upload
+UPLOAD_FOLDER = 'static/upload'
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/upload', methods=['POST'])
+def upload():
+    if 'image' not in request.files:
+        return "Aucune image sélectionnée", 400
+    
+    file = request.files['image']
+    if file.filename == '':
+        return "Nom de fichier vide", 400
+    
+    # Sauvegarde sous le nom unique "uploadedimage.jpg"
+    save_path = os.path.join(UPLOAD_FOLDER, "uploadedimage.jpg")
+    file.save(save_path)
+
+    return redirect(url_for('index'))
