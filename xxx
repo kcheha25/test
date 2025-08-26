@@ -62,37 +62,64 @@ def calculate_semi_axes(T0, T1, T2, tol=1e-6):
 
     return semi_axes, eigenvectors
 
+from flask import Flask, render_template, request, jsonify, send_from_directory
+from PIL import Image
+import os
 
-<script src="https://unpkg.com/utif@2.0.1/UTIF.js"></script>
+app = Flask(__name__)
+
+UPLOAD_FOLDER = "static/upload"
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+@app.route("/")
+def index():
+    return render_template("index.html")
+
+# Nouvelle fonction indépendante pour gérer upload et affichage PNG
+@app.route("/upload_preview", methods=["POST"])
+def upload_preview():
+    if "image" not in request.files:
+        return jsonify({"error": "Aucune image reçue"}), 400
+
+    file = request.files["image"]
+    orig_filename = file.filename
+    orig_ext = os.path.splitext(orig_filename)[1].lower()
+
+    # Sauvegarde de l'image originale
+    orig_path = os.path.join(UPLOAD_FOLDER, f"uploadedimage{orig_ext}")
+    file.save(orig_path)
+
+    # Conversion en PNG pour affichage
+    img = Image.open(orig_path)
+    png_path = os.path.join(UPLOAD_FOLDER, "uploadedimage.png")
+    img.save(png_path, "PNG")
+
+    # Retourne le chemin PNG pour affichage
+    return jsonify({"preview": f"/{png_path.replace(os.sep, '/')}"})
+
+
+@app.route("/upload/<path:filename>")
+def uploaded_file(filename):
+    return send_from_directory(UPLOAD_FOLDER, filename)
+
+<!-- Prévisualisation -->
 <script>
-const input = document.getElementById("image-upload");
-const preview = document.getElementById("preview-img");
+const uploadInput = document.getElementById("image-upload");
+const previewImg = document.getElementById("preview-img");
 
-input.addEventListener("change", async function(event) {
-    const file = event.target.files[0];
-    if (!file) return;
+uploadInput.addEventListener("change", function(){
+  const file = this.files[0];
+  if (!file) return;
 
-    const ext = file.name.split('.').pop().toLowerCase();
+  const formData = new FormData();
+  formData.append("image", file);
 
-    if (ext === "tif" || ext === "tiff") {
-        const buffer = await file.arrayBuffer();
-        const ifds = UTIF.decode(buffer);
-        UTIF.decodeImages(buffer, ifds);
-        const rgba = UTIF.toRGBA8(ifds[0]);
-
-        const canvas = document.createElement("canvas");
-        canvas.width = ifds[0].width;
-        canvas.height = ifds[0].height;
-        const ctx = canvas.getContext("2d");
-        const imgData = ctx.createImageData(canvas.width, canvas.height);
-        imgData.data.set(rgba);
-        ctx.putImageData(imgData, 0, 0);
-
-        preview.src = canvas.toDataURL("image/png"); // Aperçu PNG
-    } else {
-        const reader = new FileReader();
-        reader.onload = e => preview.src = e.target.result;
-        reader.readAsDataURL(file);
-    }
+  // Envoi à la nouvelle fonction Flask
+  fetch("/upload_preview", {method:"POST", body:formData})
+    .then(res => res.json())
+    .then(data => {
+      previewImg.src = data.preview + "?ts=" + new Date().getTime();
+    })
+    .catch(err => console.error(err));
 });
 </script>
