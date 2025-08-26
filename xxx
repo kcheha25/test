@@ -123,3 +123,18 @@ uploadInput.addEventListener("change", function(){
     .catch(err => console.error(err));
 });
 </script>
+#preview-container {
+    width: 100%; /* prend toute la largeur de main-content */
+    max-width: 600px; /* largeur max si tu veux limiter */
+    margin-bottom: 15px; /* espace avant le bouton */
+}
+
+#preview-img {
+    width: 100%; /* s’adapte à la largeur du container */
+    height: auto; /* conserve le ratio */
+    max-height: 80vh; /* pas plus haute que 80% de la hauteur de la fenêtre */
+    object-fit: contain; /* ne déforme pas l’image */
+    border: 1px solid #ccc; /* optionnel, juste pour voir la limite */
+    border-radius: 5px;
+    display: block;
+}
