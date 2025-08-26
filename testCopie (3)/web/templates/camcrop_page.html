@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <title>Parking access AI</title>
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+        <link rel="icon" href="{{ url_for('static', filename='assets/logo_parking.png') }}" type="image/icon">
+    </head>
+    <body>
+        <header id="headbar">
+            <a class="headbar-button" id="home-button" href="/">
+                <img src="{{ url_for('static', filename='assets/logo_parking.png') }}" alt="Home" class="headbar-button-img">
+            </a>
+            <a class="headbar-button" id="crop-cam-button" href="/camcrop_page">
+                <img src="{{ url_for('static', filename='assets/crop.png') }}" alt="Crop" class="headbar-button-img">
+            </a>
+            <a class="headbar-button" id="database-button" href="/database_page">
+                <img src="{{ url_for('static', filename='assets/database.png') }}" alt="Database" class="headbar-button-img">
+            </a>
+        </header>
+        <div class="main-content">
+            <div class="left-content left-crop-page">
+                <div class="main-block" id="video-feed-crop">
+                    <img src="{{ url_for('static', filename='assets/videofeed.png') }}" alt="" class="cam-icon">
+                    <video src="{{ url_for('static', filename='assets/placeholder.png') }}" alt="Camera feed" class="video-feed-img">
+                </div>
+            </div>
+            <div class="right-content right-crop-page">
+                <p>test</p>
+            </div>
+            
+        </div>
+        <script src="{{ url_for('static', filename='js/scripts.js') }}" async defer></script>
+        <script src="{{ url_for('static', filename='js/camcrop-scripts.js') }}" async defer></script>
+    </body>
+</html>
