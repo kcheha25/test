@@ -63,73 +63,13 @@ def calculate_semi_axes(T0, T1, T2, tol=1e-6):
     return semi_axes, eigenvectors
 
 
-<!-- MAIN CONTENT -->
-<div class="main-content">
-  <!-- LEFT CONTENT -->
-  <div class="left-content left-right-main">
-    <div class="main-block add-car">
-      <h2>Uploader une image</h2>
-
-      <form id="upload-form" enctype="multipart/form-data">
-        <!-- modèle choisi -->
-        <div class="form-input">
-          <label for="model">Modèle choisi :</label>
-          <input type="text" id="model" name="model" readonly value="Aucun modèle">
-        </div>
-
-        <!-- zone upload stylisée -->
-        <div class="form-input">
-          <label for="image-upload" id="custom-upload">
-            <img src="{{ url_for('static', filename='assets/upload-icon.png') }}" 
-                 alt="Upload" class="small-icon">
-            <span>Glissez-déposez une image<br>ou cliquez pour parcourir</span>
-          </label>
-          <input type="file" id="image-upload" name="image" accept="image/*" required>
-        </div>
-
-        <!-- bouton lancement -->
-        <button type="submit" id="submit-car">🚀 Lancer l'inférence</button>
-      </form>
-
-      <!-- aperçu -->
-      <div id="preview-container">
-        <h3>Aperçu :</h3>
-        <img id="preview-img" src="" alt="Aperçu" style="max-width:100%; border-radius:10px;">
-      </div>
-    </div>
-  </div>
-</div>
-
-
-/* Masquer le champ file brut */
-#image-upload {
-    display: none;
-}
-
-/* Zone personnalisée */
-#custom-upload {
-    background-color: #626262;
-    border: 2px dashed #aaa;
-    border-radius: 10px;
-    padding: 40px;
-    text-align: center;
-    color: #ddd;
-    cursor: pointer;
-    transition: 0.3s;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-}
-
-#custom-upload:hover {
-    opacity: 0.8;
-    border-color: #ffca18; /* effet survol */
-    color: #ffca18;
-}
-
-/* icône upload */
-#custom-upload img {
-    width: 64px;
-    height: 64px;
-    margin: auto;
-}
+  let title = document.getElementById("upload-title");
+  if (model === "detectron2") {
+    title.textContent = "Uploader une image pour Detectron2 - Platine";
+  } else if (model === "mmrotate") {
+    title.textContent = "Uploader une image pour MMRotate - Feuillets";
+  } else if (model === "gen3d") {
+    title.textContent = "Uploader une image pour la Génération 3D";
+  } else {
+    title.textContent = "Uploader une image";
+  }
