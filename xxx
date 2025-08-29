@@ -138,3 +138,57 @@ uploadInput.addEventListener("change", function(){
     border-radius: 5px;
     display: block;
 }
+
+import pandas as pd
+import matplotlib.pyplot as plt
+
+df = pd.read_csv("ton_fichier.txt", sep="\t", skiprows=10)
+
+# On s’assure de ne garder que les colonnes nécessaires
+df = df[["radius", "volume"]]
+
+# Calcul diamètre
+df["diameter"] = df["radius"] * 2
+
+# Calcul Δvolume = volume[i+1] - volume[i]
+df["delta_volume"] = df["volume"].shift(-1) - df["volume"]
+
+# Supprimer la dernière ligne (car pas de volume suivant)
+df = df.dropna()
+
+# Tracé
+plt.figure(figsize=(8,5))
+plt.plot(df["diameter"], df["delta_volume"], marker="o")
+plt.xlabel("Diamètre")
+plt.ylabel("Δ Volume (volume[i+1] - volume[i])")
+plt.title("Variation du volume par diamètre")
+plt.grid(True)
+plt.show()
+
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# --- 1. Lecture du fichier ---
+# suppose qu'il est séparé par tabulation, adapte selon ton fichier
+df = pd.read_csv("ton_fichier.txt", sep="\t")  
+
+# Vérifie les colonnes disponibles
+print(df.head())
+
+# --- 2. Calcul du diamètre ---
+df["diameter"] = df["radius"] * 2
+
+# --- 3. Calcul des différences de volume ---
+df["delta_volume"] = df["volume"].diff()  # volume[i] - volume[i-1]
+
+# La première ligne aura NaN → on peut remplacer par 0
+df["delta_volume"].fillna(0, inplace=True)
+
+# --- 4. Tracé ---
+plt.figure(figsize=(8,5))
+plt.plot(df["diameter"], df["delta_volume"], marker="o")
+plt.xlabel("Diamètre")
+plt.ylabel("Δ Volume (variation entre lignes)")
+plt.title("Variation du volume en fonction du diamètre")
+plt.grid(True)
+plt.show()
