@@ -400,32 +400,30 @@ if __name__ == "__main__":
     }
     downloadLink.href = data.excel;
 })
-
 .ai-result.main-block {
     display: flex;
-    flex-wrap: wrap;            /* grille automatique */
-    justify-content: space-between;
-    align-content: space-between;
+    flex-wrap: wrap;     /* permet d'avoir 2 lignes */
+    gap: 10px;           /* espace entre les images */
     width: 100%;
-    height: 100%;               /* occupe tout l’espace dispo */
-    padding: 10px;
+    height: 100%;
     box-sizing: border-box;
-    overflow: hidden;           /* coupe débordement */
+    overflow: hidden;    /* rien ne dépasse du conteneur */
 }
 
 .stat-main {
-    flex: 0 0 50%;              /* 2 colonnes */
-    max-height: 50%;            /* 2 lignes */
+    flex: 0 0 48%;       /* chaque bloc prend 48% de largeur = 2 par ligne */
+    aspect-ratio: 1/1;   /* carré automatique */
     display: flex;
     justify-content: center;
     align-items: center;
-    overflow: hidden;           /* coupe ce qui dépasse */
-    background-color: #333;     /* juste pour visualiser */
+    background: #333;
+    border-radius: 8px;
+    overflow: hidden;    /* empêche une image de sortir */
 }
 
 .stat-main img {
-    width: 100%;
-    height: 100%;
-    object-fit: contain;        /* image réduite, jamais déformée */
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;  /* garde les proportions */
     display: block;
 }
