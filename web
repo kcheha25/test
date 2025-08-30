@@ -401,37 +401,31 @@ if __name__ == "__main__":
     downloadLink.href = data.excel;
 })
 
-
 .ai-result.main-block {
     display: flex;
-    flex-wrap: wrap;           /* passe à la ligne après 2 */
+    flex-wrap: wrap;            /* grille automatique */
     justify-content: space-between;
+    align-content: space-between;
     width: 100%;
-    height: 100%;
+    height: 100%;               /* occupe tout l’espace dispo */
     padding: 10px;
     box-sizing: border-box;
-    overflow: hidden;          /* rien ne sort du bloc */
+    overflow: hidden;           /* coupe débordement */
 }
 
 .stat-main {
-    flex: 0 0 48%;             /* 2 colonnes */
-    height: 48%;               /* 2 lignes */
+    flex: 0 0 50%;              /* 2 colonnes */
+    max-height: 50%;            /* 2 lignes */
     display: flex;
     justify-content: center;
     align-items: center;
-    background-color: #333;
-    border-radius: 8px;
-    overflow: hidden;          /* coupe l’image si elle dépasse */
-    position: relative;        /* chaque case gère son contenu */
+    overflow: hidden;           /* coupe ce qui dépasse */
+    background-color: #333;     /* juste pour visualiser */
 }
 
 .stat-main img {
-    max-width: 100%;
-    max-height: 100%;
-    width: auto;
-    height: auto;
-    object-fit: contain;       /* garde proportions */
+    width: 100%;
+    height: 100%;
+    object-fit: contain;        /* image réduite, jamais déformée */
     display: block;
-    position: relative;        /* image reste confinée */
-    z-index: 1;                /* ne peut pas couvrir les autres */
 }
