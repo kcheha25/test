@@ -401,32 +401,53 @@ if __name__ == "__main__":
     downloadLink.href = data.excel;
 })
 
+/* Empêcher tout scroll */
+html, body {
+    margin: 0;
+    padding: 0;
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;   /* pas de scroll */
+}
+
+/* Main content occupe tout l’écran sans dépasser */
+.main-content {
+    display: flex;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+}
+
+/* Bloc des résultats */
 .ai-result.main-block {
     display: flex;
-    flex-wrap: wrap;         /* 2 lignes si besoin */
+    flex-wrap: wrap;          /* 2 lignes max */
     justify-content: center;
+    align-content: center;
     gap: 10px;
     padding: 10px;
     box-sizing: border-box;
+    flex: 1;                  /* prend la place dispo */
+    overflow: hidden;         /* ne sort pas */
 }
 
+/* Chaque case */
 .stat-main {
-    width: 48%;              /* 2 colonnes */
-    height: 200px;           /* fixe la hauteur des cases (ajuste comme tu veux) */
-    background-color: #333;  /* juste pour voir les cases */
+    width: 48%;               /* 2 par ligne */
+    height: 45%;              /* 2 lignes dans le container */
+    background-color: #333;
     display: flex;
     justify-content: center;
     align-items: center;
     border-radius: 8px;
-    overflow: hidden;        /* cache ce qui dépasse */
+    overflow: hidden;         /* coupe l’image si dépasse */
 }
 
+/* Les images */
 .stat-main img {
-    width: 100%;
-    height: 100%;
-    object-fit: contain;     /* l’image rentre dans la case sans dépasser */
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;      /* l’image rentre dans la case */
     display: block;
 }
-
-
 
