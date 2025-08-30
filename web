@@ -403,26 +403,35 @@ if __name__ == "__main__":
 
 
 .ai-result.main-block {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr); /* 2 colonnes */
-  grid-gap: 15px; /* espace entre les cases */
-  padding: 10px;
+    display: flex;
+    flex-wrap: wrap;           /* passe à la ligne après 2 */
+    justify-content: space-between;
+    width: 100%;
+    height: 100%;
+    padding: 10px;
+    box-sizing: border-box;
+    overflow: hidden;          /* rien ne sort du bloc */
 }
 
 .stat-main {
-  background: #f9f9f9;
-  border-radius: 10px;
-  padding: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+    flex: 0 0 48%;             /* 2 colonnes */
+    height: 48%;               /* 2 lignes */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background-color: #333;
+    border-radius: 8px;
+    overflow: hidden;          /* coupe l’image si elle dépasse */
+    position: relative;        /* chaque case gère son contenu */
 }
 
 .stat-main img {
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain; /* garde les proportions */
-  image-rendering: -webkit-optimize-contrast; /* meilleure netteté */
-  image-rendering: crisp-edges;
-  border-radius: 8px;
+    max-width: 100%;
+    max-height: 100%;
+    width: auto;
+    height: auto;
+    object-fit: contain;       /* garde proportions */
+    display: block;
+    position: relative;        /* image reste confinée */
+    z-index: 1;                /* ne peut pas couvrir les autres */
 }
