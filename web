@@ -497,3 +497,7 @@ document.getElementById("upload-form").addEventListener("submit", function(event
         document.getElementById("ai-result-icon").src = "static/assets/pending.png";
     });
 });
+    for filename in os.listdir(STATIC_FOLDER):
+        filepath = os.path.join(STATIC_FOLDER, filename)
+        if os.path.isfile(filepath) and filename.lower().endswith(('.png', '.jpg', '.jpeg', '.tif', '.tiff')):
+            os.remove(filepath)
