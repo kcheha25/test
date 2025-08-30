@@ -400,34 +400,31 @@ if __name__ == "__main__":
     }
     downloadLink.href = data.excel;
 })
+
 .ai-result.main-block {
-    display: flex;
-    flex-wrap: wrap;          /* 2 lignes max */
-    justify-content: center;
-    align-content: center;
-    gap: 10px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;  /* 2 colonnes égales */
+    grid-template-rows: 1fr 1fr;     /* 2 lignes égales */
+    gap: 10px;                        /* espace entre les cases */
     padding: 10px;
     box-sizing: border-box;
-    flex: 1;                  /* prend la place dispo */
-    overflow: hidden;         /* ne sort pas */
+    height: 100%;                      /* prend toute la hauteur disponible */
+    overflow: hidden;
 }
 
 /* Chaque case */
 .stat-main {
-    width: 48%;               /* 2 par ligne */
-    height: 45%;              /* 2 lignes dans le container */
     background-color: #333;
-    display: flex;
+    display: flex;                     /* pour centrer l'image à l'intérieur */
     justify-content: center;
     align-items: center;
     border-radius: 8px;
-    overflow: hidden;         /* coupe l’image si dépasse */
 }
 
 /* Les images */
 .stat-main img {
     max-width: 100%;
     max-height: 100%;
-    object-fit: contain;      /* l’image rentre dans la case */
+    object-fit: contain;               /* l'image s'adapte à la case */
     display: block;
 }
