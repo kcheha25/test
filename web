@@ -403,29 +403,32 @@ if __name__ == "__main__":
 
 
 .ai-result.main-block {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr); /* 2 colonnes */
-    grid-template-rows: repeat(2, 1fr);    /* 2 lignes */
-    gap: 10px;
+    display: flex;
+    flex-wrap: wrap;        /* permet de passer à la ligne */
+    justify-content: center;
+    align-items: center;
+    gap: 10px;              /* espace entre les blocs */
     width: 100%;
-    height: 100%; /* prend toute la hauteur dispo */
+    height: 100%;           /* prend toute la hauteur dispo */
     box-sizing: border-box;
+    overflow: hidden;       /* coupe si jamais ça dépasse */
 }
 
 .stat-main {
+    flex: 1 1 45%;          /* deux images par ligne */
+    max-width: 45%;         /* limite à 2 colonnes */
+    aspect-ratio: 1/1;      /* carré (garde proportions) */
     background: #2C2C2C;
     border-radius: 8px;
     display: flex;
-    align-items: center;
     justify-content: center;
-    overflow: hidden;     /* coupe si ça déborde */
-    width: 100%;
-    height: 100%;
+    align-items: center;
+    overflow: hidden;
 }
 
 .stat-main img {
     max-width: 100%;
     max-height: 100%;
-    object-fit: contain;  /* garde proportions, pas de déformation */
+    object-fit: contain;   /* garde la proportion de l’image */
     display: block;
 }
