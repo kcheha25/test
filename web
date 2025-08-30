@@ -404,18 +404,19 @@ if __name__ == "__main__":
 
 .ai-result.main-block {
     display: flex;
-    flex-wrap: wrap;          /* permet d'avoir plusieurs lignes */
+    flex-wrap: wrap;          /* autorise plusieurs lignes */
     justify-content: center;
-    align-items: center;
-    gap: 10px;                /* espace entre les blocs */
+    gap: 10px;                /* espace entre images */
     width: 100%;
     height: 100%;
     box-sizing: border-box;
+    padding: 10px;
 }
 
 .stat-main {
-    flex: 0 0 48%;            /* chaque image prend ~50% de la largeur */
-    max-width: 48%;           /* 2 images par ligne */
+    flex: 0 0 auto;           /* taille fixe */
+    width: 45%;               /* 2 par ligne */
+    max-width: 300px;         /* limite la largeur max */
     height: auto;
     background: #2C2C2C;
     border-radius: 8px;
@@ -426,8 +427,9 @@ if __name__ == "__main__":
 }
 
 .stat-main img {
-    width: 100%;              /* occupe toute la largeur dispo */
-    height: auto;             /* garde les proportions */
-    object-fit: contain;      /* pas de déformation */
+    max-width: 100%;          /* jamais plus grand que son bloc */
+    max-height: 250px;        /* limite la hauteur */
+    object-fit: contain;      /* garde les proportions */
     display: block;
 }
+
