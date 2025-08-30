@@ -111,7 +111,10 @@
         document.getElementById("ai-instruct").textContent = "Résultat affiché à droite.";
         document.getElementById("ai-result-icon").src = "static/assets/validate.png";
         document.getElementById("result-img").src = data.result + "?ts=" + new Date().getTime();
-        document.getElementById("hist-img").src = data.hist + "?ts=" + new Date().getTime();
+        document.getElementById("stat1-img").src = data.stat1 + "?ts=" + new Date().getTime();
+        document.getElementById("stat2-img").src = data.stat2 + "?ts=" + new Date().getTime();
+        document.getElementById("stat3-img").src = data.stat3 + "?ts=" + new Date().getTime();
+
       })
       .catch(error => {
         document.getElementById("ai-result").textContent = "Erreur ❌";
@@ -401,30 +404,96 @@ if __name__ == "__main__":
     downloadLink.href = data.excel;
 })
 
-.ai-result.main-block {
-    display: grid;
-    grid-template-columns: 1fr 1fr;  /* 2 colonnes égales */
-    grid-template-rows: 1fr 1fr;     /* 2 lignes égales */
-    gap: 10px;                        /* espace entre les cases */
-    padding: 10px;
-    box-sizing: border-box;
-    height: 100%;                      /* prend toute la hauteur disponible */
-    overflow: hidden;
-}
+<div class="ai-result main-block">
+    <button class="prev-btn">⬅</button>
+    <img id="carousel-img" src="" alt="stat image">
+    <button class="next-btn">➡</button>
+</div>
 
-/* Chaque case */
-.stat-main {
-    background-color: #333;
-    display: flex;                     /* pour centrer l'image à l'intérieur */
+.ai-result.main-block {
+    display: flex;
     justify-content: center;
     align-items: center;
+    gap: 10px;
+    padding: 10px;
+    box-sizing: border-box;
+    height: 100%;
+    overflow: hidden;
+    position: relative;
+}
+
+.ai-result.main-block img {
+    max-width: 90%;
+    max-height: 100%;
+    object-fit: contain;
+    display: block;
     border-radius: 8px;
 }
 
-/* Les images */
-.stat-main img {
-    max-width: 100%;
-    max-height: 100%;
-    object-fit: contain;               /* l'image s'adapte à la case */
-    display: block;
+.prev-btn, .next-btn {
+    background-color: rgba(0,0,0,0.5);
+    color: white;
+    border: none;
+    padding: 10px;
+    cursor: pointer;
+    font-size: 24px;
+    border-radius: 5px;
 }
+
+.prev-btn:hover, .next-btn:hover {
+    background-color: rgba(0,0,0,0.8);
+}
+
+let carouselImages = []; // Tableau des images après inférence
+let currentIndex = 0;
+
+const carouselImg = document.getElementById("carousel-img");
+
+document.querySelector(".prev-btn").addEventListener("click", () => {
+    if (carouselImages.length === 0) return;
+    currentIndex = (currentIndex - 1 + carouselImages.length) % carouselImages.length;
+    carouselImg.src = carouselImages[currentIndex];
+});
+
+document.querySelector(".next-btn").addEventListener("click", () => {
+    if (carouselImages.length === 0) return;
+    currentIndex = (currentIndex + 1) % carouselImages.length;
+    carouselImg.src = carouselImages[currentIndex];
+});
+
+// Soumission du formulaire
+document.getElementById("upload-form").addEventListener("submit", function(event) {
+    event.preventDefault();
+    if (!selectedModel) {
+        alert("Veuillez sélectionner un modèle !");
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append("image", document.getElementById("image-upload").files[0]);
+    formData.append("model", selectedModel);
+
+    document.getElementById("ai-result").textContent = "Inférence en cours...";
+    document.getElementById("ai-instruct").textContent = "Veuillez patienter...";
+
+    fetch("/upload", {
+        method: "POST",
+        body: formData
+    })
+    .then(response => response.json())
+    .then(data => {
+        document.getElementById("ai-result").textContent = "Inférence terminée ✅";
+        document.getElementById("ai-instruct").textContent = "Résultat affiché à droite.";
+        document.getElementById("ai-result-icon").src = "static/assets/validate.png";
+
+        // Remplir le carrousel
+        carouselImages = [data.stat1, data.stat2, data.stat3, data.stat4].map(url => url + "?ts=" + new Date().getTime());
+        currentIndex = 0;
+        carouselImg.src = carouselImages[currentIndex];
+    })
+    .catch(error => {
+        document.getElementById("ai-result").textContent = "Erreur ❌";
+        document.getElementById("ai-instruct").textContent = error.message;
+        document.getElementById("ai-result-icon").src = "static/assets/pending.png";
+    });
+});
