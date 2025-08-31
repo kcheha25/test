@@ -1,0 +1,910 @@
+<div>
+  <label for="model-select">Choisir un modèle :</label>
+  <select id="model-select">
+    <option value="default">Default</option>
+    <option value="generation3d">generation3d</option>
+  </select>
+</div>
+
+<div id="upload-section">
+  <!-- Ici le contenu changera selon le modèle -->
+</div>
+
+<button id="launch-btn">Lancer inference</button>
+
+<div id="ai-result"></div>
+
+const modelSelect = document.getElementById("model-select");
+const uploadSection = document.getElementById("upload-section");
+const aiResult = document.getElementById("ai-result");
+const launchBtn = document.getElementById("launch-btn");
+
+let folder250x = null;
+let folder15kx = null;
+
+// Changer affichage selon modèle choisi
+modelSelect.addEventListener("change", () => {
+  const model = modelSelect.value;
+  uploadSection.innerHTML = ""; // reset affichage
+
+  if (model === "generation3d") {
+    uploadSection.innerHTML = `
+      <div>
+        <label>Uploader dossier 250x :</label>
+        <input type="file" id="folder-250x" webkitdirectory directory multiple>
+      </div>
+      <div>
+        <label>Uploader dossier 15kx :</label>
+        <input type="file" id="folder-15kx" webkitdirectory directory multiple>
+      </div>
+    `;
+
+    document.getElementById("folder-250x").addEventListener("change", (e) => {
+      folder250x = e.target.files;
+    });
+
+    document.getElementById("folder-15kx").addEventListener("change", (e) => {
+      folder15kx = e.target.files;
+    });
+
+  } else {
+    // comportement classique
+    uploadSection.innerHTML = `
+      <div>
+        <label>Uploader image :</label>
+        <input type="file" id="image-upload">
+      </div>
+      <div id="preview"></div>
+    `;
+  }
+});
+
+// Lancer inference
+launchBtn.addEventListener("click", async () => {
+  const model = modelSelect.value;
+
+  aiResult.innerHTML = "<p>Calcul en cours...</p>";
+
+  if (model === "generation3d") {
+    if (!folder250x || !folder15kx) {
+      aiResult.innerHTML = "<p style='color:red'>⚠️ Merci d'uploader les deux dossiers (250x et 15kx)</p>";
+      return;
+    }
+
+    const formData = new FormData();
+    for (let f of folder250x) formData.append("folder250x", f);
+    for (let f of folder15kx) formData.append("folder15kx", f);
+
+    const response = await fetch("/inference-generation3d", {
+      method: "POST",
+      body: formData
+    });
+
+    const data = await response.json();
+    aiResult.innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+
+  } else {
+    // classique (image unique)
+    const fileInput = document.getElementById("image-upload");
+    if (!fileInput.files[0]) {
+      aiResult.innerHTML = "<p style='color:red'>⚠️ Merci d'uploader une image</p>";
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append("image", fileInput.files[0]);
+
+    const response = await fetch("/inference-default", {
+      method: "POST",
+      body: formData
+    });
+
+    const data = await response.json();
+    aiResult.innerHTML = `<img src="${data.image_url}" alt="Résultat"/>`;
+  }
+});
+
+from flask import Flask, request, jsonify
+import os
+
+app = Flask(__name__)
+
+@app.route("/inference-default", methods=["POST"])
+def inference_default():
+    image = request.files["image"]
+    path = os.path.join("static", image.filename)
+    image.save(path)
+    # ton inference classique ici
+    return jsonify({"image_url": f"/static/{image.filename}"})
+
+@app.route("/inference-generation3d", methods=["POST"])
+def inference_generation3d():
+    folder250x = request.files.getlist("folder250x")
+    folder15kx = request.files.getlist("folder15kx")
+
+    # tu peux enregistrer les fichiers si nécessaire
+    os.makedirs("uploads/250x", exist_ok=True)
+    os.makedirs("uploads/15kx", exist_ok=True)
+    for f in folder250x:
+        f.save(os.path.join("uploads/250x", f.filename))
+    for f in folder15kx:
+        f.save(os.path.join("uploads/15kx", f.filename))
+
+    # ici tu appelles tes fonctions de calcul :
+    #  - calc_tensors_from_mask
+    #  - calculate_semi_axes
+    #  - KMeans intensité
+    #  - volume_par_classe
+    # etc.
+    results = {
+        "T0_T1_T2": "...",
+        "semi_axes": "...",
+        "percentages": "...",
+        "volume_cube": "...",
+    }
+
+    return jsonify(results)
+############################################
+import os
+import shutil
+from flask import Flask, request, jsonify, render_template
+from werkzeug.utils import secure_filename
+
+# Import tes fonctions
+from generation3d_pipeline import run_generation3d_inference  
+
+app = Flask(__name__)
+
+# Répertoires d’upload
+UPLOAD_FOLDER_250X = "uploads/250x"
+UPLOAD_FOLDER_15KX = "uploads/15kx"
+STATIC_FOLDER = "static"
+
+os.makedirs(UPLOAD_FOLDER_250X, exist_ok=True)
+os.makedirs(UPLOAD_FOLDER_15KX, exist_ok=True)
+
+# === Supprime les images dans static/ (racine seulement) ===
+def clear_static_root():
+    for f in os.listdir(STATIC_FOLDER):
+        fpath = os.path.join(STATIC_FOLDER, f)
+        if os.path.isfile(fpath):
+            os.remove(fpath)
+
+@app.route("/")
+def index():
+    return render_template("index.html")
+
+# === Upload 250x ===
+@app.route("/upload_250x", methods=["POST"])
+def upload_250x():
+    if "files[]" not in request.files:
+        return jsonify({"error": "Aucun fichier 250x trouvé"}), 400
+    files = request.files.getlist("files[]")
+    os.makedirs(UPLOAD_FOLDER_250X, exist_ok=True)
+    for f in files:
+        filename = secure_filename(f.filename)
+        f.save(os.path.join(UPLOAD_FOLDER_250X, filename))
+    return jsonify({"message": f"{len(files)} fichiers 250x uploadés"})
+
+# === Upload 15kx ===
+@app.route("/upload_15kx", methods=["POST"])
+def upload_15kx():
+    if "files[]" not in request.files:
+        return jsonify({"error": "Aucun fichier 15kx trouvé"}), 400
+    files = request.files.getlist("files[]")
+    os.makedirs(UPLOAD_FOLDER_15KX, exist_ok=True)
+    for f in files:
+        filename = secure_filename(f.filename)
+        f.save(os.path.join(UPLOAD_FOLDER_15KX, filename))
+    return jsonify({"message": f"{len(files)} fichiers 15kx uploadés"})
+
+# === Lancer Inference ===
+@app.route("/run_inference", methods=["POST"])
+def run_inference():
+    data = request.json
+    model = data.get("model")
+
+    # Supprime images de static/
+    clear_static_root()
+
+    if model == "generation3d":
+        # Appelle ton pipeline avec les 2 dossiers
+        results = run_generation3d_inference(UPLOAD_FOLDER_250X, UPLOAD_FOLDER_15KX)
+        return jsonify({"results": results})
+
+    return jsonify({"error": "Modèle non supporté"}), 400
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
+
+
+def run_generation3d_inference(folder_250x, folder_15kx):
+    """
+    Exécute toutes tes fonctions (calc_tensors, semi-axes, KMeans, volume...).
+    Retourne un dict avec les résultats (affiché dans #ai-result côté client).
+    """
+
+    # ⚠️ Mets ici TON CODE que tu m’as donné (Detectron2, calculs, KMeans, volumes...).
+    # Exemple de ce que tu retournes à la fin :
+    results = {
+        "semi_axes": [12.3, 8.7, 5.1],
+        "percentages": {"0_1": 40.5, "0_2": 59.5},
+        "percentages_area": {"1_1": 30.2, "1_2": 69.8},
+        "kmeans": {"dark": 45.6, "bright": 54.4},
+        "volume": {"Vcube": 123456.7, "L": 234.5}
+    }
+
+    return results
+
+
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>App IA</title>
+  <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+  <style>
+    #preview-container { display: none; }
+    #gen3d-uploads { display: none; margin: 1em 0; }
+  </style>
+</head>
+<body>
+  <h2>Choisir un modèle</h2>
+  <select id="model-select">
+    <option value="">-- Sélectionner --</option>
+    <option value="generation3d">Génération 3D</option>
+    <option value="autre">Autre modèle (avec preview)</option>
+  </select>
+
+  <!-- Zone upload pour gen3d -->
+  <div id="gen3d-uploads">
+    <h3>Uploader images 250x</h3>
+    <input type="file" id="upload-250x" multiple webkitdirectory>
+    <h3>Uploader images 15kx</h3>
+    <input type="file" id="upload-15kx" multiple webkitdirectory>
+  </div>
+
+  <!-- Zone preview pour autres modèles -->
+  <div id="preview-container">
+    <h3>Preview images</h3>
+    <input type="file" id="upload-images" multiple>
+    <div id="preview"></div>
+  </div>
+
+  <button id="run-btn">Lancer Inference</button>
+
+  <h3>Résultats IA</h3>
+  <pre id="ai-result"></pre>
+
+  <script>
+    const modelSelect = document.getElementById("model-select");
+    const gen3dUploads = document.getElementById("gen3d-uploads");
+    const previewContainer = document.getElementById("preview-container");
+
+    modelSelect.addEventListener("change", () => {
+      if (modelSelect.value === "generation3d") {
+        gen3dUploads.style.display = "block";
+        previewContainer.style.display = "none";
+      } else if (modelSelect.value === "autre") {
+        gen3dUploads.style.display = "none";
+        previewContainer.style.display = "block";
+      } else {
+        gen3dUploads.style.display = "none";
+        previewContainer.style.display = "none";
+      }
+    });
+
+    async function uploadFolder(input, url) {
+      const files = input.files;
+      const formData = new FormData();
+      for (let f of files) {
+        formData.append("files[]", f);
+      }
+      return axios.post(url, formData, { headers: { "Content-Type": "multipart/form-data" } });
+    }
+
+    document.getElementById("run-btn").addEventListener("click", async () => {
+      const model = modelSelect.value;
+      document.getElementById("ai-result").textContent = "⏳ Inference en cours...";
+
+      try {
+        if (model === "generation3d") {
+          // Upload dossiers
+          await uploadFolder(document.getElementById("upload-250x"), "/upload_250x");
+          await uploadFolder(document.getElementById("upload-15kx"), "/upload_15kx");
+
+          // Lancer inference
+          const res = await axios.post("/run_inference", { model });
+          document.getElementById("ai-result").textContent = JSON.stringify(res.data.results, null, 2);
+        } else {
+          // Ici tu gères le cas des autres modèles (avec preview d’images si besoin)
+          alert("Autre modèle pas encore branché");
+        }
+      } catch (err) {
+        document.getElementById("ai-result").textContent = "Erreur: " + err;
+      }
+    });
+  </script>
+</body>
+</html>
+
+
+import os
+import numpy as np
+from PIL import Image, ImageTk
+from collections import defaultdict
+import cv2
+import tkinter as tk
+from detectron2.engine import DefaultPredictor
+from detectron2.config import get_cfg
+from sklearn.cluster import KMeans
+
+# ======================== #
+# Fonction calcul T0 T1 T2 #
+# ======================== #
+def calc_tensors_from_mask(mask, d=5):
+    mask = mask.astype(np.uint8)
+    H, W = mask.shape
+    ys, xs = np.nonzero(mask)
+    if len(xs) == 0:
+        return 0, np.zeros(3), np.zeros((3, 3))
+
+    xO = xs.mean()
+    yO = ys.mean()
+    y_min = ys.min()
+    y_max = ys.max()
+
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    contour_points = set(tuple(pt[0]) for c in contours for pt in c)
+
+    T0 = 0.0
+    T1 = np.zeros(3)
+    T2 = np.zeros((3, 3))
+
+    max_offset = max(yO - y_min, y_max - yO)
+    max_steps = int(np.ceil(max_offset / d))
+
+    y_offsets, directions = [], []
+    for i in range(1, max_steps + 1):
+        for sign in [1, -1]:
+            y_candidate = int(round(yO + sign * i * d))
+            if y_candidate < y_min or y_candidate > y_max:
+                continue
+            if i % 2 == 1:
+                direction = 'right' if sign == 1 else 'left'
+            else:
+                direction = 'left' if sign == 1 else 'right'
+            y_offsets.append(sign * i * d)
+            directions.append(direction)
+
+    for offset, direction in zip(y_offsets, directions):
+        y = int(round(yO + offset))
+        if y < 0 or y >= H:
+            continue
+
+        intersections = []
+        if direction == 'right':
+            for x in range(int(np.ceil(xO)) + 1, W):
+                if (x, y) in contour_points:
+                    intersections.append((x, y))
+        else:
+            for x in range(int(np.floor(xO)) - 1, -1, -1):
+                if (x, y) in contour_points:
+                    intersections.append((x, y))
+
+        if not intersections:
+            continue
+
+        intersections_sorted = sorted(
+            intersections,
+            key=lambda p: np.hypot(p[0] - xO, p[1] - yO),
+            reverse=True
+        )
+
+        sign = 1
+        for (x_int, y_int) in intersections_sorted:
+            xr = x_int - xO
+            yr = y_int - yO
+            g0 = np.pi * d * xr ** 2
+            g1 = np.array([0, np.pi * d * xr ** 2 * yr, 0])
+            g2 = np.array([
+                [np.pi / 8 * d * xr ** 4, 0, 0],
+                [0, np.pi / 2 * d * xr ** 2 * yr ** 2, 0],
+                [0, 0, np.pi / 8 * d * xr ** 4]
+            ])
+
+            T0 += sign * g0
+            T1 += sign * g1
+            T2 += sign * g2
+            sign *= -1
+
+    return T0, T1, T2
+
+
+def calculate_semi_axes(T0, T1, T2):
+    if T0 == 0:
+        return np.zeros(3), np.eye(3)
+
+    T2_centered = T2 - np.outer(T1, T1) / (2 * T0)
+    eigenvalues, eigenvectors = np.linalg.eigh(T2_centered)
+
+    kappa_3 = 4 * np.pi / 3
+    factor = (2 * (3 + 2) / kappa_3) ** (1/(3 + 2))
+
+    lambda1, lambda2, lambda3 = eigenvalues
+    a1 = factor * (lambda1 ** 0.4) / ((lambda2 * lambda3) ** 0.1)
+    a2 = factor * (lambda2 ** 0.4) / ((lambda1 * lambda3) ** 0.1)
+    a3 = factor * (lambda3 ** 0.4) / ((lambda1 * lambda2) ** 0.1)
+
+    return np.array([a1, a2, a3]), eigenvectors
+
+
+def extract_area(mask):
+    return np.count_nonzero(mask)
+
+
+def subclass_label(cls, part):
+    return f"{cls}_{part}"
+
+
+# ============================ #
+# Paramètres Detectron2 & data #
+# ============================ #
+config_path = "chemin/vers/config.yaml"
+weights_path = "chemin/vers/model_final.pth"
+images_dir = "chemin/vers/dossier_images"
+
+patch_size = (512, 350)
+resized_size = (512, 400)
+overlap = 50
+
+cfg = get_cfg()
+cfg.merge_from_file(config_path)
+cfg.MODEL.WEIGHTS = weights_path
+cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.5
+predictor = DefaultPredictor(cfg)
+
+# ============================ #
+# Variables globales           #
+# ============================ #
+global_results = defaultdict(lambda: {"T0": [], "T1": [], "T2": []})
+count_per_class = defaultdict(int)
+count_subclass = defaultdict(int)
+area_per_class = defaultdict(int)
+area_subclass = defaultdict(int)
+proportions_cluster_dark = []
+proportions_cluster_bright = []
+
+# ============================ #
+# Boucle sur toutes les images #
+# ============================ #
+all_fractions = []  # pour stocker fractions par image
+
+for filename in os.listdir(images_dir):
+    if not filename.lower().endswith((".png", ".jpg", ".jpeg")):
+        continue
+
+    image_path = os.path.join(images_dir, filename)
+    print(f"Traitement : {image_path}")
+    image = Image.open(image_path).convert("RGB")
+    width, height = image.size
+
+    # --- Tkinter annotation polygone ---
+    polygon_points, all_polygons = [], []
+
+    def on_click(event):
+        x, y = event.x, event.y
+        polygon_points.append((x, y))
+        r = 2
+        canvas.create_oval(x - r, y - r, x + r, y + r, fill='red')
+
+    def close_polygon():
+        nonlocal polygon_points
+        if len(polygon_points) >= 3:
+            all_polygons.append(polygon_points[:])
+            canvas.create_polygon(polygon_points, outline='green', fill='', width=2)
+            polygon_points = []
+
+    def finish():
+        root.destroy()
+
+    root = tk.Tk()
+    root.title(f"Annoter {filename}")
+    image_tk = ImageTk.PhotoImage(image)
+    canvas = tk.Canvas(root, width=width, height=height)
+    canvas.pack()
+    canvas.create_image(0, 0, anchor=tk.NW, image=image_tk)
+    canvas.bind("<Button-1>", on_click)
+
+    btn_frame = tk.Frame(root)
+    btn_frame.pack()
+    tk.Button(btn_frame, text="Fermer polygone", command=close_polygon).pack(side=tk.LEFT, padx=10)
+    tk.Button(btn_frame, text="Terminer", command=finish).pack(side=tk.RIGHT, padx=10)
+    root.mainloop()
+
+    # Créer masque à partir polygones
+    zone_mask = np.zeros((height, width), dtype=np.uint8)
+    for poly in all_polygons:
+        cv2.fillPoly(zone_mask, [np.array(poly, dtype=np.int32)], 255)
+
+    # Calcul fractions occupation par classe
+    class_map = np.zeros((height, width), dtype=np.uint8)  # ⚠️ à remplacer par tes classes réelles
+    total_pixels = np.sum(zone_mask > 0)
+    fractions = {}
+    for class_id in np.unique(class_map[class_map != 255]):
+        pixels = np.sum((class_map == class_id) & (zone_mask > 0))
+        fractions[class_id] = round(100 * pixels / total_pixels, 2) if total_pixels else 0
+    all_fractions.append(fractions)
+
+    print("Fractions pour", filename, fractions)
+
+
+# ============================ #
+# Moyennes finales fractions   #
+# ============================ #
+mean_fractions = {}
+if all_fractions:
+    keys = set().union(*all_fractions)
+    for k in keys:
+        vals = [f[k] for f in all_fractions if k in f]
+        mean_fractions[k] = np.mean(vals)
+
+print("\n=== Moyenne fractions (toutes images) ===")
+for cid, perc in mean_fractions.items():
+    print(f"Classe {cid} : {perc:.2f} %")
+
+
+
+
+############################################
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>AI Dashboard</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body>
+  <!-- HEADER -->
+  <header id="headbar">
+    <button class="headbar-button" onclick="selectModel('detectron2')">Detectron2 - Platine</button>
+    <button class="headbar-button" onclick="selectModel('mmrotate')">MMRotate - Feuillets</button>
+    <button class="headbar-button" onclick="selectModel('gen3d')">Génération 3D</button>
+  </header>
+
+  <!-- MAIN CONTENT -->
+  <div class="main-content">
+    <!-- LEFT CONTENT -->
+    <div class="left-content left-right-main">
+      <div class="main-block add-car">
+        <h2 id="upload-title">Uploader une image</h2>
+        <form id="upload-form" enctype="multipart/form-data">
+          <div class="form-input">
+            <label for="model">Modèle choisi :</label>
+            <input type="text" id="model" name="model" readonly value="Aucun modèle">
+          </div>
+          
+          <!-- Champs pour Génération 3D (cachés par défaut) -->
+          <div id="gen3d-inputs" style="display: none;">
+            <div class="form-input">
+              <label for="folder-250x">Dossier images 250x :</label>
+              <input type="file" id="folder-250x" name="folder_250x" webkitdirectory directory multiple>
+            </div>
+            <div class="form-input">
+              <label for="folder-15kx">Dossier images 15kx :</label>
+              <input type="file" id="folder-15kx" name="folder_15kx" webkitdirectory directory multiple>
+            </div>
+          </div>
+          
+          <!-- Champ pour les autres modèles -->
+          <div id="standard-input">
+            <div class="form-input">
+              <label for="image-upload" id="custom-upload">
+                <span>Choisir une image</span>
+              </label>
+              <input type="file" id="image-upload" name="image" accept="image/*">
+            </div>
+          </div>
+          
+          <button type="submit" id="submit-car">Lancer l'inférence</button>
+        </form>
+        <div id="preview-container">
+          <h3>Aperçu :</h3>
+          <img id="preview-img" src="" alt="Aperçu" style="max-width:100%;">
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT CONTENT -->
+    <div class="right-content left-right-main">
+      <div class="ai-info main-block">
+        <div id="ai-action-div">
+          <img src="{{ url_for('static', filename='assets/pending.png') }}"
+               alt="Pending" class="big-icon" id="ai-result-icon">
+          <h2 id="ai-result">En attente...</h2>
+        </div>
+        <div>
+          <img src="{{ url_for('static', filename='assets/ai.png') }}" alt="AI" class="small-icon">
+          <h5 id="ai-instruct">Veuillez sélectionner un modèle et uploader une image.</h5>
+        </div>
+      </div>
+      <div class="ai-result main-block">
+        <button class="prev-btn">⬅</button>
+        <img id="carousel-img" alt="stat image">
+        <button class="next-btn">➡</button>
+      </div>
+      
+      <!-- Zone d'affichage des résultats pour Génération 3D -->
+      <div id="gen3d-results" class="main-block" style="display: none;">
+        <h3>Résultats de l'analyse 3D</h3>
+        <div id="results-content"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let selectedModel = null;
+    let carouselImages = [];
+    let currentIndex = 0;
+    const carouselImg = document.getElementById("carousel-img");
+
+    function selectModel(model) {
+      selectedModel = model;
+      document.getElementById("model").value = model;
+      
+      // Afficher/masquer les champs appropriés
+      if (model === 'gen3d') {
+        document.getElementById("gen3d-inputs").style.display = "block";
+        document.getElementById("standard-input").style.display = "none";
+        document.getElementById("preview-container").style.display = "none";
+        document.getElementById("upload-title").textContent = "Sélectionner les dossiers d'images";
+        document.getElementById("gen3d-results").style.display = "block";
+      } else {
+        document.getElementById("gen3d-inputs").style.display = "none";
+        document.getElementById("standard-input").style.display = "block";
+        document.getElementById("preview-container").style.display = "block";
+        document.getElementById("upload-title").textContent = "Uploader une image";
+        document.getElementById("gen3d-results").style.display = "none";
+      }
+    }
+
+    // Soumission du formulaire
+    document.getElementById("upload-form").addEventListener("submit", function(event) {
+      event.preventDefault();
+      if (!selectedModel) {
+        alert("Veuillez sélectionner un modèle !");
+        return;
+      }
+
+      const formData = new FormData();
+      
+      if (selectedModel === 'gen3d') {
+        const folder250x = document.getElementById("folder-250x").files;
+        const folder15kx = document.getElementById("folder-15kx").files;
+        
+        if (folder250x.length === 0 || folder15kx.length === 0) {
+          alert("Veuillez sélectionner les deux dossiers d'images !");
+          return;
+        }
+        
+        // Ajouter tous les fichiers des dossiers
+        for (let i = 0; i < folder250x.length; i++) {
+          formData.append("images_250x", folder250x[i]);
+        }
+        for (let i = 0; i < folder15kx.length; i++) {
+          formData.append("images_15kx", folder15kx[i]);
+        }
+      } else {
+        const imageFile = document.getElementById("image-upload").files[0];
+        if (!imageFile) {
+          alert("Veuillez sélectionner une image !");
+          return;
+        }
+        formData.append("image", imageFile);
+      }
+      
+      formData.append("model", selectedModel);
+
+      document.getElementById("ai-result").textContent = "Inférence en cours...";
+      document.getElementById("ai-instruct").textContent = "Veuillez patienter...";
+
+      fetch("/upload", {
+        method: "POST",
+        body: formData
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (selectedModel === 'gen3d') {
+          // Afficher les résultats textuels pour Génération 3D
+          displayGen3DResults(data);
+          document.getElementById("ai-result").textContent = "Analyse 3D terminée ✅";
+          document.getElementById("ai-instruct").textContent = "Résultats affichés ci-dessous.";
+        } else {
+          document.getElementById("ai-result").textContent = "Inférence terminée ✅";
+          document.getElementById("ai-instruct").textContent = "Résultat affiché à droite.";
+          
+          // Remplir le carrousel
+          carouselImages = [data.stat1, data.stat2, data.stat3, data.stat4].map(url => url + "?ts=" + new Date().getTime());
+          currentIndex = 0;
+          carouselImg.src = carouselImages[currentIndex];
+
+          // Afficher l'image et les boutons
+          carouselImg.style.display = "block";
+          document.querySelector(".prev-btn").style.display = "block";
+          document.querySelector(".next-btn").style.display = "block";
+        }
+        
+        document.getElementById("ai-result-icon").src = "static/assets/validate.png";
+      })
+      .catch(error => {
+        document.getElementById("ai-result").textContent = "Erreur ❌";
+        document.getElementById("ai-instruct").textContent = error.message;
+        document.getElementById("ai-result-icon").src = "static/assets/pending.png";
+      });
+    });
+
+    function displayGen3DResults(data) {
+      const resultsContent = document.getElementById("results-content");
+      resultsContent.innerHTML = "";
+      
+      // Afficher les résultats des tenseurs
+      if (data.mean_results) {
+        let html = "<h4>Moyennes T0/T1/T2 et semi-axes calculés par classe</h4>";
+        for (const [label, vals] of Object.entries(data.mean_results)) {
+          html += `<p><strong>Classe ${label}:</strong><br>
+                   T0 moyen: ${vals.T0}<br>
+                   T1 moyen: ${vals.T1.join(', ')}<br>
+                   T2 moyen: ${JSON.stringify(vals.T2)}<br>
+                   Demi-axes calculés: ${vals.semi_axes.join(', ')}<br>
+                   Directions principales: ${JSON.stringify(vals.eigenvectors)}</p>`;
+        }
+        resultsContent.innerHTML += html;
+      }
+      
+      // Afficher les pourcentages
+      if (data.percentages) {
+        let html = "<h4>Pourcentages par sous-classe (nombre d'objets)</h4>";
+        for (const [label, perc] of Object.entries(data.percentages)) {
+          html += `<p>${label}: ${perc.toFixed(2)} %</p>`;
+        }
+        resultsContent.innerHTML += html;
+      }
+      
+      if (data.percentages_area) {
+        let html = "<h4>Pourcentages par surface occupée</h4>";
+        for (const [label, perc] of Object.entries(data.percentages_area)) {
+          html += `<p>${label}: ${perc.toFixed(2)} %</p>`;
+        }
+        resultsContent.innerHTML += html;
+      }
+      
+      // Afficher les résultats KMeans
+      if (data.kmeans_results) {
+        resultsContent.innerHTML += `
+          <h4>KMeans intensité pixels pour la classe 2</h4>
+          <p>Proportion moyenne cluster sombre: ${data.kmeans_results.mean_dark.toFixed(2)} %</p>
+          <p>Proportion moyenne cluster clair: ${data.kmeans_results.mean_bright.toFixed(2)} %</p>
+        `;
+      }
+      
+      // Afficher le volume estimé
+      if (data.volume_estimation) {
+        resultsContent.innerHTML += `
+          <h4>Estimation du volume global</h4>
+          <p>Volume du cube estimé: Vcube ≈ ${data.volume_estimation.Vcube.toFixed(2)} px³</p>
+          <p>Longueur caractéristique (L) ≈ ${data.volume_estimation.L.toFixed(2)} px</p>
+        `;
+      }
+    }
+
+    // Navigation du carrousel
+    document.querySelector(".prev-btn").addEventListener("click", () => {
+      if (carouselImages.length > 0) {
+        currentIndex = (currentIndex - 1 + carouselImages.length) % carouselImages.length;
+        carouselImg.src = carouselImages[currentIndex];
+      }
+    });
+
+    document.querySelector(".next-btn").addEventListener("click", () => {
+      if (carouselImages.length > 0) {
+        currentIndex = (currentIndex + 1) % carouselImages.length;
+        carouselImg.src = carouselImages[currentIndex];
+      }
+    });
+
+    // Aperçu de l'image uploadée
+    document.getElementById("image-upload").addEventListener("change", function(e) {
+      if (e.target.files && e.target.files[0]) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+          document.getElementById("preview-img").src = e.target.result;
+        }
+        reader.readAsDataURL(e.target.files[0]);
+      }
+    });
+  </script>
+</body>
+</html>
+
+from flask import Flask, request, jsonify
+import os
+import tempfile
+import json
+from your_processing_module import process_gen3d  # Importez vos fonctions de traitement
+
+app = Flask(__name__)
+
+@app.route('/upload', methods=['POST'])
+def upload():
+    model = request.form.get('model')
+    
+    if model == 'gen3d':
+        # Récupérer les fichiers des deux dossiers
+        files_250x = request.files.getlist('images_250x')
+        files_15kx = request.files.getlist('images_15kx')
+        
+        # Créer des dossiers temporaires pour stocker les images
+        with tempfile.TemporaryDirectory() as temp_dir_250x, tempfile.TemporaryDirectory() as temp_dir_15kx:
+            # Sauvegarder les images 250x
+            for file in files_250x:
+                file.save(os.path.join(temp_dir_250x, file.filename))
+            
+            # Sauvegarder les images 15kx
+            for file in files_15kx:
+                file.save(os.path.join(temp_dir_15kx, file.filename))
+            
+            # Appeler votre fonction de traitement
+            results = process_gen3d(temp_dir_250x, temp_dir_15kx)
+            
+            return jsonify(results)
+    else:
+        # Traitement pour les autres modèles
+        file = request.files['image']
+        # ... votre code existant ...
+        
+        return jsonify({
+            'stat1': 'path/to/stat1.png',
+            'stat2': 'path/to/stat2.png',
+            'stat3': 'path/to/stat3.png',
+            'stat4': 'path/to/stat4.png'
+        })
+
+
+
+def process_gen3d(dir_250x, dir_15kx):
+    # Initialiser les structures de données pour accumuler les résultats
+    global_results = defaultdict(lambda: {"T0": [], "T1": [], "T2": []})
+    # ... autres initialisations ...
+    
+    # Traiter les images 250x
+    for filename in os.listdir(dir_250x):
+        image_path = os.path.join(dir_250x, filename)
+        # Appliquer votre code de traitement à cette image
+        # et accumuler les résultats dans global_results
+    
+    # Traiter les images 15kx
+    for filename in os.listdir(dir_15kx):
+        image_path = os.path.join(dir_15kx, filename)
+        # Appliquer votre code de traitement à cette image
+        # et accumuler les résultats dans global_results
+    
+    # Calculer les moyennes et autres métriques
+    mean_results = {}
+    # ... vos calculs ...
+    
+    # Calculer KMeans
+    kmeans_results = {}
+    # ... vos calculs ...
+    
+    # Calculer le volume estimé
+    volume_estimation = {}
+    # ... vos calculs ...
+    
+    return {
+        'mean_results': mean_results,
+        'percentages': percentages,
+        'percentages_area': percentages_area,
+        'kmeans_results': kmeans_results,
+        'volume_estimation': volume_estimation
+    }
