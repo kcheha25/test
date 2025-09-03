@@ -1,149 +1,217 @@
-import numpy as np
-import cv2
-import math
+<label>
+  <input type="checkbox" id="multi-mode"> Traiter plusieurs images
+</label>
 
-# ---- Fonction pour calculer les demi-axes ----
-def calculate_semi_axes(T0, T1, T2):
-    """Calcule les longueurs des demi-axes à partir des tenseurs centrés."""
-    # 1. Centrage du tenseur T2 pour éliminer l'effet de position
-    T2_centered = T2 - np.outer(T1, T1) / (2 * T0)
+<div id="upload-section">
+  <input type="file" id="image-upload" />
+  <div id="preview">
+    <img id="preview-img" src="" alt="Preview" style="display:none;" />
+  </div>
+</div>
 
-    # 2. Diagonalisation
-    eigenvalues, eigenvectors = np.linalg.eigh(T2_centered)
 
-    # 3. Constante pour d=3
-    kappa_3 = 4 * np.pi / 3
-    factor = (2 * (3 + 2) / kappa_3) ** (1/(3 + 2))  # (10 / (4π/3))^(1/5)
+const multiMode = document.getElementById("multi-mode");
+const uploadSection = document.getElementById("upload-section");
 
-    # Valeurs propres triées
-    lambda1, lambda2, lambda3 = eigenvalues
+multiMode.addEventListener("change", () => {
+  uploadSection.innerHTML = ""; // reset
 
-    # Demi-axes
-    a1 = factor * (lambda1 ** 0.4) / ((lambda2 * lambda3) ** 0.1)
-    a2 = factor * (lambda2 ** 0.4) / ((lambda1 * lambda3) ** 0.1)
-    a3 = factor * (lambda3 ** 0.4) / ((lambda1 * lambda2) ** 0.1)
+  if (multiMode.checked) {
+    // Mode multi-images
+    uploadSection.innerHTML = `
+      <label>Uploader plusieurs images :</label>
+      <input type="file" id="multi-upload" multiple>
+    `;
+  } else {
+    // Mode simple (une image + preview)
+    uploadSection.innerHTML = `
+      <label>Uploader image :</label>
+      <input type="file" id="image-upload">
+      <div id="preview">
+        <img id="preview-img" src="" alt="Preview" style="display:none;" />
+      </div>
+    `;
 
-    return np.array([a1, a2, a3]), eigenvectors
+    const uploadInput = document.getElementById("image-upload");
+    const previewImg = document.getElementById("preview-img");
 
-# ---- Ta fonction existante ----
-def calc_tensors_from_mask(mask, d=5):
-    mask = mask.astype(np.uint8)
-    H, W = mask.shape
+    uploadInput.addEventListener("change", function(){
+      const file = this.files[0];
+      if (!file) return;
 
-    ys, xs = np.nonzero(mask)
-    if len(xs) == 0:
-        return 0, np.zeros(3), np.zeros((3, 3))
+      const formData = new FormData();
+      formData.append("image", file);
 
-    xO = xs.mean()
-    yO = ys.mean()
+      fetch("/upload_preview", {method:"POST", body:formData})
+        .then(res => res.json())
+        .then(data => {
+          previewImg.src = data.preview + "?ts=" + new Date().getTime();
+          previewImg.style.display = "block";
+        })
+        .catch(err => console.error(err));
+    });
+  }
+});
 
-    y_min = ys.min()
-    y_max = ys.max()
+<label>
+  <input type="checkbox" id="multi-mode"> Mode multi-images
+</label>
 
-    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-    contour_points = set(tuple(pt[0]) for c in contours for pt in c)
+<div id="upload-section">
+  <input type="file" id="image-upload">
+  <div id="preview">
+    <button id="prev-btn" style="display:none">⬅️</button>
+    <img id="preview-img" src="" alt="Preview" style="display:none; max-width:300px;" />
+    <button id="next-btn" style="display:none">➡️</button>
+  </div>
+</div>
 
-    T0 = 0.0
-    T1 = np.zeros(3)
-    T2 = np.zeros((3, 3))
+@app.route("/upload_preview", methods=["POST"])
+def upload_preview():
+    if "multi" in request.form and request.form["multi"] == "true":
+        # === MODE MULTI ===
+        if "images[]" not in request.files:
+            return jsonify({"error": "Aucune image reçue"}), 400
 
-    max_offset = max(yO - y_min, y_max - yO)
-    max_steps = int(np.ceil(max_offset / d))
+        files = request.files.getlist("images[]")
+        saved_paths = []
 
-    y_offsets = []
-    directions = []
+        for file in files:
+            orig_name, orig_ext = os.path.splitext(file.filename)
+            orig_ext = orig_ext.lower()
+            save_path = os.path.join("static", f"{orig_name}{orig_ext}")
+            file.save(save_path)
 
-    for i in range(1, max_steps + 1):
-        for sign in [1, -1]:
-            y_candidate = int(round(yO + sign * i * d))
-            if y_candidate < y_min or y_candidate > y_max:
-                continue
-            if i % 2 == 1:
-                if sign == 1:
-                    direction = 'right'
-                else:
-                    direction = 'left'
-            else:
-                if sign == 1:
-                    direction = 'left'
-                else:
-                    direction = 'right'
+            # conversion en PNG
+            img = Image.open(save_path)
+            png_path = os.path.join("static", f"{orig_name}.png")
+            img.save(png_path, "PNG")
+            saved_paths.append(f"/{png_path.replace(os.sep, '/')}")
 
-            y_offsets.append(sign * i * d)
-            directions.append(direction)
+        return jsonify({"previews": saved_paths})
 
-    for offset, direction in zip(y_offsets, directions):
-        y = int(round(yO + offset))
-        if y < 0 or y >= H:
-            continue
+    else:
+        # === MODE SIMPLE ===
+        if "image" not in request.files:
+            return jsonify({"error": "Aucune image reçue"}), 400
 
-        intersections = []
-        if direction == 'right':
-            for x in range(int(np.ceil(xO)) + 1, W):
-                if (x, y) in contour_points:
-                    intersections.append((x, y))
-        else:
-            for x in range(int(np.floor(xO)) - 1, -1, -1):
-                if (x, y) in contour_points:
-                    intersections.append((x, y))
+        file = request.files["image"]
+        orig_name, orig_ext = os.path.splitext(file.filename)
+        orig_ext = orig_ext.lower()
+        save_path = os.path.join("static", f"uploadedimage{orig_ext}")
+        file.save(save_path)
 
-        if not intersections:
-            continue
+        img = Image.open(save_path)
+        png_path = os.path.join("static", "uploadedimage.png")
+        img.save(png_path, "PNG")
 
-        intersections_sorted = sorted(
-            intersections,
-            key=lambda p: np.hypot(p[0] - xO, p[1] - yO),
-            reverse=True
-        )
+        return jsonify({"preview": f"/{png_path.replace(os.sep, '/')}"} )
 
-        sign = 1
-        for (x_int, y_int) in intersections_sorted:
-            xr = x_int - xO
-            yr = y_int - yO
+const uploadInput = document.getElementById("image-upload");
+const previewImg = document.getElementById("preview-img");
+const multiMode = document.getElementById("multi-mode");
 
-            g0 = np.pi * d * xr ** 2
-            g1 = np.array([0, np.pi * d * xr ** 2 * yr, 0])
-            g2 = np.array([
-                [np.pi / 8 * d * xr ** 4, 0, 0],
-                [0, np.pi / 2 * d * xr ** 2 * yr ** 2, 0],
-                [0, 0, np.pi / 8 * d * xr ** 4]
-            ])
+let previewImages = [];
+let previewIndex = 0;
 
-            T0 += sign * g0
-            T1 += sign * g1
-            T2 += sign * g2
+// Quand fichier(s) choisi(s)
+uploadInput.addEventListener("change", function(){
+  const formData = new FormData();
 
-            sign *= -1
+  if (multiMode.checked) {
+    // === MODE MULTI ===
+    for (let f of this.files) formData.append("images[]", f);
+    formData.append("multi", "true");
+  } else {
+    // === MODE SIMPLE ===
+    if (!this.files[0]) return;
+    formData.append("image", this.files[0]);
+    formData.append("multi", "false");
+  }
 
-    return T0, T1, T2
+  fetch("/upload_preview", {method:"POST", body:formData})
+    .then(res => res.json())
+    .then(data => {
+      if (multiMode.checked) {
+        // Carrousel multi
+        previewImages = data.previews;
+        previewIndex = 0;
+        updatePreview();
 
-# ---- Génération d'une ellipse ----
-def generate_ellipse_mask(a, b, img_size=500):
-    mask = np.zeros((img_size, img_size), dtype=np.uint8)
-    center = (img_size // 2, img_size // 2)
-    axes = (int(a), int(b))
-    cv2.ellipse(mask, center, axes, 0, 0, 360, 1, -1)
-    return mask
+        if (previewImages.length > 1) {
+          document.getElementById("prev-btn").style.display = "inline-block";
+          document.getElementById("next-btn").style.display = "inline-block";
+        }
+      } else {
+        // Simple preview
+        previewImg.src = data.preview + "?ts=" + new Date().getTime();
+        previewImg.style.display = "block";
+        document.getElementById("prev-btn").style.display = "none";
+        document.getElementById("next-btn").style.display = "none";
+      }
+    })
+    .catch(err => console.error(err));
+});
 
-# ---- Paramètres réels ----
-a_real = 60
-b_real = 80
-c_real = 50
+function updatePreview() {
+  if (previewImages.length > 0) {
+    previewImg.src = previewImages[previewIndex] + "?ts=" + new Date().getTime();
+    previewImg.style.display = "block";
+  }
+}
 
-volume_real = (4/3) * math.pi * a_real * b_real * c_real
-print(f"Volume réel ellipsoïde = {volume_real:.2f}")
+document.getElementById("prev-btn").addEventListener("click", () => {
+  if (previewImages.length === 0) return;
+  previewIndex = (previewIndex - 1 + previewImages.length) % previewImages.length;
+  updatePreview();
+});
 
-mask = generate_ellipse_mask(a_real, b_real)
+document.getElementById("next-btn").addEventListener("click", () => {
+  if (previewImages.length === 0) return;
+  previewIndex = (previewIndex + 1) % previewImages.length;
+  updatePreview();
+});
 
-# ---- Calcul tenseurs ----
-T0, T1, T2 = calc_tensors_from_mask(mask, d=5)
-print(f"T0 = {T0:.2f}\nT1 = {T1}\nT2 =\n{T2}")
+<label>
+  <input type="checkbox" id="multi-mode"> Mode multi-images
+</label>
 
-# ---- Calcul des demi-axes estimés ----
-axes_calc, dirs_calc = calculate_semi_axes(T0, T1, T2)
+<div id="upload-section"></div>
+<div id="preview"></div>
+const multiMode = document.getElementById("multi-mode");
+const uploadSection = document.getElementById("upload-section");
+const preview = document.getElementById("preview");
 
-# ---- Affichage comparaison ----
-print("\n--- Comparaison demi-axes ---")
-print(f"Réels     : a={a_real}, b={b_real}, c={c_real}")
-print(f"Estimés   : a={axes_calc[0]:.2f}, b={axes_calc[1]:.2f}, c={axes_calc[2]:.2f}")
-print(f"\nDirections propres (colonnes) :\n{dirs_calc}")
+function renderUploadUI() {
+  if (multiMode.checked) {
+    // === MODE MULTI ===
+    uploadSection.innerHTML = `
+      <label>Uploader plusieurs images :</label>
+      <input type="file" id="image-upload" multiple>
+    `;
+
+    preview.innerHTML = `
+      <button id="prev-btn" style="display:none">⬅️</button>
+      <img id="preview-img" src="" style="display:none; max-width:300px;" />
+      <button id="next-btn" style="display:none">➡️</button>
+    `;
+  } else {
+    // === MODE SIMPLE ===
+    uploadSection.innerHTML = `
+      <label>Uploader une image :</label>
+      <input type="file" id="image-upload">
+    `;
+
+    preview.innerHTML = `
+      <img id="preview-img" src="" style="display:none; max-width:300px;" />
+    `;
+  }
+}
+
+// Premier rendu
+renderUploadUI();
+
+// Réagir au changement de checkbox
+multiMode.addEventListener("change", () => {
+  renderUploadUI();
+});
