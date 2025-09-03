@@ -1,0 +1,77 @@
+pip install pyinstaller
+pyinstaller --onefile app.py
+
+pyinstaller --onefile --add-data "templates;templates" --add-data "static;static" app.py
+
+import os, sys
+from flask import Flask
+
+# Trouver le bon chemin des fichiers (compatibilité PyInstaller)
+if getattr(sys, 'frozen', False):  # Si lancé depuis l'exécutable PyInstaller
+    basedir = sys._MEIPASS
+else:
+    basedir = os.path.dirname(os.path.abspath(__file__))
+
+app = Flask(__name__, 
+            template_folder=os.path.join(basedir, "templates"),
+            static_folder=os.path.join(basedir, "static"))
+
+@app.route("/")
+def home():
+    return "Hello Flask inclus dans EXE !"
+
+if __name__ == "__main__":
+    app.run()
+
+
+pyinstaller --onefile ^
+  --add-data "templates;templates" ^
+  --add-data "static;static" ^
+  --add-data "models;models" ^
+  app.py
+
+import os, sys
+from detectron2.engine import DefaultPredictor
+from detectron2.config import get_cfg
+import torch
+
+# Chemin racine (normal ou compilé)
+if getattr(sys, 'frozen', False):
+    basedir = sys._MEIPASS
+else:
+    basedir = os.path.dirname(os.path.abspath(__file__))
+
+# Exemple Detectron2
+cfg = get_cfg()
+cfg.merge_from_file(os.path.join(basedir, "models", "config.yaml"))
+cfg.MODEL.WEIGHTS = os.path.join(basedir, "models", "detectron2_model.pth")
+
+predictor = DefaultPredictor(cfg)
+
+
+import os
+import webbrowser
+from flask import Flask
+
+BASEDIR = os.path.dirname(os.path.abspath(__file__))
+
+app = Flask(
+    __name__,
+    template_folder=os.path.join(BASEDIR, "templates"),
+    static_folder=os.path.join(BASEDIR, "static")
+)
+
+@app.route("/")
+def home():
+    return "Hello depuis l’EXE avec Flask 🚀"
+
+if __name__ == "__main__":
+    # Ouvrir automatiquement le navigateur
+    port = 5000
+    url = f"http://127.0.0.1:{port}/"
+    webbrowser.open(url)  # ouvre dans le navigateur par défaut
+
+    # Lancer le serveur Flask
+    app.run(port=port)
+
+pyinstaller --onefile --noconsole app.py
