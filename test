@@ -215,3 +215,74 @@ renderUploadUI();
 multiMode.addEventListener("change", () => {
   renderUploadUI();
 });
+
+
+const uploadSection = document.getElementById("upload-section");
+const previewImg = document.getElementById("preview-img");
+const multiMode = document.getElementById("multi-mode");
+
+let previewImages = [];
+let previewIndex = 0;
+
+uploadSection.addEventListener("change", function(e) {
+  if (!e.target || e.target.id !== "image-upload") return;
+
+  const files = e.target.files;
+  if (!files || files.length === 0) return;
+
+  const formData = new FormData();
+
+  if (multiMode.checked) {
+    // === MODE MULTI ===
+    for (let f of files) {
+      formData.append("images[]", f);
+    }
+    formData.append("multi", "true");
+  } else {
+    // === MODE SIMPLE ===
+    formData.append("image", files[0]);
+    formData.append("multi", "false");
+  }
+
+  fetch("/upload_preview", { method: "POST", body: formData })
+    .then(res => res.json())
+    .then(data => {
+      if (multiMode.checked) {
+        // Carrousel multi
+        previewImages = data.previews || [];
+        previewIndex = 0;
+        updatePreview();
+
+        if (previewImages.length > 1) {
+          document.getElementById("prev-btn").style.display = "inline-block";
+          document.getElementById("next-btn").style.display = "inline-block";
+        }
+      } else {
+        // Simple preview
+        previewImg.src = data.preview + "?ts=" + new Date().getTime();
+        previewImg.style.display = "block";
+        document.getElementById("prev-btn").style.display = "none";
+        document.getElementById("next-btn").style.display = "none";
+      }
+    })
+    .catch(err => console.error(err));
+});
+
+function updatePreview() {
+  if (previewImages.length > 0) {
+    previewImg.src = previewImages[previewIndex] + "?ts=" + new Date().getTime();
+    previewImg.style.display = "block";
+  }
+}
+
+document.getElementById("prev-btn").addEventListener("click", () => {
+  if (previewImages.length === 0) return;
+  previewIndex = (previewIndex - 1 + previewImages.length) % previewImages.length;
+  updatePreview();
+});
+
+document.getElementById("next-btn").addEventListener("click", () => {
+  if (previewImages.length === 0) return;
+  previewIndex = (previewIndex + 1) % previewImages.length;
+  updatePreview();
+});
