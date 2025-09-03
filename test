@@ -286,3 +286,154 @@ document.getElementById("next-btn").addEventListener("click", () => {
   previewIndex = (previewIndex + 1) % previewImages.length;
   updatePreview();
 });
+
+
+@app.route("/upload", methods=["POST"])
+def upload():
+    if "model" not in request.form:
+        return jsonify({"error": "Aucun modèle sélectionné"}), 400
+
+    model_name = request.form["model"]
+    multi = request.form.get("multi", "false") == "true"
+
+    results = []
+    hists = []
+
+    # 🔹 Nettoyer le dossier static (uniquement fichiers racine)
+    for filename in os.listdir(STATIC_FOLDER):
+        filepath = os.path.join(STATIC_FOLDER, filename)
+        if os.path.isfile(filepath) and filename.lower().endswith(('.png', '.jpg', '.jpeg')):
+            os.remove(filepath)
+
+    if multi:
+        files = request.files.getlist("images[]")
+    else:
+        files = [request.files["image"]]
+
+    for file in files:
+        # Sauvegarder input
+        filename = os.path.splitext(file.filename)[0]
+        ext = os.path.splitext(file.filename)[1].lower()
+        input_path = os.path.join(STATIC_FOLDER, f"{filename}{ext}")
+        file.save(input_path)
+
+        # 🔹 Faire inférence
+        image = cv2.imread(input_path)
+
+        if model_name == "detectron2":
+            predictor = load_detectron2()
+            outputs = predictor(image)
+            v = Visualizer(image[:, :, ::-1], MetadataCatalog.get("coco_2017_train"))
+            out = v.draw_instance_predictions(outputs["instances"].to("cpu"))
+            result_path = os.path.join(STATIC_FOLDER, f"result_{filename}.png")
+            cv2.imwrite(result_path, out.get_image()[:, :, ::-1])
+
+        elif model_name == "mmrotate":
+            result_path = os.path.join(STATIC_FOLDER, f"result_{filename}.png")
+            cv2.putText(image, "MMRotate détection", (30, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+            cv2.imwrite(result_path, image)
+
+        elif model_name == "gen3d":
+            result_path = os.path.join(STATIC_FOLDER, f"result_{filename}.png")
+            cv2.putText(image, "3D Generation", (30, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 0, 0), 2)
+            cv2.imwrite(result_path, image)
+        else:
+            return jsonify({"error": "Modèle inconnu"}), 400
+
+        # 🔹 Histogramme
+        hist_path = os.path.join(STATIC_FOLDER, f"hist_{filename}.png")
+        generate_histogram(input_path, hist_path)
+
+        results.append(f"/{result_path.replace(os.sep, '/')}")
+        hists.append(f"/{hist_path.replace(os.sep, '/')}")
+
+    return jsonify({
+        "message": "Inférence terminée",
+        "results": results,
+        "hists": hists
+    })
+fetch("/upload", { method: "POST", body: formData })
+  .then(response => response.json())
+  .then(data => {
+    document.getElementById("ai-result").textContent = "Inférence terminée ✅";
+    document.getElementById("ai-instruct").textContent = "Résultats affichés à droite.";
+    document.getElementById("ai-result-icon").src = "static/assets/validate.png";
+
+    // === Carrousel des résultats ===
+    carouselImages = data.results.map(url => url + "?ts=" + new Date().getTime());
+    currentIndex = 0;
+    carouselImg.src = carouselImages[currentIndex];
+    carouselImg.style.display = "block";
+
+    document.querySelector(".prev-btn").style.display = "block";
+    document.querySelector(".next-btn").style.display = "block";
+
+    // === Afficher aussi les histogrammes ===
+    let histContainer = document.getElementById("hist-container");
+    histContainer.innerHTML = "";
+    data.hists.forEach(h => {
+      let img = document.createElement("img");
+      img.src = h + "?ts=" + new Date().getTime();
+      img.style.maxWidth = "200px";
+      img.style.margin = "5px";
+      histContainer.appendChild(img);
+    });
+  })
+  .catch(error => {
+    document.getElementById("ai-result").textContent = "Erreur ❌";
+    document.getElementById("ai-instruct").textContent = error.message;
+    document.getElementById("ai-result-icon").src = "static/assets/pending.png";
+  });
+let carouselImages = [];
+let currentIndex = 0;
+
+function updateCarousel() {
+  if (carouselImages.length === 0) return;
+
+  let img = document.getElementById("carousel-img");
+  img.src = carouselImages[currentIndex];
+}
+
+// === Navigation ===
+document.querySelector(".prev-btn").addEventListener("click", () => {
+  if (carouselImages.length === 0) return;
+  currentIndex = (currentIndex - 1 + carouselImages.length) % carouselImages.length;
+  updateCarousel();
+});
+
+document.querySelector(".next-btn").addEventListener("click", () => {
+  if (carouselImages.length === 0) return;
+  currentIndex = (currentIndex + 1) % carouselImages.length;
+  updateCarousel();
+});
+
+// === Lors de l’upload ===
+fetch("/upload", { method: "POST", body: formData })
+  .then(response => response.json())
+  .then(data => {
+    document.getElementById("ai-result").textContent = "Inférence terminée ✅";
+    document.getElementById("ai-instruct").textContent = "Résultats affichés à droite.";
+    document.getElementById("ai-result-icon").src = "static/assets/validate.png";
+
+    // Fusionner results et hists
+    carouselImages = [];
+    for (let i = 0; i < data.results.length; i++) {
+      carouselImages.push(data.results[i] + "?ts=" + new Date().getTime());
+      if (data.hists[i]) {
+        carouselImages.push(data.hists[i] + "?ts=" + new Date().getTime());
+      }
+    }
+
+    currentIndex = 0;
+    updateCarousel();
+
+    document.querySelector(".prev-btn").style.display = "block";
+    document.querySelector(".next-btn").style.display = "block";
+  })
+  .catch(error => {
+    document.getElementById("ai-result").textContent = "Erreur ❌";
+    document.getElementById("ai-instruct").textContent = error.message;
+    document.getElementById("ai-result-icon").src = "static/assets/pending.png";
+  });
