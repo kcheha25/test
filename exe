@@ -75,3 +75,82 @@ if __name__ == "__main__":
     app.run(port=port)
 
 pyinstaller --onefile --noconsole app.py
+
+
+valeur_vv = None
+
+with open("data.txt", "r", encoding="utf-8") as f:
+    for ligne in f:
+        if ligne.strip().startswith("Vv"):
+            # Récupérer la partie après les deux-points
+            valeur_vv = ligne.split(":", 1)[1].strip()
+            # Remplacer la virgule par un point pour conversion
+            valeur_vv = float(valeur_vv.replace(",", "."))
+            break
+
+print("Valeur Vv =", valeur_vv)
+
+import os
+import shutil
+from flask import Flask, jsonify
+
+app = Flask(__name__)
+
+# Dossier source et cible
+SOURCE_FOLDER = "xml_source"
+TARGET_FOLDER = "xml_target"
+
+# Chemins vers les exécutables
+EXE_MATRICE = r"C:\chemin\vers\programme1.exe"
+EXE_AUTRE   = r"C:\chemin\vers\programme2.exe"
+
+@app.route("/replace_xml", methods=["POST"])
+def replace_xml():
+    if not os.path.exists(SOURCE_FOLDER):
+        return jsonify({"error": "Dossier source introuvable"}), 400
+    if not os.path.exists(TARGET_FOLDER):
+        os.makedirs(TARGET_FOLDER)
+
+    replaced_files = []
+    for filename in os.listdir(SOURCE_FOLDER):
+        if filename.lower().endswith(".xml"):
+            src_path = os.path.join(SOURCE_FOLDER, filename)
+            dst_path = os.path.join(TARGET_FOLDER, filename)
+
+            # Copier avec remplacement
+            shutil.copy2(src_path, dst_path)
+            replaced_files.append(filename)
+
+            # Vérifier le nom du fichier et lancer l'exe correspondant
+            try:
+                if filename.lower() == "matrice.xml":
+                    os.startfile(EXE_MATRICE)
+                else:
+                    os.startfile(EXE_AUTRE)
+            except Exception as e:
+                return jsonify({
+                    "error": f"Erreur lors du lancement de l'exécutable pour {filename} : {str(e)}"
+                }), 500
+
+    if not replaced_files:
+        return jsonify({"message": "Aucun fichier XML trouvé dans le dossier source."})
+
+    return jsonify({
+        "message": f"{len(replaced_files)} fichier(s) XML remplacé(s)",
+        "files": replaced_files
+    })
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
+
+
+pyinstaller --onefile --noconsole ^
+  --hidden-import=imageio.plugins.ffmpeg ^
+  --hidden-import=imageio.plugins.pillow ^
+  --hidden-import=imageio.plugins.tifffile ^
+  ton_script.py
+
+hiddenimports=['imageio.plugins.pillow', 'imageio.plugins.ffmpeg', 'imageio.plugins.tifffile']
+
+pyinstaller ton_script.spec
