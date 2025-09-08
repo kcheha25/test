@@ -239,3 +239,104 @@ def replace_xml():
         "message": f"{len(replaced_files)} fichier(s) XML remplacé(s) et exe exécuté",
         "files": replaced_files
     })
+
+import os
+import shutil
+import time
+import xml.etree.ElementTree as ET
+from flask import Flask, jsonify, request
+
+app = Flask(__name__)
+
+SOURCE_FOLDER = "xml_source"
+TARGET_FOLDER = "xml_target"
+TEMP_FOLDER = "temp"  # Dossier où l'exe produit out.fda
+DATA_TXT = "data.txt"  # Fichier où lire Vv
+EXE_MATRICE = r"C:\chemin\vers\exe_matrice.exe"
+
+@app.route("/replace_xml", methods=["POST"])
+def replace_xml():
+    # 🔹 Récupérer la valeur entrée par utilisateur (Vporo)
+    vporo = request.form.get("Vporo", None)
+    if vporo is None:
+        return jsonify({"error": "Paramètre Vporo manquant"}), 400
+
+    try:
+        vporo = float(vporo)
+    except ValueError:
+        return jsonify({"error": "Valeur Vporo invalide"}), 400
+
+    # 🔹 Lire la valeur Vv depuis data.txt
+    valeur_vv = None
+    with open(DATA_TXT, "r", encoding="utf-8") as f:
+        for ligne in f:
+            if ligne.strip().startswith("Vv"):
+                valeur_vv = ligne.split(":", 1)[1].strip()
+                valeur_vv = float(valeur_vv.replace(",", "."))
+                break
+
+    if valeur_vv is None:
+        return jsonify({"error": "Impossible de trouver Vv dans data.txt"}), 500
+
+    # 🔹 Calcul de la différence
+    delta = vporo - valeur_vv
+
+    # 🔹 Vérifier si matrice.xml existe
+    src_path = os.path.join(SOURCE_FOLDER, "matrice.xml")
+    if not os.path.exists(src_path):
+        return jsonify({"error": "matrice.xml introuvable dans le dossier source"}), 404
+
+    if not os.path.exists(TARGET_FOLDER):
+        os.makedirs(TARGET_FOLDER)
+    if not os.path.exists(TEMP_FOLDER):
+        os.makedirs(TEMP_FOLDER)
+
+    dst_path = os.path.join(TARGET_FOLDER, "matrice.xml")
+
+    try:
+        # 🔹 Charger et modifier AggINVv dans matrice.xml
+        tree = ET.parse(src_path)
+        root = tree.getroot()
+
+        node = root.find(".//AggINVv")
+        if node is not None and node.text:
+            valeur_actuelle = float(node.text.replace(",", "."))
+            nouvelle_valeur = valeur_actuelle + delta
+            node.text = str(nouvelle_valeur)
+            tree.write(dst_path, encoding="utf-8", xml_declaration=True)
+        else:
+            # Si pas trouvé, copier simplement
+            shutil.copy2(src_path, dst_path)
+    except Exception as e:
+        return jsonify({"error": f"Erreur modification XML : {e}"}), 500
+
+    # 🔹 Nettoyer TEMP_FOLDER
+    for temp_file in os.listdir(TEMP_FOLDER):
+        temp_file_path = os.path.join(TEMP_FOLDER, temp_file)
+        if os.path.isfile(temp_file_path):
+            os.remove(temp_file_path)
+
+    # 🔹 Lancer l'exécutable
+    try:
+        os.startfile(EXE_MATRICE)
+    except Exception as e:
+        return jsonify({"error": f"Erreur lancement exe : {e}"}), 500
+
+    # 🔹 Attendre que out.fda apparaisse
+    out_path = os.path.join(TEMP_FOLDER, "out.fda")
+    while not os.path.exists(out_path):
+        time.sleep(0.5)
+
+    # 🔹 Copier out.fda vers TARGET_FOLDER en le renommant
+    new_out_path = os.path.join(TARGET_FOLDER, "matrice.fda")
+    shutil.copy2(out_path, new_out_path)
+    os.remove(out_path)
+
+    return jsonify({
+        "message": f"matrice.xml traité, AggINVv ajusté (delta={delta:.4f}) et exe exécuté",
+        "new_fda": new_out_path
+    })
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
