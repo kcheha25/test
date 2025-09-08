@@ -169,3 +169,73 @@ if filename.lower() == "matrice.xml":
     lancer_exe_wait(EXE_MATRICE)
 else:
     lancer_exe_wait(EXE_AUTRE)
+
+import os
+import shutil
+import time
+from flask import Flask, jsonify
+
+app = Flask(__name__)
+
+SOURCE_FOLDER = "xml_source"
+TARGET_FOLDER = "xml_target"
+TEMP_FOLDER = "temp"  # Dossier où l'exe produit out.fda
+EXE_MATRICE = r"C:\chemin\vers\exe_matrice.exe"
+EXE_AUTRE = r"C:\chemin\vers\exe_autre.exe"
+
+@app.route("/replace_xml", methods=["POST"])
+def replace_xml():
+    if not os.path.exists(SOURCE_FOLDER):
+        return jsonify({"error": "Dossier source introuvable"}), 400
+    if not os.path.exists(TARGET_FOLDER):
+        os.makedirs(TARGET_FOLDER)
+    if not os.path.exists(TEMP_FOLDER):
+        os.makedirs(TEMP_FOLDER)
+
+    replaced_files = []
+    for filename in os.listdir(SOURCE_FOLDER):
+        if filename.lower().endswith(".xml"):
+            src_path = os.path.join(SOURCE_FOLDER, filename)
+            dst_path = os.path.join(TARGET_FOLDER, filename)
+
+            # Copier avec remplacement
+            shutil.copy2(src_path, dst_path)
+            replaced_files.append(filename)
+
+            # Vider TEMP_FOLDER au début de la boucle
+            for temp_file in os.listdir(TEMP_FOLDER):
+                temp_file_path = os.path.join(TEMP_FOLDER, temp_file)
+                if os.path.isfile(temp_file_path):
+                    os.remove(temp_file_path)
+
+            # Lancer l'exe correspondant
+            try:
+                if filename.lower() == "matrice.xml":
+                    os.startfile(EXE_MATRICE)
+                else:
+                    os.startfile(EXE_AUTRE)
+            except Exception as e:
+                return jsonify({
+                    "error": f"Erreur lors du lancement de l'exécutable pour {filename} : {str(e)}"
+                }), 500
+
+            # Attendre indéfiniment que out.fda apparaisse dans TEMP_FOLDER
+            out_path = os.path.join(TEMP_FOLDER, "out.fda")
+            while not os.path.exists(out_path):
+                time.sleep(0.5)
+
+            # Copier out.fda vers TARGET_FOLDER avec le nom du XML
+            new_out_name = os.path.splitext(filename)[0] + ".fda"
+            new_out_path = os.path.join(TARGET_FOLDER, new_out_name)
+            shutil.copy2(out_path, new_out_path)
+
+            # Supprimer out.fda temporaire
+            os.remove(out_path)
+
+    if not replaced_files:
+        return jsonify({"message": "Aucun fichier XML trouvé dans le dossier source."})
+
+    return jsonify({
+        "message": f"{len(replaced_files)} fichier(s) XML remplacé(s) et exe exécuté",
+        "files": replaced_files
+    })
