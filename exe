@@ -154,3 +154,18 @@ pyinstaller --onefile --noconsole ^
 hiddenimports=['imageio.plugins.pillow', 'imageio.plugins.ffmpeg', 'imageio.plugins.tifffile']
 
 pyinstaller ton_script.spec
+
+
+import subprocess
+
+EXE_MATRICE = r"C:\chemin\vers\matrice.exe"
+EXE_AUTRE   = r"C:\chemin\vers\autre.exe"
+
+def lancer_exe_wait(path):
+    # Utilise "start /wait" pour imiter os.startfile mais bloquer jusqu'à la fin
+    subprocess.run(["cmd", "/c", "start", "/wait", "", path], shell=True)
+
+if filename.lower() == "matrice.xml":
+    lancer_exe_wait(EXE_MATRICE)
+else:
+    lancer_exe_wait(EXE_AUTRE)
