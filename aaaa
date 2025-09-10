@@ -206,3 +206,11 @@ plt.grid(True, which="both", linestyle="--", linewidth=0.7, alpha=0.7)
 
 plt.tight_layout()
 plt.show()
+
+    while True:
+        try:
+            shutil.copy2(src, dst)   # copie
+            os.remove(src)           # suppression
+            break  # succès, on sort
+        except PermissionError:
+            time.sleep(retry_interval)
