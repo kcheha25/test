@@ -1,0 +1,22 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# --- paramètres ---
+fichier_excel = "donnees_pores.xlsx"   # <-- remplace par ton fichier
+col_diametre = "Diametre median (nm)"
+col_dv = "smoothed dV/dLogD (mL/g)"
+constante = 1.735
+
+# --- lecture du fichier ---
+df = pd.read_excel(fichier_excel)
+
+# --- calcul de la nouvelle colonne ---
+df["dV_multiplie"] = df[col_dv] * constante
+
+# --- tracé ---
+plt.plot(df[col_diametre], df["dV_multiplie"], marker="o", linestyle="-")
+plt.xlabel("Diamètre médian (nm)")
+plt.ylabel("dV/dlogD × 1.735 (cm³/cm³ ou sans dimension)")
+plt.title("Distribution poreuse corrigée")
+plt.grid(True)
+plt.show()
