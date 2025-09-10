@@ -53,14 +53,29 @@ plt.grid(True)
 plt.show()
 df["Diametre median (nm)"] = df["Diametre median (nm)"].astype(str).str.replace(",", ".").astype(float)
 index_cible = df[df["Diametre median (nm)"] == 3.65].index
+import matplotlib.pyplot as plt
+import numpy as np
 
-ticks = [0, 1, 2, 3, 3.5, 3.65, 4, 5, 10, 50, 100, 500, 1000, 2000, 3000]
-plt.xticks(ticks)
+# données exemple
+x = df_subset[col_x]
+y = df_subset["Y_corrige"]
 
+# ticks souhaités
+ticks = [0, 10, 100, 1000, 10000, 100000]
+
+# créer un axe X linéaire artificiel pour espacement égal
+tick_positions = np.arange(len(ticks))  # 0,1,2,3,4,5
+tick_labels = [str(t) for t in ticks]
+
+# mapper les valeurs X réelles vers les positions linéaires
+x_mapped = np.interp(x, ticks, tick_positions)
+
+plt.plot(x_mapped, y, marker="o", linestyle="-")
+
+# placer les ticks avec espacement égal
+plt.xticks(tick_positions, tick_labels)
 plt.xlabel("Diamètre médian (nm)")
 plt.ylabel("dV/dlogD × 1.735")
-plt.title(f"Distribution poreuse (jusqu'à Diamètre médian ≈ {target_value} nm)")
-plt.legend()
+plt.title("Distribution poreuse avec ticks espacés également")
 plt.grid(True)
-plt.tight_layout()
 plt.show()
