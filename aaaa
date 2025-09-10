@@ -53,3 +53,14 @@ plt.grid(True)
 plt.show()
 df["Diametre median (nm)"] = df["Diametre median (nm)"].astype(str).str.replace(",", ".").astype(float)
 index_cible = df[df["Diametre median (nm)"] == 3.65].index
+
+ticks = [0, 1, 2, 3, 3.5, 3.65, 4, 5, 10, 50, 100, 500, 1000, 2000, 3000]
+plt.xticks(ticks)
+
+plt.xlabel("Diamètre médian (nm)")
+plt.ylabel("dV/dlogD × 1.735")
+plt.title(f"Distribution poreuse (jusqu'à Diamètre médian ≈ {target_value} nm)")
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.show()
