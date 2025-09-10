@@ -1,37 +1,53 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 
+# --- paramètres ---
 fichier_excel = "donnees_pores.xlsx"
-nom_sheet = "Mesures"   # à adapter
-col_diametre = "Diametre median (nm)"
-col_dv = "smoothed dV/dLogD (mL/g)"
+nom_sheet = "Mesures"   # onglet à adapter
+col_x = "Diametre median (nm)"
+col_y = "smoothed dV/dLogD (mL/g)"
 constante = 1.735
 
-# 1. Lire toute la feuille sans header
+# 1. Lire la feuille brute
 raw = pd.read_excel(fichier_excel, sheet_name=nom_sheet, header=None)
 
-# 2. Trouver la ligne qui contient le nom des colonnes
+# 2. Trouver la ligne des colonnes
 header_row = None
 for i, row in raw.iterrows():
-    if col_diametre in row.values and col_dv in row.values:
+    if col_x in row.values and col_y in row.values:
         header_row = i
         break
 
 if header_row is None:
     raise ValueError("Impossible de trouver la ligne contenant les colonnes demandées.")
 
-# 3. Relire le fichier en utilisant cette ligne comme header
+# 3. Charger le tableau avec header correct
 df = pd.read_excel(fichier_excel, sheet_name=nom_sheet, header=header_row)
 
-# 4. Calculer et tracer
-df["dV_multiplie"] = df[col_dv] * constante
+# 4. Ajouter la colonne corrigée
+df["Y_corrige"] = df[col_y] * constante
 
-df_filtre = df[(df[col_diametre] >= 100) & (df[col_diametre] <= 7000)]
+# 5. Trouver l’index de la première ligne où Diamètre médian = 3.65
+idx_cible = df[df[col_x] == 3.65].index.min()
 
-# 6. Tracé
-plt.plot(df_filtre[col_diametre], df_filtre["dV_multiplie"], marker="o", linestyle="-")
+if pd.isna(idx_cible):
+    raise ValueError("Aucune ligne avec Diamètre médian = 3.65 trouvée.")
+
+# 6. Garder les lignes du début jusqu’à cette ligne
+df_subset = df.loc[:idx_cible]
+
+# 7. Tracé
+plt.plot(
+    df_subset[col_x],
+    df_subset["Y_corrige"],
+    marker="o",
+    linestyle="-",
+    label="dV/dlogD × 1.735"
+)
+
 plt.xlabel("Diamètre médian (nm)")
 plt.ylabel("dV/dlogD × 1.735")
-plt.title("Distribution poreuse corrigée (100–7000 nm)")
+plt.title("Distribution poreuse (jusqu'à Diamètre médian = 3.65 nm)")
+plt.legend()
 plt.grid(True)
 plt.show()
