@@ -79,3 +79,69 @@ plt.ylabel("dV/dlogD × 1.735")
 plt.title("Distribution poreuse avec ticks espacés également")
 plt.grid(True)
 plt.show()
+
+
+import pandas as pd
+import xlwings as xw
+
+# --- paramètres ---
+fichier_excel = "donnees_pores.xlsx"
+nom_sheet = "Mesures"
+col_x = "Diametre median (nm)"
+col_y = "smoothed dV/dLogD (mL/g)"
+constante = 1.735
+
+# 1. Lire la feuille brute
+raw = pd.read_excel(fichier_excel, sheet_name=nom_sheet, header=None)
+
+# 2. Trouver la ligne des colonnes
+header_row = None
+for i, row in raw.iterrows():
+    if col_x in row.values and col_y in row.values:
+        header_row = i
+        break
+
+if header_row is None:
+    raise ValueError("Impossible de trouver la ligne contenant les colonnes demandées.")
+
+# 3. Charger le tableau avec header correct
+df = pd.read_excel(fichier_excel, sheet_name=nom_sheet, header=header_row)
+
+# 4. Ajouter la colonne corrigée
+df["Y_corrige"] = df[col_y] * constante
+
+# 5. Trouver l’index de la première ligne où Diamètre médian = 3.65
+idx_cible = df[df[col_x] == 3.65].index.min()
+if pd.isna(idx_cible):
+    raise ValueError("Aucune ligne avec Diamètre médian = 3.65 trouvée.")
+
+# 6. Garder les lignes du début jusqu’à cette ligne
+df_subset = df.loc[:idx_cible].copy()
+
+# --- 7. Créer le graphique dans Excel ---
+# Ouvrir Excel
+app = xw.App(visible=True)   # visible=True pour voir Excel
+wb = xw.Book()               # créer un nouveau classeur
+sheet = wb.sheets[0]         # première feuille
+
+# Écrire les données dans Excel
+sheet.range("A1").value = ["Diametre median (nm)", "dV/dlogD × 1.735"]
+sheet.range("A2").value = df_subset[[col_x, "Y_corrige"]].values.tolist()
+
+# Créer le graphique
+chart = sheet.charts.add()
+chart.set_source_data(sheet.range("A1").expand())
+chart.chart_type = "line"       # type ligne
+chart.name = "Distribution poreuse"
+chart.api[1].HasTitle = True
+chart.api[1].ChartTitle.Text = "Distribution poreuse jusqu'à Diamètre 3.65 nm"
+chart.api[1].Axes(1).HasTitle = True
+chart.api[1].Axes(1).AxisTitle.Text = "Diamètre médian (nm)"
+chart.api[1].Axes(2).HasTitle = True
+chart.api[1].Axes(2).AxisTitle.Text = "dV/dlogD × 1.735"
+
+# Optionnel : sauvegarder le classeur
+# wb.save("distribution_poreuse.xlsx")
+
+# Garder Excel ouvert pour visualisation
+# app.quit()  # si tu veux fermer automatiquement
