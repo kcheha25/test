@@ -221,3 +221,11 @@ plt.show()
 parent = psutil.Process(os.getpid())
 for child in parent.children(recursive=True):
     child.kill()
+
+
+    while True:
+        try:
+            with open(path, "rb+"):
+                return True
+        except PermissionError:
+            time.sleep(interval)
