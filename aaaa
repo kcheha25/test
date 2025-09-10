@@ -1,22 +1,34 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 
-# --- paramètres ---
-fichier_excel = "donnees_pores.xlsx"   # <-- remplace par ton fichier
+fichier_excel = "donnees_pores.xlsx"
+nom_sheet = "Mesures"   # à adapter
 col_diametre = "Diametre median (nm)"
 col_dv = "smoothed dV/dLogD (mL/g)"
 constante = 1.735
 
-# --- lecture du fichier ---
-df = pd.read_excel(fichier_excel)
+# 1. Lire toute la feuille sans header
+raw = pd.read_excel(fichier_excel, sheet_name=nom_sheet, header=None)
 
-# --- calcul de la nouvelle colonne ---
+# 2. Trouver la ligne qui contient le nom des colonnes
+header_row = None
+for i, row in raw.iterrows():
+    if col_diametre in row.values and col_dv in row.values:
+        header_row = i
+        break
+
+if header_row is None:
+    raise ValueError("Impossible de trouver la ligne contenant les colonnes demandées.")
+
+# 3. Relire le fichier en utilisant cette ligne comme header
+df = pd.read_excel(fichier_excel, sheet_name=nom_sheet, header=header_row)
+
+# 4. Calculer et tracer
 df["dV_multiplie"] = df[col_dv] * constante
 
-# --- tracé ---
 plt.plot(df[col_diametre], df["dV_multiplie"], marker="o", linestyle="-")
 plt.xlabel("Diamètre médian (nm)")
-plt.ylabel("dV/dlogD × 1.735 (cm³/cm³ ou sans dimension)")
+plt.ylabel("dV/dlogD × 1.735")
 plt.title("Distribution poreuse corrigée")
 plt.grid(True)
 plt.show()
