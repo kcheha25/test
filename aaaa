@@ -214,3 +214,10 @@ plt.show()
             break  # succès, on sort
         except PermissionError:
             time.sleep(retry_interval)
+
+
+            import psutil, os
+
+parent = psutil.Process(os.getpid())
+for child in parent.children(recursive=True):
+    child.kill()
