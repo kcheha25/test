@@ -51,3 +51,5 @@ plt.title("Distribution poreuse (jusqu'à Diamètre médian = 3.65 nm)")
 plt.legend()
 plt.grid(True)
 plt.show()
+df["Diametre median (nm)"] = df["Diametre median (nm)"].astype(str).str.replace(",", ".").astype(float)
+index_cible = df[df["Diametre median (nm)"] == 3.65].index
