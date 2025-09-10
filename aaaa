@@ -81,67 +81,34 @@ plt.grid(True)
 plt.show()
 
 
-import pandas as pd
-import xlwings as xw
+sns.set(style="whitegrid")  # style seaborn
+plt.figure(figsize=(10,6))
 
-# --- paramètres ---
-fichier_excel = "donnees_pores.xlsx"
-nom_sheet = "Mesures"
-col_x = "Diametre median (nm)"
-col_y = "smoothed dV/dLogD (mL/g)"
-constante = 1.735
+plt.plot(
+    df_subset[col_x],
+    df_subset["Y_corrige"],
+    marker="o",
+    markersize=6,
+    linestyle="-",
+    linewidth=2,
+    color="#1f77b4",
+    alpha=0.9,
+    label=f"dV/dlogD × {constante}"
+)
 
-# 1. Lire la feuille brute
-raw = pd.read_excel(fichier_excel, sheet_name=nom_sheet, header=None)
+# échelle logarithmique sur X
+plt.xscale("log")
 
-# 2. Trouver la ligne des colonnes
-header_row = None
-for i, row in raw.iterrows():
-    if col_x in row.values and col_y in row.values:
-        header_row = i
-        break
+# formatter pour afficher 100, 1000… au lieu de 10^2, 10^3
+ax = plt.gca()
+ax.xaxis.set_major_formatter(ScalarFormatter())
+ax.ticklabel_format(style='plain', axis='x')
 
-if header_row is None:
-    raise ValueError("Impossible de trouver la ligne contenant les colonnes demandées.")
+plt.xlabel("Diamètre médian (nm)", fontsize=12)
+plt.ylabel(f"dV/dlogD × {constante}", fontsize=12)
+plt.title(f"Distribution poreuse (jusqu'à Diamètre médian = {target_value} nm)", fontsize=14)
+plt.legend()
+plt.grid(True, which="both", linestyle="--", linewidth=0.7, alpha=0.7)
 
-# 3. Charger le tableau avec header correct
-df = pd.read_excel(fichier_excel, sheet_name=nom_sheet, header=header_row)
-
-# 4. Ajouter la colonne corrigée
-df["Y_corrige"] = df[col_y] * constante
-
-# 5. Trouver l’index de la première ligne où Diamètre médian = 3.65
-idx_cible = df[df[col_x] == 3.65].index.min()
-if pd.isna(idx_cible):
-    raise ValueError("Aucune ligne avec Diamètre médian = 3.65 trouvée.")
-
-# 6. Garder les lignes du début jusqu’à cette ligne
-df_subset = df.loc[:idx_cible].copy()
-
-# --- 7. Créer le graphique dans Excel ---
-# Ouvrir Excel
-app = xw.App(visible=True)   # visible=True pour voir Excel
-wb = xw.Book()               # créer un nouveau classeur
-sheet = wb.sheets[0]         # première feuille
-
-# Écrire les données dans Excel
-sheet.range("A1").value = ["Diametre median (nm)", "dV/dlogD × 1.735"]
-sheet.range("A2").value = df_subset[[col_x, "Y_corrige"]].values.tolist()
-
-# Créer le graphique
-chart = sheet.charts.add()
-chart.set_source_data(sheet.range("A1").expand())
-chart.chart_type = "line"       # type ligne
-chart.name = "Distribution poreuse"
-chart.api[1].HasTitle = True
-chart.api[1].ChartTitle.Text = "Distribution poreuse jusqu'à Diamètre 3.65 nm"
-chart.api[1].Axes(1).HasTitle = True
-chart.api[1].Axes(1).AxisTitle.Text = "Diamètre médian (nm)"
-chart.api[1].Axes(2).HasTitle = True
-chart.api[1].Axes(2).AxisTitle.Text = "dV/dlogD × 1.735"
-
-# Optionnel : sauvegarder le classeur
-# wb.save("distribution_poreuse.xlsx")
-
-# Garder Excel ouvert pour visualisation
-# app.quit()  # si tu veux fermer automatiquement
+plt.tight_layout()
+plt.show()
