@@ -112,3 +112,97 @@ plt.grid(True, which="both", linestyle="--", linewidth=0.7, alpha=0.7)
 
 plt.tight_layout()
 plt.show()
+
+import pandas as pd
+import matplotlib.pyplot as plt
+from matplotlib.ticker import ScalarFormatter
+import seaborn as sns
+
+# --- Paramètres ---
+fichier_txt = "ton_fichier.txt"
+fichier_excel = "donnees_pores.xlsx"
+nom_sheet = "Mesures"
+col_x_excel = "Diametre median (nm)"
+col_y_excel = "smoothed dV/dLogD (mL/g)"
+constante = 1.735
+target_value = 3.65
+
+# --- Lecture et traitement du fichier TXT ---
+df_txt = pd.read_csv(fichier_txt, sep="\t", skiprows=10)
+df_txt = df_txt[["radius", "volume"]]
+
+# Calcul diamètre multiplié par 2 puis par 100
+df_txt["diameter_scaled"] = df_txt["radius"] * 2 * 100
+
+# Δ volume
+df_txt["delta_volume"] = df_txt["volume"].shift(-1) - df_txt["volume"]
+df_txt = df_txt.dropna()
+
+# Diviser delta_volume par 1062³
+df_txt["delta_volume_scaled"] = df_txt["delta_volume"] / (1062**3)
+
+# --- Lecture et traitement du fichier Excel ---
+raw = pd.read_excel(fichier_excel, sheet_name=nom_sheet, header=None)
+
+header_row = None
+for i, row in raw.iterrows():
+    if col_x_excel in row.values and col_y_excel in row.values:
+        header_row = i
+        break
+if header_row is None:
+    raise ValueError("Impossible de trouver la ligne contenant les colonnes demandées.")
+
+df_excel = pd.read_excel(fichier_excel, sheet_name=nom_sheet, header=header_row)
+df_excel["Y_corrige"] = df_excel[col_y_excel] * constante
+
+idx_cible = df_excel[df_excel[col_x_excel] == target_value].index.min()
+if pd.isna(idx_cible):
+    raise ValueError(f"Aucune ligne avec Diamètre médian = {target_value} trouvée.")
+df_excel_subset = df_excel.loc[:idx_cible]
+
+# --- Tracé esthétique ---
+sns.set(style="whitegrid")
+plt.figure(figsize=(10,6))
+
+# Courbe 1 : fichier TXT
+plt.plot(
+    df_txt["diameter_scaled"],
+    df_txt["delta_volume_scaled"],
+    marker="o",
+    markersize=5,
+    linestyle="-",
+    linewidth=2,
+    color="#ff7f0e",
+    alpha=0.8,
+    label="Δ Volume / 1062³ (radius*2*100)"
+)
+
+# Courbe 2 : fichier Excel
+plt.plot(
+    df_excel_subset[col_x_excel],
+    df_excel_subset["Y_corrige"],
+    marker="o",
+    markersize=6,
+    linestyle="-",
+    linewidth=2,
+    color="#1f77b4",
+    alpha=0.9,
+    label=f"dV/dlogD × {constante}"
+)
+
+# Échelle logarithmique sur X
+plt.xscale("log")
+
+# Formatter pour afficher 100, 1000… au lieu de 10^2, 10^3
+ax = plt.gca()
+ax.xaxis.set_major_formatter(ScalarFormatter())
+ax.ticklabel_format(style='plain', axis='x')
+
+plt.xlabel("Diamètre (nm)", fontsize=12)
+plt.ylabel("Volume / Δ Volume", fontsize=12)
+plt.title("Superposition des distributions par diamètre", fontsize=14)
+plt.legend()
+plt.grid(True, which="both", linestyle="--", linewidth=0.7, alpha=0.7)
+
+plt.tight_layout()
+plt.show()
