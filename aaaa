@@ -229,3 +229,23 @@ for child in parent.children(recursive=True):
                 return True
         except PermissionError:
             time.sleep(interval)
+
+
+            La détection des éléments de platine et des feuillets dans les images STEM-HAADF a été réalisée malgré l’absence d’annotations fiables.
+
+Des vérifications visuelles et des comparaisons avec des statistiques manuelles ont été nécessaires à chaque étape du post-traitement.
+
+Les modèles développés ont montré des performances globalement bonnes, avec des résultats logiques et cohérents.
+
+Le projet Eluxyl a été confronté à des contraintes de résolution et de temps de calcul.
+
+Bien qu’une microstructure ait pu être générée à une résolution inférieure à 100 nm, le module PNP de Plugim! n’a pas pu traiter les grandes tailles de microstructures, provoquant des erreurs.
+
+Perspectives futures
+Une interface web est en cours de développement pour intégrer tous les modèles développés, afin de les rendre accessibles et faciles à utiliser.
+
+Les modèles booléens d’Eluxyl ne permettent pas actuellement d’obtenir une distribution des diamètres des zones denses, creuses ou intermédiaires : seules des tailles uniques sont générées.
+
+Il serait pertinent d’ajouter une distribution de diamètres pour mieux représenter la diversité des zones dans les microstructures.
+
+Héberger les modèles Eluxyl sur des serveurs permettrait d’augmenter les capacités de calcul et d’envisager des résolutions encore plus fines, en dessous de 100 nm.
