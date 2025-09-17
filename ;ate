@@ -54,10 +54,3 @@ En plus d'avoir une fraction volumique finale très proche de celle attendue, et
 
 En raison de limitations en puissance de calcul, il n'était pas possible de générer des microstructures à des tailles suffisantes permettant de descendre en dessous de 200 nm de diamètre. Dans la courbe bleue correspondant aux données de poro-mercure, le pic encadré en rouge dans la figure 30 n'apparaissait pas, car pour accéder aux gros pores, il faut passer par les petits pores : quelque part, les volumes des gros pores apparaissent dans les petits pores. En prenant le point à 200 nm dans les données obtenues par PNP et en additionnant cette valeur à celle du deuxième pic, la somme obtenue correspondait presque au volume cumulé à 200 nm dans les données de poro-mercure.
 
-Bonjour, j’espère que vous allez bien.
-
-J’ai testé le module PNP 3D sur le serveur R11, le même problème persistait : le code se lançait en entier en passant par toutes les étapes, mais le résultat est vide.
-
-Ensuite, comme nous avons discuté l’autre jour, j’ai fait un downsampling par 2 en prenant 1 voxel sur 2 afin de réduire la taille du volume. En lançant le code PNP sur cette microstructure réduite, il fonctionne.
-
-Donc le problème est vraiment lié à la taille des microstructures.
