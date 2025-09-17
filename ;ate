@@ -54,4 +54,27 @@ En plus d'avoir une fraction volumique finale très proche de celle attendue, et
 
 En raison de limitations en puissance de calcul, il n'était pas possible de générer des microstructures à des tailles suffisantes permettant de descendre en dessous de 200 nm de diamètre. Dans la courbe bleue correspondant aux données de poro-mercure, le pic encadré en rouge dans la figure 30 n'apparaissait pas, car pour accéder aux gros pores, il faut passer par les petits pores : quelque part, les volumes des gros pores apparaissent dans les petits pores. En prenant le point à 200 nm dans les données obtenues par PNP et en additionnant cette valeur à celle du deuxième pic, la somme obtenue correspondait presque au volume cumulé à 200 nm dans les données de poro-mercure.
 
-Au début de l’alternance, la première semaine a principalement servi à l’obtention des différents accès informatiques et administratifs nécessaires au sein de l’entreprise, ainsi qu’à une réunion de cadrage destinée à fixer les objectifs principaux pour l’année. Une fois ces étapes accomplies, le travail a pu réellement commencer. Le premier projet, Pt@alumine/STEM-HAADF, a été mené sur une durée effective de quatre semaines. Il a été suivi par le second projet, MoS2@alumine-TEM-BF, qui s’est étendu sur cinq semaines. Avant le démarrage du troisième projet, une tâche intermédiaire a été confiée, consistant à corriger quelques bugs dans un module de la plateforme Plug im!. Développée par IFPEN, cette plateforme en libre accès propose des outils de traitement de signal, d’image et de données 3D, conçus pour répondre aux besoins de la recherche scientifique. La correction des anomalies a demandé une semaine de travail. Le troisième projet, CPG, a été entamé ensuite, mais temporairement suspendu en raison de l’indisponibilité de certaines données. Une fois les données manquantes reçues, le travail a pu reprendre. Enfin, le quatrième et dernier projet, adsorbant-MEB, a occupé les dernières semaines restantes de l’alternance. En parallèle, le rapport a commencé à être rédigé, accompagné de la préparation à la soutenance fixée fin septembre
+def save_microstructure(filename, array, code=300):
+    """
+    Sauvegarde une microstructure 3D en .fda
+    array : ndarray 3D ou 4D (nx,ny,nz) ou (nx,ny,nz,1)
+    code  : type de données (300=uint8, 302=float32, etc.)
+    """
+    dtype_map = {
+        300: np.uint8,   301: np.uint32,
+        302: np.float32, 303: np.float64,
+    }
+    if code not in dtype_map:
+        raise ValueError(f"Code {code} non supporté pour l'écriture.")
+
+    dtype = dtype_map[code]
+    array = array.astype(dtype)
+
+    nx, ny, nz = array.shape[:3]
+
+    with open(filename, "wb") as f:
+        # Header
+        f.write(np.array([code], dtype=np.int32).tobytes())
+        f.write(np.array([nx, ny, nz], dtype=np.int32).tobytes())
+        # Données
+        f.write(array.tobytes())
