@@ -33,7 +33,7 @@ Pour chacune des trois différentes classes détectées sur les images à faible
 \[
 \lambda_i = 
 \left( 
-\frac{2(a+2)\kappa_a}{a+2} 
+\left( \frac{2(a+2)\kappa_a}{a+2} \right)^{a+2} 
 \cdot 
 \frac{\tilde{\lambda}_i^{\tfrac{a+1}{2}}}{\prod_{j \neq i} \tilde{\lambda}_j^{\tfrac{1}{2(a+2)}}}
 \right)
