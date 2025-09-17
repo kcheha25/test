@@ -1,0 +1,43 @@
+\documentclass[12pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[french]{babel}
+\usepackage{amsmath, amssymb}
+
+\begin{document}
+
+Dans un second temps, l'objectif était ensuite, à partir des différentes statistiques qui peuvent être tirées des détections effectuées, de pouvoir générer une microstructure 3D reflétant au mieux l'hétérogénéité au sein de la bille. Le modèle booléen, développé par \cite{Auteurs}, requérait en entrée la taille des trois demi-axes $(x, y, z)$ des différentes zones à modéliser ainsi que leur fraction volumique. Pour cela, il fallait trouver une méthode qui permettait d'inférer des propriétés 3D à partir d'une section 2D. 
+
+La méthode supposait que la distribution des particules est invariante sous rotation autour de l'axe vertical (figure~30). Pour chaque particule ayant un axe vertical passant par le point de référence (centre géométrique ici), des demi-droites parallèles entre elles et perpendiculaires à l'axe vertical sont générées. Ensuite, il y a identification des points d'intersection de ces demi-droites avec les contours de la particule, avec un signe alterné en commençant par le signe $+$ pour le point le plus éloigné de l'axe. 
+
+Ce processus permettait de calculer ces trois tenseurs :
+\[
+g_{0}(x, y, 0) = \pi d x^{2},
+\]
+\[
+g_{1}(x, y, 0) = (0, \pi d x^{2} y, 0),
+\]
+\[
+g_{2}(x, y, 0) =
+\begin{bmatrix}
+\frac{\pi}{8} d x^{4} & 0 & 0 \\
+0 & \frac{\pi}{2} d x^{2} y^{2} & 0 \\
+0 & 0 & \frac{\pi}{8} d x^{4}
+\end{bmatrix}.
+\]
+
+Le tenseur $g_{0}$ correspond au volume de la particule, le tenseur $g_{1}$ est un vecteur de position qui mène au centre de gravité de la particule, et enfin le tenseur $g_{2}$ donne des informations sur la forme de la particule via l'ellipsoïde de Miles. 
+
+Pour chacune des trois différentes classes détectées sur les images à faible grandissement, la moyenne des $g_{2}$ pondérée par les volumes des différentes zones est calculée. Ensuite, les valeurs propres de la matrice moyenne pondérée par le volume sont utilisées pour calculer les valeurs moyennes des trois demi-axes pour chacune des zones creuses, denses et intermédiaires selon l'équation suivante :
+
+\[
+\lambda_i = 
+\left( 
+\frac{2(d+2)\kappa_d}{d+2} 
+\tilde{\lambda}_i^{\tfrac{d+1}{2}} 
+\prod_{j \neq i} \tilde{\lambda}_j^{\tfrac{1}{2(d+2)}} 
+\right)
+\]
+avec $d = 3$ et $\kappa_d = \tfrac{4\pi}{3}$.
+
+\end{document}
