@@ -55,3 +55,14 @@ avec $a = 3$ et $\kappa_a = \tfrac{4\pi}{3}$.
   type      = {Research Report},
   url       = {http://www.csgb.dk},
 }
+@article{Larsen2019,
+  author  = {Nick Y. Larsen and Johanna F. Ziegel and Jens R. Nyengaard and Eva B. Vedel Jensen},
+  title   = {Stereological estimation of particle shape from vertical sections},
+  journal = {Journal of Microscopy},
+  volume  = {275},
+  number  = {3},
+  pages   = {183--194},
+  year    = {2019},
+  doi     = {10.1111/jmi.12826},
+  url     = {https://doi.org/10.1111/jmi.12826}
+}
