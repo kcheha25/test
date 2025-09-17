@@ -54,4 +54,4 @@ En plus d'avoir une fraction volumique finale très proche de celle attendue, et
 
 En raison de limitations en puissance de calcul, il n'était pas possible de générer des microstructures à des tailles suffisantes permettant de descendre en dessous de 200 nm de diamètre. Dans la courbe bleue correspondant aux données de poro-mercure, le pic encadré en rouge dans la figure 30 n'apparaissait pas, car pour accéder aux gros pores, il faut passer par les petits pores : quelque part, les volumes des gros pores apparaissent dans les petits pores. En prenant le point à 200 nm dans les données obtenues par PNP et en additionnant cette valeur à celle du deuxième pic, la somme obtenue correspondait presque au volume cumulé à 200 nm dans les données de poro-mercure.
 
-La base d’annotations mise à disposition pour ce projet présentait certains biais : elle ne prenait pas en compte tous les feuillets visibles dans les images et ne les séparait pas lorsqu’ils étaient collés.
+Le troisième projet, CPG, a été entamé ensuite, mais temporairement suspendu en raison de l’indisponibilité de certaines données.
