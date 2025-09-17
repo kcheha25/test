@@ -1,69 +1,57 @@
-\documentclass[12pt,a4paper]{article}
-\usepackage[utf8]{inputenc}
-\usepackage[T1]{fontenc}
-\usepackage[french]{babel}
-\usepackage{amsmath, amssymb}
+Détermination du volume élémentaire représentatif
 
-\begin{document}
+Après avoir pu calculer les tailles des trois demi-axes pour chacune des classes, 
+il fallait calculer la taille de la microstructure 3D, autrement dit le 
+volume élémentaire représentatif (RVE), qui est le plus petit volume 
+sur lequel une mesure peut être effectuée et qui donnera une valeur représentative 
+de l'ensemble. 
 
-Dans un second temps, l'objectif était ensuite, à partir des différentes statistiques qui peuvent être tirées des détections effectuées, de pouvoir générer une microstructure 3D reflétant au mieux l'hétérogénéité au sein de la bille. Le modèle booléen, développé par \cite{Auteurs}, requérait en entrée la taille des trois demi-axes $(x, y, z)$ des différentes zones à modéliser ainsi que leur fraction volumique. Pour cela, il fallait trouver une méthode qui permettait d'inférer des propriétés 3D à partir d'une section 2D. 
+Si la taille est trop petite, les mesures ont tendance à osciller. 
+Avec l'augmentation de la taille de la microstructure, ces oscillations s'atténuent. 
+Finalement, la taille de l'échantillon devient suffisamment importante pour que 
+les mesures soient cohérentes. 
 
-La méthode supposait que la distribution des particules est invariante sous rotation autour de l'axe vertical (figure~30). Pour chaque particule ayant un axe vertical passant par le point de référence (centre géométrique ici), des demi-droites parallèles entre elles et perpendiculaires à l'axe vertical sont générées. Ensuite, il y a identification des points d'intersection de ces demi-droites avec les contours de la particule, avec un signe alterné en commençant par le signe $+$ pour le point le plus éloigné de l'axe. 
-
-Ce processus permettait de calculer ces trois tenseurs :
-\[
-g_{0}(x, y, 0) = \pi d x^{2},
-\]
-\[
-g_{1}(x, y, 0) = (0, \pi d x^{2} y, 0),
-\]
-\[
-g_{2}(x, y, 0) =
-\begin{bmatrix}
-\frac{\pi}{8} d x^{4} & 0 & 0 \\
-0 & \frac{\pi}{2} d x^{2} y^{2} & 0 \\
-0 & 0 & \frac{\pi}{8} d x^{4}
-\end{bmatrix}.
-\]
-
-Le tenseur $g_{0}$ correspond au volume de la particule, le tenseur $g_{1}$ est un vecteur de position qui mène au centre de gravité de la particule, et enfin le tenseur $g_{2}$ donne des informations sur la forme de la particule via l'ellipsoïde de Miles. 
-
-Pour chacune des trois différentes classes détectées sur les images à faible grandissement, la moyenne des $g_{2}$ pondérée par les volumes des différentes zones est calculée. Ensuite, les valeurs propres de la matrice moyenne pondérée par le volume sont utilisées pour calculer les valeurs moyennes des trois demi-axes pour chacune des zones creuses, denses et intermédiaires selon l'équation suivante :
-
-\[
-\lambda_i = 
-\left( 
-\left( \frac{2(a+2)\kappa_a}{a+2} \right)^{a+2} 
-\cdot 
-\frac{\tilde{\lambda}_i^{\tfrac{a+1}{2}}}{\prod_{j \neq i} \tilde{\lambda}_j^{\tfrac{1}{2(a+2)}}}
-\right)
-\]
-avec $a = 3$ et $\kappa_a = \tfrac{4\pi}{3}$.
+Le RVE a été calculé en prenant simplement la racine cubique du rapport entre le 
+volume total des trois zones (dense, creuse, intermédiaire) et la fraction volumique 
+de ces zones. Ce RVE a été multiplié par un facteur pour faire en sorte de pouvoir 
+modéliser les agrégats de la matrice avec un rayon faisant au moins 3 pixels.
 
 
-\end{document}
-\[
-\overline{g_{2}} - \frac{(b \, \overline{g_{1}})^{2}}{2 b \, \overline{g_{0}}}
-\]
-@techreport{Larsen2018,
-  author    = {Nick Yin Larsen and Johanna F. Ziegel and Jens R. Nyengaard and Eva B. Vedel Jensen},
-  title     = {Stereological estimation of particle shape from vertical sections},
-  institution = {Centre for Stochastic Geometry and Advanced Bioimaging, Aarhus University},
-  year      = {2018},
-  number    = {12},
-  month     = {December},
-  type      = {Research Report},
-  url       = {http://www.csgb.dk},
-}
-@article{Larsen2019,
-  author  = {Nick Y. Larsen and Johanna F. Ziegel and Jens R. Nyengaard and Eva B. Vedel Jensen},
-  title   = {Stereological estimation of particle shape from vertical sections},
-  journal = {Journal of Microscopy},
-  volume  = {275},
-  number  = {3},
-  pages   = {183--194},
-  year    = {2019},
-  doi     = {10.1111/jmi.12826},
-  url     = {https://doi.org/10.1111/jmi.12826}
-}
-Méthode d’inférence des propriétés 3D à partir d’une section 2D
+Processus suivi pour la génération de la microstructure finale
+
+Les détections obtenues sur les images à faible grandissement ont servi à estimer 
+la fraction volumique des trois zones ainsi que leur taille. 
+Les détections faites sur les images à $15\,\text{kX}$ ont permis de calculer le 
+diamètre moyen des cristaux pour la matrice, alors que les masques non supervisés 
+ont été utilisés pour estimer la fraction volumique des agrégats à l'intérieur des 
+zones intermédiaires, afin d'initialiser la compacité de la matrice. 
+
+Au sein de la bille, les tailles des zones denses et creuses peuvent varier, allant 
+des zones de très petite taille à des zones de grande taille. 
+Les modèles booléens n'offraient pas la possibilité de spécifier une distribution 
+de taille. Pour s'affranchir de cette limitation, les zones denses et creuses ont été 
+divisées en deux sous-classes selon leur taille. 
+La microstructure creuse a été obtenue en faisant le complément de l'union des deux 
+microstructures des deux sous-classes. 
+Tout comme la microstructure dense, qui est la résultante de l'union des deux 
+microstructures des deux sous-classes denses. 
+Ensuite, la microstructure intermédiaire et celle de la matrice ont été générées. 
+La microstructure finale est le résultant de l'intersection de la microstructure 
+creuse avec l'union des microstructures denses, intermédiaire et celle de la matrice. 
+
+Historiquement, les images à un grandissement $15\,\text{kX}$ sont prises dans des 
+zones où les cristaux sont bien individualisés, sauf que cela ne reflète pas la 
+compacité réelle de la matrice. Pour cela, la fraction volumique de tout l'espace 
+poreux dans la microstructure finale a été calculée, puis cette valeur a été 
+comparée au produit du volume injecté du poromercure (mL/g) avec la densité 
+structurale des cristaux (g/cm$^{3}$). 
+La différence a servi à corriger la compacité de la matrice et à régénérer une 
+deuxième fois la microstructure de la matrice. 
+La fraction volumique de la microstructure finale obtenue après cette deuxième 
+génération est très proche de la valeur attendue à la fin.
+
+En plus d'avoir une fraction volumique finale très proche de celle attendue, et dans le but de vérifier la continuité entre la matrice et la porosité inter-agrégat, un algorithme de partition du réseau poreux développé par Hammoumi et al. [ ] a été lancé sur la microstructure 3D finale. Cet algorithme a permis de calculer la distribution en taille de pores, qui a été comparée par la suite au volume cumulé de poro-mercure (figure 30).
+
+En raison de limitations en puissance de calcul, il n'était pas possible de générer des microstructures à des tailles suffisantes permettant de descendre en dessous de 200 nm de diamètre. Dans la courbe bleue correspondant aux données de poro-mercure, le pic encadré en rouge dans la figure 30 n'apparaissait pas, car pour accéder aux gros pores, il faut passer par les petits pores : quelque part, les volumes des gros pores apparaissent dans les petits pores. En prenant le point à 200 nm dans les données obtenues par PNP et en additionnant cette valeur à celle du deuxième pic, la somme obtenue correspondait presque au volume cumulé à 200 nm dans les données de poro-mercure.
+
+En effet, les systèmes d'IA analysent de grandes quantités d’images présentant des variations diverses, et en déduisent automatiquement des relations complexes entre les données, qui ne sont pas directement visibles ni définies à l’avance.
