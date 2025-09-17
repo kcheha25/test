@@ -54,27 +54,10 @@ En plus d'avoir une fraction volumique finale très proche de celle attendue, et
 
 En raison de limitations en puissance de calcul, il n'était pas possible de générer des microstructures à des tailles suffisantes permettant de descendre en dessous de 200 nm de diamètre. Dans la courbe bleue correspondant aux données de poro-mercure, le pic encadré en rouge dans la figure 30 n'apparaissait pas, car pour accéder aux gros pores, il faut passer par les petits pores : quelque part, les volumes des gros pores apparaissent dans les petits pores. En prenant le point à 200 nm dans les données obtenues par PNP et en additionnant cette valeur à celle du deuxième pic, la somme obtenue correspondait presque au volume cumulé à 200 nm dans les données de poro-mercure.
 
-def save_microstructure(filename, array, code=300):
-    """
-    Sauvegarde une microstructure 3D en .fda
-    array : ndarray 3D ou 4D (nx,ny,nz) ou (nx,ny,nz,1)
-    code  : type de données (300=uint8, 302=float32, etc.)
-    """
-    dtype_map = {
-        300: np.uint8,   301: np.uint32,
-        302: np.float32, 303: np.float64,
-    }
-    if code not in dtype_map:
-        raise ValueError(f"Code {code} non supporté pour l'écriture.")
+Bonjour, j’espère que vous allez bien.
 
-    dtype = dtype_map[code]
-    array = array.astype(dtype)
+J’ai testé le module PNP 3D sur le serveur R11, le même problème persistait : le code se lançait en entier en passant par toutes les étapes, mais le résultat est vide.
 
-    nx, ny, nz = array.shape[:3]
+Ensuite, comme nous avons discuté l’autre jour, j’ai fait un downsampling par 2 en prenant 1 voxel sur 2 afin de réduire la taille du volume. En lançant le code PNP sur cette microstructure réduite, il fonctionne.
 
-    with open(filename, "wb") as f:
-        # Header
-        f.write(np.array([code], dtype=np.int32).tobytes())
-        f.write(np.array([nx, ny, nz], dtype=np.int32).tobytes())
-        # Données
-        f.write(array.tobytes())
+Donc le problème est vraiment lié à la taille des microstructures.
