@@ -1,56 +1,59 @@
-Détermination du volume élémentaire représentatif
+import numpy as np
+from skimage import measure
+import trimesh
 
-Après avoir pu calculer les tailles des trois demi-axes pour chacune des classes, 
-il fallait calculer la taille de la microstructure 3D, autrement dit le 
-volume élémentaire représentatif (RVE), qui est le plus petit volume 
-sur lequel une mesure peut être effectuée et qui donnera une valeur représentative 
-de l'ensemble. 
+# --- Lecture fichier .fda ---
+def read_microstructure_fda(filename):
+    with open(filename, "rb") as f:
+        code = np.frombuffer(f.read(4), dtype=np.int32, count=1)[0]
+        if code >= 300:
+            nx, ny, nz = np.frombuffer(f.read(12), dtype=np.int32, count=3)
+        else:
+            raise NotImplementedError("Codes <300 non encore supportés ici.")
+        dtype_map = {300: np.uint8, 301: np.uint32, 302: np.float32, 303: np.float64}
+        if code not in dtype_map:
+            raise ValueError(f"Code inconnu: {code}")
+        dtype = dtype_map[code]
+        n = int(nx) * int(ny) * int(nz)
+        nbytes = n * np.dtype(dtype).itemsize
+        bytes_data = f.read(nbytes)
+        array_data = np.frombuffer(bytes_data, dtype=dtype, count=n)
+        vol = np.reshape(array_data, (int(nx), int(ny), int(nz)))
+        return vol
 
-Si la taille est trop petite, les mesures ont tendance à osciller. 
-Avec l'augmentation de la taille de la microstructure, ces oscillations s'atténuent. 
-Finalement, la taille de l'échantillon devient suffisamment importante pour que 
-les mesures soient cohérentes. 
+# --- Extraction maillage (vecteur) ---
+def mesh_from_volume(mask, spacing=(1.0,1.0,1.0)):
+    verts, faces, normals, values = measure.marching_cubes(mask, level=0.5, spacing=spacing)
+    mesh = trimesh.Trimesh(vertices=verts, faces=faces, vertex_normals=normals, process=False)
+    return mesh
 
-Le RVE a été calculé en prenant simplement la racine cubique du rapport entre le 
-volume total des trois zones (dense, creuse, intermédiaire) et la fraction volumique 
-de ces zones. Ce RVE a été multiplié par un facteur pour faire en sorte de pouvoir 
-modéliser les agrégats de la matrice avec un rayon faisant au moins 3 pixels.
+# --- Export multi-format ---
+def export_all_formats(mesh, basename="microstructure"):
+    formats = ["stl", "obj", "ply", "3mf", "glb", "off"]  # tu peux en ajouter
+    for fmt in formats:
+        filename = f"{basename}.{fmt}"
+        try:
+            mesh.export(filename)
+            print(f"✅ Exporté : {filename}")
+        except Exception as e:
+            print(f"⚠️ Impossible d’exporter {fmt}: {e}")
 
+# --- Exemple d’utilisation ---
+if __name__ == "__main__":
+    infile = "microstructure.fda"
+    basename = "microstructure"
 
-Processus suivi pour la génération de la microstructure finale
+    vol = read_microstructure_fda(infile)
 
-Les détections obtenues sur les images à faible grandissement ont servi à estimer 
-la fraction volumique des trois zones ainsi que leur taille. 
-Les détections faites sur les images à $15\,\text{kX}$ ont permis de calculer le 
-diamètre moyen des cristaux pour la matrice, alors que les masques non supervisés 
-ont été utilisés pour estimer la fraction volumique des agrégats à l'intérieur des 
-zones intermédiaires, afin d'initialiser la compacité de la matrice. 
+    # si c'est binaire, pas besoin de seuil, sinon appliquer un threshold
+    mask = (vol > 0).astype(np.uint8)
 
-Au sein de la bille, les tailles des zones denses et creuses peuvent varier, allant 
-des zones de très petite taille à des zones de grande taille. 
-Les modèles booléens n'offraient pas la possibilité de spécifier une distribution 
-de taille. Pour s'affranchir de cette limitation, les zones denses et creuses ont été 
-divisées en deux sous-classes selon leur taille. 
-La microstructure creuse a été obtenue en faisant le complément de l'union des deux 
-microstructures des deux sous-classes. 
-Tout comme la microstructure dense, qui est la résultante de l'union des deux 
-microstructures des deux sous-classes denses. 
-Ensuite, la microstructure intermédiaire et celle de la matrice ont été générées. 
-La microstructure finale est le résultant de l'intersection de la microstructure 
-creuse avec l'union des microstructures denses, intermédiaire et celle de la matrice. 
+    # taille physique d’un voxel en mm (à ajuster selon ton cas)
+    voxel_size_mm = 0.1
+    spacing = (voxel_size_mm, voxel_size_mm, voxel_size_mm)
 
-Historiquement, les images à un grandissement $15\,\text{kX}$ sont prises dans des 
-zones où les cristaux sont bien individualisés, sauf que cela ne reflète pas la 
-compacité réelle de la matrice. Pour cela, la fraction volumique de tout l'espace 
-poreux dans la microstructure finale a été calculée, puis cette valeur a été 
-comparée au produit du volume injecté du poromercure (mL/g) avec la densité 
-structurale des cristaux (g/cm$^{3}$). 
-La différence a servi à corriger la compacité de la matrice et à régénérer une 
-deuxième fois la microstructure de la matrice. 
-La fraction volumique de la microstructure finale obtenue après cette deuxième 
-génération est très proche de la valeur attendue à la fin.
+    # conversion voxel → vecteur (mesh)
+    mesh = mesh_from_volume(mask, spacing=spacing)
 
-En plus d'avoir une fraction volumique finale très proche de celle attendue, et dans le but de vérifier la continuité entre la matrice et la porosité inter-agrégat, un algorithme de partition du réseau poreux développé par Hammoumi et al. [ ] a été lancé sur la microstructure 3D finale. Cet algorithme a permis de calculer la distribution en taille de pores, qui a été comparée par la suite au volume cumulé de poro-mercure (figure 30).
-
-En raison de limitations en puissance de calcul, il n'était pas possible de générer des microstructures à des tailles suffisantes permettant de descendre en dessous de 200 nm de diamètre. Dans la courbe bleue correspondant aux données de poro-mercure, le pic encadré en rouge dans la figure 30 n'apparaissait pas, car pour accéder aux gros pores, il faut passer par les petits pores : quelque part, les volumes des gros pores apparaissent dans les petits pores. En prenant le point à 200 nm dans les données obtenues par PNP et en additionnant cette valeur à celle du deuxième pic, la somme obtenue correspondait presque au volume cumulé à 200 nm dans les données de poro-mercure.
-
+    # exporter dans tous les formats possibles
+    export_all_formats(mesh, basename=basename)
