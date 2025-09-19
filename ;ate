@@ -38,7 +38,6 @@ def export_all_formats(mesh, basename="microstructure"):
         except Exception as e:
             print(f"⚠️ Impossible d’exporter {fmt}: {e}")
 
-# --- Exemple d’utilisation ---
 if __name__ == "__main__":
     infile = "microstructure.fda"
     basename = "microstructure"
