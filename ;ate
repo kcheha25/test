@@ -4,3 +4,5 @@ Génération de microstructures 3D limitée à 100 nm en local
 Un bug est apparu lorsqu’on lance un module sur une microstructure de grande taille. Les travaux futurs viseront à résoudre ce problème.
 Hébergement des modèles sur serveur pour viser des résolutions plus fines
 Exploration de techniques plus précises pour inférer des propriétés 3D à partir de données 2D
+
+
