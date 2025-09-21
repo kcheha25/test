@@ -1,58 +1,6 @@
-import numpy as np
-from skimage import measure
-import trimesh
+Interface web développée pour rendre les modèles accessibles aux non-experts
+Génération de microstructures 3D limitée à 100 nm en local
 
-# --- Lecture fichier .fda ---
-def read_microstructure_fda(filename):
-    with open(filename, "rb") as f:
-        code = np.frombuffer(f.read(4), dtype=np.int32, count=1)[0]
-        if code >= 300:
-            nx, ny, nz = np.frombuffer(f.read(12), dtype=np.int32, count=3)
-        else:
-            raise NotImplementedError("Codes <300 non encore supportés ici.")
-        dtype_map = {300: np.uint8, 301: np.uint32, 302: np.float32, 303: np.float64}
-        if code not in dtype_map:
-            raise ValueError(f"Code inconnu: {code}")
-        dtype = dtype_map[code]
-        n = int(nx) * int(ny) * int(nz)
-        nbytes = n * np.dtype(dtype).itemsize
-        bytes_data = f.read(nbytes)
-        array_data = np.frombuffer(bytes_data, dtype=dtype, count=n)
-        vol = np.reshape(array_data, (int(nx), int(ny), int(nz)))
-        return vol
-
-# --- Extraction maillage (vecteur) ---
-def mesh_from_volume(mask, spacing=(1.0,1.0,1.0)):
-    verts, faces, normals, values = measure.marching_cubes(mask, level=0.5, spacing=spacing)
-    mesh = trimesh.Trimesh(vertices=verts, faces=faces, vertex_normals=normals, process=False)
-    return mesh
-
-# --- Export multi-format ---
-def export_all_formats(mesh, basename="microstructure"):
-    formats = ["stl", "obj", "ply", "3mf", "glb", "off"]  # tu peux en ajouter
-    for fmt in formats:
-        filename = f"{basename}.{fmt}"
-        try:
-            mesh.export(filename)
-            print(f"✅ Exporté : {filename}")
-        except Exception as e:
-            print(f"⚠️ Impossible d’exporter {fmt}: {e}")
-
-if __name__ == "__main__":
-    infile = "microstructure.fda"
-    basename = "microstructure"
-
-    vol = read_microstructure_fda(infile)
-
-    # si c'est binaire, pas besoin de seuil, sinon appliquer un threshold
-    mask = (vol > 0).astype(np.uint8)
-
-    # taille physique d’un voxel en mm (à ajuster selon ton cas)
-    voxel_size_mm = 0.1
-    spacing = (voxel_size_mm, voxel_size_mm, voxel_size_mm)
-
-    # conversion voxel → vecteur (mesh)
-    mesh = mesh_from_volume(mask, spacing=spacing)
-
-    # exporter dans tous les formats possibles
-    export_all_formats(mesh, basename=basename)
+Un bug est apparu lorsqu’on lance un module sur une microstructure de grande taille. Les travaux futurs viseront à résoudre ce problème.
+Hébergement des modèles sur serveur pour viser des résolutions plus fines
+Exploration de techniques plus précises pour inférer des propriétés 3D à partir de données 2D
