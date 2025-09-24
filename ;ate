@@ -1,31 +1,31 @@
-\begin{table}[H]
-\centering
-\caption{Résultats obtenus par l’approche supervisée}
-\begin{tabular}{|l|c|c|}
-\hline
-\textbf{Classe / Microstructure} & \textbf{Fraction volumique (\%)} & \textbf{Taille moyenne des ellipsoïdes (x ; y ; z)} \\
-\hline
-Sous-classe 1 de la creuse       & 0,78   & (2,125 ; 2,412 ; 2,125) \\
-Sous-classe 2 de la creuse       & 5,10   & (39,933 ; 22,671 ; 39,933) \\
-Sous-classe 1 de la dense        & 1,40   & (3,204 ; 3,371 ; 3,204) \\
-Sous-classe 2 de la dense        & 4,90   & (39,268 ; 40,992 ; 39,268) \\
-Microstructure intermédiaire     & 6,30   & (21,422 ; 26,247 ; 21,422) \\
-Microstructure de la matrice     & 67,36 (initiale) / 65,28 (corrigée) & -- \\
-\hline
-\end{tabular}
+\begin{table}[h!]
+    \centering
+    \begin{tabular}{lcc}
+        \hline
+        \textbf{Classe / Microstructure} & \textbf{Fraction volumique (\%)} & \textbf{Taille moyenne (x ; y ; z)} \\
+        \hline
+        Sous-classe 1 de la creuse   & 0,78   & (2,125 ; 2,412 ; 2,125) \\
+        Sous-classe 2 de la creuse   & 5,10   & (39,933 ; 22,671 ; 39,933) \\
+        Sous-classe 1 de la dense    & 1,40   & (3,204 ; 3,371 ; 3,204) \\
+        Sous-classe 2 de la dense    & 4,90   & (39,268 ; 40,992 ; 39,268) \\
+        Microstructure intermédiaire & 6,30   & (21,422 ; 26,247 ; 21,422) \\
+        Microstructure de la matrice & 67,36 (init.) / 65,28 (corr.) & -- \\
+        \hline
+    \end{tabular}
+    \caption{Résultats obtenus par l’approche supervisée. Taille des microstructures : $998 \times 998 \times 998$.}
+    \label{tab:resultats_supervisee}
 \end{table}
 
-\noindent \textbf{Taille des microstructures :} 998 $\times$ 998 $\times$ 998
-
-\begin{table}[H]
-\centering
-\caption{Résultats obtenus par l’approche non supervisée}
-\begin{tabular}{|l|c|}
-\hline
-\textbf{Microstructure} & \textbf{Fraction volumique (\%)} \\
-\hline
-Intermédiaire (à l’intérieur des agrégats) & 67,36 \\
-Matrice (initiale)                         & 67,36 \\
-\hline
-\end{tabular}
+\begin{table}[h!]
+    \centering
+    \begin{tabular}{lc}
+        \hline
+        \textbf{Microstructure} & \textbf{Fraction volumique (\%)} \\
+        \hline
+        Intermédiaire (agrégats) & 67,36 \\
+        Matrice (initiale)       & 67,36 \\
+        \hline
+    \end{tabular}
+    \caption{Résultats obtenus par l’approche non supervisée.}
+    \label{tab:resultats_non_supervisee}
 \end{table}
