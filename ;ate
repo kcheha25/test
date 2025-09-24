@@ -1,1 +1,1 @@
-Cette estimation permet de s’assurer que les objets simulés respectent les fractions volumiques définies pour chaque phase
+Si une classe présente une faible fraction volumique, l’arête du cube doit être suffisamment grande pour que cette phase soit convenablement représentée. Si une classe est constituée d’objets de grande taille, l’arête du cube doit également être assez grande pour en inclure un nombre statistiquement représentatif.
