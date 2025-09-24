@@ -1,13 +1,31 @@
-Interface web développée pour rendre les modèles accessibles aux non-experts
-Génération de microstructures 3D limitée à 100 nm en local
+\begin{table}[H]
+\centering
+\caption{Résultats obtenus par l’approche supervisée}
+\begin{tabular}{|l|c|c|}
+\hline
+\textbf{Classe / Microstructure} & \textbf{Fraction volumique (\%)} & \textbf{Taille moyenne des ellipsoïdes (x ; y ; z)} \\
+\hline
+Sous-classe 1 de la creuse       & 0,78   & (2,125 ; 2,412 ; 2,125) \\
+Sous-classe 2 de la creuse       & 5,10   & (39,933 ; 22,671 ; 39,933) \\
+Sous-classe 1 de la dense        & 1,40   & (3,204 ; 3,371 ; 3,204) \\
+Sous-classe 2 de la dense        & 4,90   & (39,268 ; 40,992 ; 39,268) \\
+Microstructure intermédiaire     & 6,30   & (21,422 ; 26,247 ; 21,422) \\
+Microstructure de la matrice     & 67,36 (initiale) / 65,28 (corrigée) & -- \\
+\hline
+\end{tabular}
+\end{table}
 
-Un bug est apparu lorsqu’on lance un module sur une microstructure de grande taille. Les travaux futurs viseront à résoudre ce problème.
-Hébergement des modèles sur serveur pour viser des résolutions plus fines
-Exploration de techniques plus précises pour inférer des propriétés 3D à partir de données 2D
+\noindent \textbf{Taille des microstructures :} 998 $\times$ 998 $\times$ 998
 
-
-Ce rapport présente le travail réalisé durant une année d’alternance au sein du département Caractérisation des Matériaux d’IFP Énergies nouvelles. Dans un contexte où l’intelligence artificielle transforme la recherche scientifique et industrielle, l’objectif était d’explorer et de développer des outils basés sur l’apprentissage automatique pour l’analyse d’images et de signaux liés à la microscopie et à la chromatographie. Contrairement aux approches manuelles ou semi-automatisées, souvent longues, coûteuses et sujettes à des biais, les modèles d’IA offrent une analyse plus rapide, homogène et reproductible, facilitant l’exploitation de grandes bases de données expérimentales. L’alternance s’est articulée autour de quatre projets principaux. Le premier portait sur la détection d’éléments de platine dans des images STEM HAADF. Le second concernait la détection des feuillets catalytiques déposés sur support d’alumine. Le troisième visait la détection automatique et l’attribution de pics dans des chromatogrammes. Enfin, le quatrième projet combinait segmentation d’images et génération 3D pour modéliser l’hétérogénéité de matériaux poreux. Les modèles développés ont démontré une robustesse et une reproductibilité supérieures, permettant des gains de temps significatifs (facteur 25 à 28) tout en minimisant les biais humains. Une interface web a été développée en fin de mission afin d’intégrer l’ensemble des modèles créés et d’en faciliter l’utilisation. 
-
-
-
-This report presents the work carried out during a one-year apprenticeship within the Materials Characterization Department at IFP Énergies nouvelles. In a context where artificial intelligence is transforming scientific and industrial research, the objective was to explore and develop tools based on machine learning for the analysis of images and signals related to microscopy and chromatography. Unlike manual or semi-automated approaches, which are often time-consuming, costly, and prone to bias, AI models offer faster, more consistent, and reproducible analysis, making it easier to exploit large experimental datasets. The apprenticeship was structured around four main projects. The first focused on detecting platinum elements in STEM HAADF images. The second involved identifying catalytic sheets deposited on alumina supports. The third aimed at automatic detection and assignment of peaks in chromatograms. Finally, the fourth project combined image segmentation and 3D generation to model the heterogeneity of porous materials. The developed models demonstrated superior robustness and reproducibility, enabling significant time savings (a factor of 25 to 28) while minimizing human bias. At the end of this year of apprenticeship, a web interface was developed to integrate all the models and facilitate their use.
+\begin{table}[H]
+\centering
+\caption{Résultats obtenus par l’approche non supervisée}
+\begin{tabular}{|l|c|}
+\hline
+\textbf{Microstructure} & \textbf{Fraction volumique (\%)} \\
+\hline
+Intermédiaire (à l’intérieur des agrégats) & 67,36 \\
+Matrice (initiale)                         & 67,36 \\
+\hline
+\end{tabular}
+\end{table}
