@@ -1,1 +1,1 @@
-(référencées sous le nom Logrami dans la figure 5)
+Toutefois, la fiabilité des inférences produites par un modèle repose étroitement sur la qualité des données d’entrée ainsi que sur celle des annotations utilisées durant l’entraînement. Des biais humains peuvent se glisser dans ces annotations sous diverses formes, et se reflètent systématiquement dans les résultats générés par le modèle.
