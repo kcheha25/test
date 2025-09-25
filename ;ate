@@ -1,3 +1,13 @@
-Lors de l'entraînement du modèle, plusieurs hyperparamètres ont dû être ajustés afin d’obtenir les meilleures performances possibles. Le taux d’apprentissage a été réglé à 0,005. Le nombre d'époques pour l'entraînement a, quant à lui, été défini à 60. En ce qui concerne les classes, le nombre a été fixé à 1, correspondant à la détection d’un seul type d’objet.
+Objet : Version finale du rapport
 
-Dans MMRotate, la taille des ancres générées est principalement contrôlée par deux paramètres : \og scales\fg{} et \og strides\fg{}. Le paramètre \og strides\fg{} définit la taille de base des ancres générées, alors que le paramètre \og scales\fg{} agit comme un facteur multiplicatif appliqué au \og stride\fg{} pour ajuster la taille relative des ancres à chaque emplacement. La combinaison de ces deux paramètres permet donc de générer des ancres adaptées à des objets de tailles variées : la taille finale de chaque ancre est donnée par le produit $ \text{taille ancre} = \text{stride} \times \text{scale} $. Pour ce projet, les \og strides\fg{} ont été fixés à [4, 8, 16, 32, 64] et, avec un \og scale\fg{} fixé à 2, les tailles des ancres générées seront [8, 16, 32, 64, 128] pixels. Cette approche est semblable à la manière dont Detectron2 gère les ancres via le paramètre \og ANCHOR\_GENERATOR.SIZES\fg{}, qui définit directement les tailles absolues des ancres en pixels.
+Bonjour Virgile, bonjour Aurélie,
+
+Merci beaucoup pour vos commentaires et le temps que vous avez consacré à la lecture de mon rapport. Je vous partage ci-joint la version finale après les différentes modifications que vous avez proposées.
+
+Aurélie, j’ai pu rectifier la plupart des points que tu avais mentionnés dans tes commentaires, à l’exception de deux points :
+
+Concernant l’IPA et l’ajout du BiLSTM : je ne dispose pas des résultats du modèle avant modification, car le modèle IPA était initialement entraîné pour prédire une seule valeur en sortie. L’ajout du BiLSTM a permis de traiter séquentiellement chaque point et d’obtenir en sortie nos 1000 points. Il n’est donc pas possible d’utiliser le modèle IPA tel quel dans notre étude.
+
+Concernant la partie “Description fonctionnelle du projet” dans la section “Gestion du projet” : ajouter des illustrations pour chaque système agrandirait les images et décalerait le texte, dépassant ainsi le nombre de pages autorisé pour le rapport. J’ai donc préféré laisser cette partie telle quelle.
+
+Merci encore pour vos efforts et vos précieux conseils. Je vous souhaite une excellente journée et à très bientôt !
